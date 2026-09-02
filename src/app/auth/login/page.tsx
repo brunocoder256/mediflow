@@ -14,10 +14,18 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { useToast } from "@/hooks/use-toast";
 import { Toaster } from "@/components/ui/toast";
 
+function safeRedirect(path: string | null, fallback: string = "/dashboard"): string {
+  if (!path) return fallback;
+  if (!path.startsWith("/")) return fallback;
+  if (path.startsWith("//")) return fallback;
+  if (/^[a-zA-Z]+:/.test(path)) return fallback;
+  return path;
+}
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("redirect") || "/app/dashboard";
+  const redirectTo = safeRedirect(searchParams.get("redirect"), "/dashboard");
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
 

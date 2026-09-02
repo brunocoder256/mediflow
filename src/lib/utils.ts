@@ -20,6 +20,7 @@ export function cn(...inputs: ClassValue[]) {
  * @param options - Optional `Intl.DateTimeFormatOptions` overrides.
  * @returns Formatted date string (e.g. "Sep 2, 2026").
  */
+// TODO: locale should come from org settings in the future
 export function formatDate(
   date: string | Date,
   options?: Intl.DateTimeFormatOptions,
@@ -37,10 +38,10 @@ export function formatDate(
  * Formats a numeric value as currency.
  *
  * @param amount - The amount to format.
- * @param currency - ISO 4217 currency code (default: "USD").
- * @returns Formatted currency string (e.g. "$1,234.56").
+ * @param currency - ISO 4217 currency code (default: "UGX").
+ * @returns Formatted currency string (e.g. "UGX 1,234.56").
  */
-export function formatCurrency(amount: number, currency = 'USD'): string {
+export function formatCurrency(amount: number, currency = 'UGX'): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency,

@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
+import { createServerClient } from "@supabase/ssr";
 
 const publicRoutes = ["/", "/auth/*", "/features", "/pricing", "/about", "/contact"];
 
@@ -18,10 +19,29 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (!isPublicRoute(pathname)) {
-    // updateSession already refreshed the session; if the cookie is missing
-    // the user is not authenticated and we redirect to login.
-    const hasSession = request.cookies.get("sb-*-auth-token");
-    if (!hasSession) {
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value }) =>
+              request.cookies.set(name, value)
+            );
+            cookiesToSet.forEach(({ name, value, options }) =>
+              supabaseResponse.cookies.set(name, value, options)
+            );
+          },
+        },
+      }
+    );
+
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
       const loginUrl = new URL("/auth/login", request.url);
       loginUrl.searchParams.set("redirect", pathname);
       return Response.redirect(loginUrl);

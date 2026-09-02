@@ -67,14 +67,15 @@ export type ExpenseCategory =
 export interface Organization {
   id: string;
   name: string;
-  slug: string;
-  logo_url: string | null;
+  business_type: string | null;
+  registration_number: string | null;
   phone: string | null;
   email: string | null;
   address: string | null;
-  tax_id: string | null;
+  logo_url: string | null;
   currency: string;
-  is_active: boolean;
+  timezone: string | null;
+  status: string;
   created_at: string;
   updated_at: string;
 }
@@ -90,7 +91,6 @@ export interface Branch {
   phone: string | null;
   address: string | null;
   is_active: boolean;
-  is_primary: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -100,13 +100,13 @@ export interface Branch {
  */
 export interface Profile {
   id: string;
+  auth_user_id: string;
   organization_id: string | null;
-  branch_id: string | null;
-  email: string;
   full_name: string;
-  avatar_url: string | null;
   phone: string | null;
+  avatar_url: string | null;
   is_active: boolean;
+  last_login_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -119,9 +119,8 @@ export interface Role {
   organization_id: string;
   name: string;
   description: string | null;
-  is_system: boolean;
+  is_system_role: boolean;
   created_at: string;
-  updated_at: string;
 }
 
 /**
@@ -129,32 +128,26 @@ export interface Role {
  */
 export interface Permission {
   id: string;
-  resource: string;
-  action: string;
+  code: string;
+  name: string;
   description: string | null;
-  created_at: string;
 }
 
 /**
  * Maps roles to their permitted actions.
  */
 export interface RolePermission {
-  id: string;
   role_id: string;
   permission_id: string;
-  created_at: string;
 }
 
 /**
- * Assigns a role to a user within an organization.
+ * Assigns a role to a user within a branch.
  */
 export interface UserRoleEntry {
-  id: string;
   user_id: string;
   role_id: string;
-  organization_id: string;
   branch_id: string | null;
-  created_at: string;
 }
 
 /**
@@ -165,7 +158,6 @@ export interface Category {
   organization_id: string;
   name: string;
   description: string | null;
-  parent_id: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -191,32 +183,34 @@ export interface Product {
   category_id: string | null;
   unit_id: string | null;
   name: string;
+  generic_name: string | null;
+  brand_name: string | null;
   sku: string;
   barcode: string | null;
   description: string | null;
-  manufacturer: string | null;
-  cost_price: number;
-  selling_price: number;
   reorder_level: number;
   is_active: boolean;
-  requires_prescription: boolean;
   created_at: string;
   updated_at: string;
 }
 
 /**
- * A batch/lot of a product with its own expiry and cost.
+ * A batch/lot of a product with its own expiry and pricing.
  */
 export interface ProductBatch {
   id: string;
-  product_id: string;
+  organization_id: string;
   branch_id: string;
+  product_id: string;
   batch_number: string;
-  quantity: number;
-  cost_price: number;
-  selling_price: number;
   expiry_date: string;
-  received_date: string;
+  purchase_price: number;
+  selling_price: number;
+  quantity_received: number;
+  quantity_available: number;
+  received_at: string | null;
+  supplier_id: string | null;
+  purchase_item_id: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -231,7 +225,7 @@ export interface StockMovement {
   branch_id: string;
   product_id: string;
   batch_id: string | null;
-  type: MovementType;
+  movement_type: MovementType;
   quantity: number;
   reference_type: string | null;
   reference_id: string | null;
@@ -247,7 +241,7 @@ export interface Supplier {
   id: string;
   organization_id: string;
   name: string;
-  contact_name: string | null;
+  contact_person: string | null;
   phone: string | null;
   email: string | null;
   address: string | null;
@@ -264,13 +258,14 @@ export interface PurchaseOrder {
   organization_id: string;
   branch_id: string;
   supplier_id: string;
-  order_number: string;
+  purchase_number: string;
   status: PurchaseStatus;
-  total_amount: number;
-  paid_amount: number;
-  notes: string | null;
-  expected_date: string | null;
-  received_date: string | null;
+  subtotal: number;
+  discount: number;
+  tax: number;
+  total: number;
+  ordered_at: string;
+  received_at: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -303,13 +298,11 @@ export interface Sale {
   customer_id: string | null;
   status: SaleStatus;
   subtotal: number;
-  tax_amount: number;
-  discount_amount: number;
-  total_amount: number;
-  paid_amount: number;
-  payment_method: PaymentMethod;
-  notes: string | null;
-  served_by: string;
+  discount: number;
+  tax: number;
+  total: number;
+  cashier_id: string;
+  sold_at: string;
   created_at: string;
   updated_at: string;
 }
@@ -325,22 +318,22 @@ export interface SaleItem {
   quantity: number;
   unit_price: number;
   discount: number;
-  total_price: number;
+  tax: number;
+  subtotal: number;
   created_at: string;
 }
 
 /**
- * A payment record (full or partial) against a sale or purchase order.
+ * A payment record against a sale.
  */
 export interface Payment {
   id: string;
-  organization_id: string;
-  reference_type: 'sale' | 'purchase_order';
-  reference_id: string;
+  sale_id: string;
+  payment_method: PaymentMethod;
   amount: number;
-  method: PaymentMethod;
-  notes: string | null;
-  recorded_by: string;
+  reference: string | null;
+  status: string;
+  paid_at: string;
   created_at: string;
 }
 
@@ -354,7 +347,7 @@ export interface Return {
   sale_id: string;
   return_number: string;
   reason: string | null;
-  total_refund: number;
+  total: number;
   status: 'pending' | 'approved' | 'rejected' | 'completed';
   processed_by: string;
   created_at: string;
@@ -371,8 +364,7 @@ export interface ReturnItem {
   product_id: string;
   batch_id: string;
   quantity: number;
-  unit_price: number;
-  refund_amount: number;
+  amount: number;
   created_at: string;
 }
 
@@ -382,11 +374,9 @@ export interface ReturnItem {
 export interface Customer {
   id: string;
   organization_id: string;
-  full_name: string;
+  name: string;
   phone: string | null;
   email: string | null;
-  address: string | null;
-  loyalty_points: number;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -402,9 +392,9 @@ export interface Expense {
   category: ExpenseCategory;
   description: string;
   amount: number;
-  receipt_url: string | null;
+  payment_method: PaymentMethod | null;
   expense_date: string;
-  recorded_by: string;
+  created_by: string;
   created_at: string;
   updated_at: string;
 }
@@ -417,10 +407,10 @@ export interface AuditLog {
   organization_id: string;
   user_id: string | null;
   action: string;
-  resource: string;
-  resource_id: string | null;
-  old_value: Record<string, unknown> | null;
-  new_value: Record<string, unknown> | null;
+  entity_type: string;
+  entity_id: string | null;
+  old_values: Record<string, unknown> | null;
+  new_values: Record<string, unknown> | null;
   ip_address: string | null;
   user_agent: string | null;
   created_at: string;
@@ -435,11 +425,9 @@ export interface Notification {
   user_id: string;
   title: string;
   message: string;
-  type: 'info' | 'warning' | 'error' | 'success';
-  status: NotificationStatus;
-  link: string | null;
-  created_at: string;
+  is_read: boolean;
   read_at: string | null;
+  created_at: string;
 }
 
 /**
@@ -447,9 +435,12 @@ export interface Notification {
  */
 export interface Device {
   id: string;
+  organization_id: string;
+  branch_id: string | null;
   user_id: string;
-  token: string;
-  type: DeviceType;
+  device_identifier: string;
+  device_name: string | null;
+  last_seen_at: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -461,25 +452,33 @@ export interface Device {
 export interface SyncQueue {
   id: string;
   organization_id: string;
+  branch_id: string | null;
   user_id: string;
-  table_name: string;
-  record_id: string;
+  device_id: string | null;
+  operation_id: string;
+  entity_type: string;
+  entity_id: string;
   operation: SyncOperation;
   payload: Record<string, unknown>;
-  synced: boolean;
+  status: string;
+  attempts: number;
+  error_message: string | null;
   created_at: string;
-  synced_at: string | null;
+  updated_at: string;
 }
 
 /**
- * Organization-level settings stored as key-value pairs.
+ * Organization-level settings.
  */
 export interface OrganizationSetting {
   id: string;
   organization_id: string;
-  key: string;
-  value: string;
-  description: string | null;
+  receipt_header: string | null;
+  receipt_footer: string | null;
+  default_tax_rate: number;
+  default_currency: string;
+  low_stock_threshold: number;
+  expiry_warning_days: number;
   created_at: string;
   updated_at: string;
 }
@@ -490,10 +489,9 @@ export interface OrganizationSetting {
 export interface BranchSetting {
   id: string;
   branch_id: string;
-  organization_id: string;
-  key: string;
-  value: string;
-  description: string | null;
+  receipt_prefix: string | null;
+  invoice_prefix: string | null;
+  default_payment_method: PaymentMethod | null;
   created_at: string;
   updated_at: string;
 }
@@ -521,28 +519,28 @@ export interface Database {
       };
       profiles: {
         Row: Profile;
-        Insert: Omit<Profile, 'id' | 'created_at' | 'updated_at'>;
+        Insert: Omit<Profile, 'id' | 'created_at' | 'updated_at' | 'last_login_at'>;
         Update: Partial<Omit<Profile, 'id' | 'created_at' | 'updated_at'>>;
       };
       roles: {
         Row: Role;
-        Insert: Omit<Role, 'id' | 'created_at' | 'updated_at'>;
-        Update: Partial<Omit<Role, 'id' | 'created_at' | 'updated_at'>>;
+        Insert: Omit<Role, 'id' | 'created_at'>;
+        Update: Partial<Omit<Role, 'id' | 'created_at'>>;
       };
       permissions: {
         Row: Permission;
-        Insert: Omit<Permission, 'id' | 'created_at'>;
-        Update: Partial<Omit<Permission, 'id' | 'created_at'>>;
+        Insert: Omit<Permission, 'id'>;
+        Update: Partial<Omit<Permission, 'id'>>;
       };
       role_permissions: {
         Row: RolePermission;
-        Insert: Omit<RolePermission, 'id' | 'created_at'>;
-        Update: Partial<Omit<RolePermission, 'id' | 'created_at'>>;
+        Insert: RolePermission;
+        Update: Partial<RolePermission>;
       };
       user_roles: {
         Row: UserRoleEntry;
-        Insert: Omit<UserRoleEntry, 'id' | 'created_at'>;
-        Update: Partial<Omit<UserRoleEntry, 'id' | 'created_at'>>;
+        Insert: UserRoleEntry;
+        Update: Partial<UserRoleEntry>;
       };
       categories: {
         Row: Category;
@@ -636,8 +634,8 @@ export interface Database {
       };
       sync_queue: {
         Row: SyncQueue;
-        Insert: Omit<SyncQueue, 'id' | 'created_at'>;
-        Update: Partial<Omit<SyncQueue, 'id' | 'created_at'>>;
+        Insert: Omit<SyncQueue, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<SyncQueue, 'id' | 'created_at' | 'updated_at'>>;
       };
       organization_settings: {
         Row: OrganizationSetting;

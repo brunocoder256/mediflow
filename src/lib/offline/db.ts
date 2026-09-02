@@ -43,7 +43,7 @@ interface SyncQueueEntry {
   table_name: string;
   operation: "create" | "update" | "delete";
   payload: Record<string, unknown>;
-  status: "pending" | "processing" | "failed";
+  status: "pending" | "processing" | "completed" | "failed";
   created_at: string;
   retries: number;
 }

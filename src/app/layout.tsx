@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ToastProvider } from "@/hooks/use-toast";
 
 export const metadata: Metadata = {
   title: "MediFlow - Drug Shop Management System",
@@ -31,7 +32,9 @@ export default function RootLayout({
           content="default"
         />
       </head>
-      <body className="antialiased min-h-screen">{children}</body>
+      <body className="antialiased min-h-screen">
+        <ToastProvider>{children}</ToastProvider>
+      </body>
     </html>
   );
 }

@@ -1,9 +1,5 @@
 import { db } from "./db";
 
-export function getOnlineStatus(): boolean {
-  return typeof navigator !== "undefined" ? navigator.onLine : true;
-}
-
 export async function addToSyncQueue(entry: {
   table_name: string;
   operation: "create" | "update" | "delete";
@@ -73,7 +69,6 @@ export async function processSyncQueue(): Promise<{
 
       if (!response.ok) throw new Error(`Sync failed: ${response.status}`);
 
-      await db.syncQueue.update(entry.id, { status: "completed" });
       await db.syncQueue.delete(entry.id);
       processed++;
     } catch {
