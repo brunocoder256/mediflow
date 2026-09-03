@@ -42,7 +42,7 @@ ALTER TABLE stock_count_items ENABLE ROW LEVEL SECURITY;
 CREATE POLICY org_branch_isolation_stock_counts ON stock_counts
     FOR ALL USING (
         organization_id = get_user_org_id()
-        AND branch_id IN (get_user_branch_ids())
+        AND branch_id IN (SELECT get_user_branch_ids())
     );
 
 CREATE POLICY org_branch_isolation_stock_count_items ON stock_count_items
@@ -50,6 +50,6 @@ CREATE POLICY org_branch_isolation_stock_count_items ON stock_count_items
         stock_count_id IN (
             SELECT id FROM stock_counts
             WHERE organization_id = get_user_org_id()
-            AND branch_id IN (get_user_branch_ids())
+            AND branch_id IN (SELECT get_user_branch_ids())
         )
     );
