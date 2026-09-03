@@ -41,7 +41,7 @@ function LoginForm() {
     setIsLoading(true);
     try {
       const supabase = createBrowserClient();
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data: signInData, error } = await supabase.auth.signInWithPassword({
         email: data.email,
         password: data.password,
       });
@@ -55,14 +55,29 @@ function LoginForm() {
         return;
       }
 
+      // Verify session was actually persisted (cookie via @supabase/ssr)
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session && !signInData.session) {
+        toast({
+          title: "Sign in failed",
+          description: "No session created. Check Supabase confirmation email or project URL/key.",
+          variant: "error",
+        });
+        return;
+      }
+
       toast({
         title: "Welcome back!",
         description: "You have been signed in successfully.",
         variant: "success",
       });
 
-      router.push(redirectTo);
-      router.refresh();
+      // Use hard navigation so middleware (edge) sees the fresh sb-* cookies
+      // on a full request. router.push + refresh is flaky with @supabase/ssr.
+      window.location.assign(redirectTo);
     } catch {
       toast({
         title: "Something went wrong",
