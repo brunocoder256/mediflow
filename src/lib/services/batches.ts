@@ -108,11 +108,15 @@ export async function getLowStockItems() {
             *,
             products(id, name, reorder_level)
         `)
-        .lte('quantity_available', 'products.reorder_level')
         .eq('is_active', true)
         .order('quantity_available');
     if (error) throw new Error(`Failed to fetch low stock: ${error.message}`);
-    return data;
+    // PostgREST cannot do cross-table column comparison (quantity_available <= products.reorder_level)
+    // so filter in JS. Keeps RLS and works on Vercel/Supabase free tier without custom SQL view.
+    return (data ?? []).filter((row: any) => {
+        const reorder = row.products?.reorder_level ?? 10;
+        return Number(row.quantity_available) <= Number(reorder);
+    });
 }
 
 export async function getExpiringItems(days: number = 90) {
