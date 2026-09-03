@@ -40,7 +40,7 @@ ALTER TABLE adjustment_items ENABLE ROW LEVEL SECURITY;
 CREATE POLICY org_branch_isolation_stock_adjustments ON stock_adjustments
     FOR ALL USING (
         organization_id = get_user_org_id()
-        AND branch_id IN (get_user_branch_ids())
+        AND branch_id IN (SELECT get_user_branch_ids())
     );
 
 CREATE POLICY org_isolation_adjustment_items ON adjustment_items

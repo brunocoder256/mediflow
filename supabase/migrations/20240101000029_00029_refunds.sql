@@ -25,7 +25,7 @@ ALTER TABLE refunds ENABLE ROW LEVEL SECURITY;
 CREATE POLICY org_branch_isolation_refunds ON refunds
     FOR ALL USING (
         organization_id = get_user_org_id()
-        AND branch_id IN (get_user_branch_ids())
+        AND branch_id IN (SELECT get_user_branch_ids())
     );
 
 CREATE INDEX idx_refunds_sale_id ON refunds(sale_id);

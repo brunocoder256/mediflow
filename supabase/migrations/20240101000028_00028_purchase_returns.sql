@@ -38,7 +38,7 @@ ALTER TABLE purchase_return_items ENABLE ROW LEVEL SECURITY;
 CREATE POLICY org_branch_isolation_purchase_returns ON purchase_returns
     FOR ALL USING (
         organization_id = get_user_org_id()
-        AND branch_id IN (get_user_branch_ids())
+        AND branch_id IN (SELECT get_user_branch_ids())
     );
 
 CREATE POLICY org_isolation_purchase_return_items ON purchase_return_items
