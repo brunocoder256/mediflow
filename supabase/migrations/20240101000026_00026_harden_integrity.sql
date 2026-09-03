@@ -164,22 +164,22 @@ ON CONFLICT (code) DO NOTHING;
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p
 WHERE r.name = 'Cashier' AND p.code IN ('dashboard.view', 'pos.use', 'sales.view', 'sales.create')
-AND r.organization_id = 'a0eebc99-9001-4000-8000-000000000001'
+AND r.organization_id = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'
 ON CONFLICT DO NOTHING;
 
 -- Add dashboard.view to all roles
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p
 WHERE p.code = 'dashboard.view'
-AND r.organization_id = 'a0eebc99-9001-4000-8000-000000000001'
+AND r.organization_id = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'
 ON CONFLICT DO NOTHING;
 
 -- Sample product batches
 INSERT INTO product_batches (id, organization_id, branch_id, product_id, batch_number, expiry_date, purchase_price, selling_price, quantity_received, quantity_available, received_at, is_active)
 SELECT
     gen_random_uuid(),
-    'a0eebc99-9001-4000-8000-000000000001',
-    'b0eebc99-9001-4000-8000-000000000001',
+    'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+    'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
     p.id,
     'BATCH-' || SUBSTRING(p.id::text, 1, 8),
     CURRENT_DATE + INTERVAL '6 months',
@@ -190,14 +190,14 @@ SELECT
     CURRENT_DATE - INTERVAL '1 month',
     true
 FROM products p
-WHERE p.organization_id = 'a0eebc99-9001-4000-8000-000000000001'
+WHERE p.organization_id = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'
 LIMIT 10
 ON CONFLICT DO NOTHING;
 
 -- Sample customers
 INSERT INTO customers (id, organization_id, name, phone, email, is_active)
 VALUES
-    ('c0eebc99-9001-4000-8000-000000000001', 'a0eebc99-9001-4000-8000-000000000001', 'Walk-in Customer', NULL, NULL, true),
-    ('c0eebc99-9001-4000-8000-000000000002', 'a0eebc99-9001-4000-8000-000000000001', 'John Doe', '+256700000001', 'john@example.com', true),
-    ('c0eebc99-9001-4000-8000-000000000003', 'a0eebc99-9001-4000-8000-000000000001', 'Jane Smith', '+256700000002', 'jane@example.com', true)
+    ('c0eebc99-9001-4000-8000-000000000001', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Walk-in Customer', NULL, NULL, true),
+    ('c0eebc99-9001-4000-8000-000000000002', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'John Doe', '+256700000001', 'john@example.com', true),
+    ('c0eebc99-9001-4000-8000-000000000003', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Jane Smith', '+256700000002', 'jane@example.com', true)
 ON CONFLICT DO NOTHING;
