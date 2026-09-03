@@ -3,6 +3,7 @@ import * as React from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select } from "@/components/ui/select";
 import { Building2, MapPin, Receipt, Calculator, Bell, Shield, Save } from "lucide-react";
@@ -18,7 +19,7 @@ export default function SettingsPage(){
     setLoading(true);
     const r=await fetch("/api/settings");
     const j=await r.json();
-    if(!r.ok) toast({title:"Failed to load settings", description: j.error, variant:"destructive"});
+    if(!r.ok) toast({title:"Failed to load settings", description: j.error, variant:"error"});
     else setData(j);
     setLoading(false);
   },[toast]);
@@ -28,14 +29,14 @@ export default function SettingsPage(){
     setSaving(true);
     const r=await fetch("/api/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({organization: data.organization})});
     const j=await r.json();
-    if(!r.ok) toast({title:"Save failed", description: j.error, variant:"destructive"}); else toast({title:"Saved"});
+    if(!r.ok) toast({title:"Save failed", description: j.error, variant:"error"}); else toast({title:"Saved"});
     setSaving(false);
   };
   const saveOrgSettings=async()=>{
     setSaving(true);
     const r=await fetch("/api/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({organization_settings: data.organization_settings})});
     const j=await r.json();
-    if(!r.ok) toast({title:"Save failed", description: j.error, variant:"destructive"}); else toast({title:"Receipt & tax saved"});
+    if(!r.ok) toast({title:"Save failed", description: j.error, variant:"error"}); else toast({title:"Receipt & tax saved"});
     setSaving(false);
   };
 

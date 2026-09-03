@@ -6,7 +6,7 @@ export async function GET(req: Request) {
     const sb: any = await getSB();
     const search = new URL(req.url).searchParams.get('search') ?? '';
     // Fetch profiles with roles via user_roles join
-    let query = sb.from('profiles').select('id, full_name, phone, avatar_url, is_active, last_login_at, created_at, organization_id, auth_user_id').order('created_at', { ascending: false }).limit(100);
+    const query = sb.from('profiles').select('id, full_name, phone, avatar_url, is_active, last_login_at, created_at, organization_id, auth_user_id').order('created_at', { ascending: false }).limit(100);
     const { data: profiles, error } = await query;
     if (error) throw new Error(error.message);
     // Enrich with user_roles -> roles
@@ -17,7 +17,7 @@ export async function GET(req: Request) {
     }
     // Attach roles
     const ids = filtered.map((p: any) => p.id);
-    let rolesByUser: Record<string, string[]> = {};
+    const rolesByUser: Record<string, string[]> = {};
     if (ids.length) {
       const { data: urs } = await sb.from('user_roles').select('user_id, roles(name)').in('user_id', ids);
       for (const ur of (urs ?? [])) {

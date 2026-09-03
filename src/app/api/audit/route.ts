@@ -28,7 +28,7 @@ export async function GET(req: Request) {
 
     // enrich with profile names where user_id exists
     const userIds = [...new Set((data ?? []).map((d: any) => d.user_id).filter(Boolean))];
-    let names: Record<string, string> = {};
+    const names: Record<string, string> = {};
     if (userIds.length) {
       const { data: profs } = await sb.from('profiles').select('id, full_name').in('id', userIds);
       for (const p of (profs ?? [])) names[p.id] = p.full_name;
