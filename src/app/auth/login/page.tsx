@@ -62,6 +62,7 @@ function LoginForm() {
       });
 
       router.push(redirectTo);
+      router.refresh();
     } catch {
       toast({
         title: "Something went wrong",
