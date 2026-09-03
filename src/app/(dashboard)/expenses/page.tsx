@@ -1,241 +1,87 @@
 "use client";
-
 import * as React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select } from "@/components/ui/select";
-import {
-  Search,
-  Plus,
-  Eye,
-  Edit,
-  Trash2,
-  DollarSign,
-  Filter,
-} from "lucide-react";
+import { Search, Plus, DollarSign } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-interface Expense {
-  id: string;
-  date: string;
-  category: string;
-  description: string;
-  amount: number;
-  paymentMethod: string;
-  status: "approved" | "pending" | "rejected";
-}
+type Expense={id:string; expense_date:string; category:string; description:string; amount:number; payment_method:string; status:string};
 
-const mockExpenses: Expense[] = [
-  { id: "EXP-001", date: "2026-09-02", category: "Rent", description: "Monthly store rent", amount: 2500.00, paymentMethod: "Bank Transfer", status: "approved" },
-  { id: "EXP-002", date: "2026-09-02", category: "Utilities", description: "Electricity bill", amount: 350.00, paymentMethod: "Cash", status: "approved" },
-  { id: "EXP-003", date: "2026-09-01", category: "Salaries", description: "Staff salaries - September", amount: 8500.00, paymentMethod: "Bank Transfer", status: "pending" },
-  { id: "EXP-004", date: "2026-09-01", category: "Maintenance", description: "AC repair", amount: 450.00, paymentMethod: "Cash", status: "approved" },
-  { id: "EXP-005", date: "2026-08-30", category: "Marketing", description: "Local newspaper ad", amount: 200.00, paymentMethod: "Cash", status: "rejected" },
-];
+export default function ExpensesPage(){
+  const [loading,setLoading]=React.useState(true);
+  const [q,setQ]=React.useState("");
+  const [cat,setCat]=React.useState("all");
+  const [data,setData]=React.useState<Expense[]>([]);
+  const [summary,setSummary]=React.useState<any>(null);
+  const [showAdd,setShowAdd]=React.useState(false);
+  const [form,setForm]=React.useState({branch_id:"b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22", category:"rent", description:"", amount:"", payment_method:"CASH", expense_date: new Date().toISOString().slice(0,10)});
 
-export default function ExpensesPage() {
-  const [loading, setLoading] = React.useState(true);
-  const [searchQuery, setSearchQuery] = React.useState("");
-  const [categoryFilter, setCategoryFilter] = React.useState("all");
+  const fetchData=React.useCallback(async()=>{
+    setLoading(true);
+    const r=await fetch("/api/expenses");
+    const j=await r.json();
+    setData(j.data ?? []);
+    setSummary(j.summary ?? null);
+    setLoading(false);
+  },[]);
+  React.useEffect(()=>{ fetchData(); },[fetchData]);
 
-  React.useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1000);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const filteredExpenses = mockExpenses.filter((expense) => {
-    const matchesSearch =
-      expense.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      expense.category.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory =
-      categoryFilter === "all" || expense.category === categoryFilter;
-    return matchesSearch && matchesCategory;
+  const filtered=data.filter(e=>{
+    const matchQ=!q || e.description.toLowerCase().includes(q.toLowerCase()) || e.category.toLowerCase().includes(q.toLowerCase());
+    const matchCat=cat==="all" || e.category===cat;
+    return matchQ && matchCat;
   });
+  const cats=[...new Set(data.map(e=>e.category))];
+  const badge=(s:string)=> s==="APPROVED" ? <Badge variant="success">Approved</Badge> : s==="PENDING" ? <Badge variant="warning">Pending</Badge> : <Badge variant="destructive">{s}</Badge>;
+  const total=filtered.reduce((s,e)=>s+Number(e.amount),0);
 
-  const categories = [...new Set(mockExpenses.map((e) => e.category))];
-
-  const getStatusBadge = (status: Expense["status"]) => {
-    switch (status) {
-      case "approved":
-        return <Badge variant="success">Approved</Badge>;
-      case "pending":
-        return <Badge variant="warning">Pending</Badge>;
-      case "rejected":
-        return <Badge variant="destructive">Rejected</Badge>;
-      default:
-        return <Badge>{status}</Badge>;
-    }
+  const add=async()=>{
+    const r=await fetch("/api/expenses",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...form, amount: Number(form.amount)})});
+    const j=await r.json();
+    if(!r.ok) alert(j.error); else { setShowAdd(false); fetchData(); }
   };
-
-  const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const approve=async(id:string)=>{
+    if(!confirm("Approve this expense? Requires expense.approve permission.")) return;
+    const r=await fetch("/api/expenses",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id, action:"approve"})});
+    const j=await r.json();
+    if(!r.ok) alert(j.error); else fetchData();
+  };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Expenses</h1>
-          <p className="text-muted-foreground">
-            Track and manage business expenses
-          </p>
-        </div>
-        <Button>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Expense
-        </Button>
-      </div>
-
-      {/* Summary */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold">Expenses</h1><p className="text-muted-foreground">Approved expenses flow into Net Profit = Gross - Expenses</p></div><Button onClick={()=>setShowAdd(true)}><Plus className="h-4 w-4 mr-2"/>Add Expense</Button></div>
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">${totalExpenses.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">
-              {filteredExpenses.length} transactions
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending Approval</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              ${mockExpenses.filter((e) => e.status === "pending").reduce((sum, e) => sum + e.amount, 0).toFixed(2)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {mockExpenses.filter((e) => e.status === "pending").length} transactions
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">This Month</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              ${mockExpenses.filter((e) => e.date.startsWith("2026-09")).reduce((sum, e) => sum + e.amount, 0).toFixed(2)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              September 2026
-            </p>
-          </CardContent>
-        </Card>
+        <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Total</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground"/></CardHeader><CardContent><div className="text-2xl font-bold">UGX {total.toLocaleString()}</div><p className="text-xs text-muted-foreground">{filtered.length} transactions</p></CardContent></Card>
+        <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Pending</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground"/></CardHeader><CardContent><div className="text-2xl font-bold">UGX {data.filter(e=>e.status==="PENDING").reduce((s,e)=>s+Number(e.amount),0).toLocaleString()}</div></CardContent></Card>
+        <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Approved Total</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground"/></CardHeader><CardContent><div className="text-2xl font-bold">UGX {summary ? Number(summary.total).toLocaleString() : "—"}</div></CardContent></Card>
       </div>
+      <Card><CardContent className="p-4"><div className="flex flex-col gap-4 md:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input placeholder="Search..." value={q} onChange={e=>setQ(e.target.value)} className="pl-9"/></div><Select value={cat} onChange={e=>setCat(e.target.value)} className="w-full md:w-[180px]"><option value="all">All Categories</option>{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select></div></CardContent></Card>
+      <Card><CardContent className="p-0">
+        {loading ? <div className="p-6 space-y-3">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
+        : filtered.length===0 ? <div className="py-12 text-center text-muted-foreground">No expenses</div>
+        : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Category</TableHead><TableHead>Description</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
+          {filtered.map(e=>(
+            <TableRow key={e.id}><TableCell>{new Date(e.expense_date).toLocaleDateString()}</TableCell><TableCell><Badge variant="secondary">{e.category}</Badge></TableCell><TableCell>{e.description}</TableCell><TableCell className="text-right">UGX {Number(e.amount).toLocaleString()}</TableCell><TableCell>{badge(e.status)}</TableCell><TableCell className="text-right">{e.status==="PENDING" ? <Button size="sm" variant="outline" onClick={()=>approve(e.id)}>Approve</Button> : <span className="text-xs text-muted-foreground">—</span>}</TableCell></TableRow>
+          ))}
+        </TableBody></Table></div>}
+      </CardContent></Card>
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col gap-4 md:flex-row">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search expenses..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="w-full md:w-[180px]"
-            >
-              <option value="all">All Categories</option>
-              {categories.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
-              ))}
-            </Select>
+      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+        <DialogContent><DialogHeader><DialogTitle>Add Expense</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <Select value={form.category} onChange={e=>setForm({...form, category: e.target.value})}><option value="rent">Rent</option><option value="utilities">Utilities</option><option value="salaries">Salaries</option><option value="supplies">Supplies</option><option value="maintenance">Maintenance</option><option value="marketing">Marketing</option><option value="other">Other</option></Select>
+            <Input placeholder="Description" value={form.description} onChange={e=>setForm({...form, description:e.target.value})}/>
+            <Input type="number" placeholder="Amount UGX" value={form.amount} onChange={e=>setForm({...form, amount:e.target.value})}/>
+            <Input type="date" value={form.expense_date} onChange={e=>setForm({...form, expense_date:e.target.value})}/>
+            <Button onClick={add} disabled={!form.description || !form.amount} className="w-full">Save (PENDING → APPROVED)</Button>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Table */}
-      <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-6 space-y-4">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="flex items-center gap-4">
-                  <Skeleton className="h-12 w-12" />
-                  <div className="flex-1 space-y-2">
-                    <Skeleton className="h-4 w-48" />
-                    <Skeleton className="h-3 w-32" />
-                  </div>
-                  <Skeleton className="h-8 w-20" />
-                </div>
-              ))}
-            </div>
-          ) : filteredExpenses.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <p className="text-muted-foreground">No expenses found</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead className="hidden md:table-cell">Payment</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredExpenses.map((expense) => (
-                  <TableRow key={expense.id}>
-                    <TableCell className="text-muted-foreground">{expense.date}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{expense.category}</Badge>
-                    </TableCell>
-                    <TableCell className="font-medium">{expense.description}</TableCell>
-                    <TableCell className="hidden md:table-cell text-muted-foreground">
-                      {expense.paymentMethod}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      ${expense.amount.toFixed(2)}
-                    </TableCell>
-                    <TableCell>{getStatusBadge(expense.status)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="icon">
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

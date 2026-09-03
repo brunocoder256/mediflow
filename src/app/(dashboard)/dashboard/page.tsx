@@ -134,80 +134,26 @@ function LowStockSkeleton() {
 export default function DashboardPage() {
   const [loading, setLoading] = React.useState(true);
   const [greeting, setGreeting] = React.useState("");
+  const [data, setData] = React.useState<any>(null);
 
   React.useEffect(() => {
     const hour = new Date().getHours();
-    if (hour < 12) {
-      setGreeting("Good morning");
-    } else if (hour < 18) {
-      setGreeting("Good afternoon");
-    } else {
-      setGreeting("Good evening");
-    }
-
-    // Simulate loading
-    const timer = setTimeout(() => setLoading(false), 1500);
-    return () => clearTimeout(timer);
+    if (hour < 12) setGreeting("Good morning");
+    else if (hour < 18) setGreeting("Good afternoon");
+    else setGreeting("Good evening");
+    fetch("/api/dashboard").then(r=>r.json()).then(d=>{ setData(d); setLoading(false); }).catch(()=>setLoading(false));
   }, []);
 
-  const kpis = [
-    {
-      title: "Today's Sales",
-      value: "$12,450.00",
-      icon: ShoppingCart,
-      description: "+12% from yesterday",
-      trend: "up" as const,
-      trendValue: "+$1,320.00",
-    },
-    {
-      title: "Transactions",
-      value: "48",
-      icon: Receipt,
-      description: "+8 from yesterday",
-      trend: "up" as const,
-      trendValue: "+8",
-    },
-    {
-      title: "Gross Profit",
-      value: "$4,230.00",
-      icon: TrendingUp,
-      description: "+5% from yesterday",
-      trend: "up" as const,
-      trendValue: "+$210.00",
-    },
-    {
-      title: "Expenses",
-      value: "$890.00",
-      icon: DollarSign,
-      description: "-3% from yesterday",
-      trend: "down" as const,
-      trendValue: "-$27.00",
-    },
-    {
-      title: "Low Stock",
-      value: "12",
-      icon: AlertTriangle,
-      description: "Items below minimum",
-      trend: "neutral" as const,
-      trendValue: "No change",
-    },
-    {
-      title: "Expiring Soon",
-      value: "8",
-      icon: Clock,
-      description: "Within 30 days",
-      trend: "neutral" as const,
-      trendValue: "No change",
-    },
-    {
-      title: "Expired Items",
-      value: "3",
-      icon: XCircle,
-      description: "Need removal",
-      trend: "up" as const,
-      trendValue: "+1",
-    },
-  ];
+  const fmt = (n:number, c='UGX') => new Intl.NumberFormat('en-UG',{style:'currency',currency:c,minimumFractionDigits:0}).format(n ?? 0);
+  const kpis = data ? [
+    { title: "Today's Sales", value: fmt(data.todaySales), icon: ShoppingCart, description: `${data.todayCount} transactions`, trend: "neutral" as const, trendValue: "" },
+    { title: "Transactions", value: String(data.todayCount ?? 0), icon: Receipt, description: "Today", trend: "neutral" as const, trendValue: "" },
+    { title: "Gross Profit", value: fmt(data.grossProfit), icon: TrendingUp, description: "Today", trend: "neutral" as const, trendValue: "" },
+    { title: "Expenses", value: fmt(data.expenses), icon: DollarSign, description: "Today", trend: "neutral" as const, trendValue: "" },
+    { title: "Low Stock", value: String(data.lowStock ?? 0), icon: AlertTriangle, description: "Items below minimum", trend: "neutral" as const, trendValue: "" },
+    { title: "Expiring Soon", value: String(data.expiringSoon ?? 0), icon: Clock, description: "Within 30 days", trend: "neutral" as const, trendValue: "" },
+    { title: "Expired Items", value: String(data.expired ?? 0), icon: XCircle, description: "Need removal", trend: "neutral" as const, trendValue: "" },
+  ] : [];
 
   return (
     <div className="space-y-6">
@@ -283,55 +229,32 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {[
-                    { id: "TXN-001", customer: "John Doe", amount: "$125.00", time: "2 min ago" },
-                    { id: "TXN-002", customer: "Jane Smith", amount: "$89.50", time: "15 min ago" },
-                    { id: "TXN-003", customer: "Walk-in", amount: "$45.00", time: "32 min ago" },
-                    { id: "TXN-004", customer: "Bob Wilson", amount: "$210.75", time: "1 hr ago" },
-                    { id: "TXN-005", customer: "Alice Brown", amount: "$67.25", time: "2 hr ago" },
-                  ].map((txn) => (
+                  {data?.recentTxns?.length ? data.recentTxns.map((txn:any)=>(
                     <div key={txn.id} className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-sm">
-                          {txn.customer.charAt(0)}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">{txn.customer}</p>
-                          <p className="text-xs text-muted-foreground">{txn.id} · {txn.time}</p>
-                        </div>
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-sm">S</div>
+                        <div><p className="text-sm font-medium">{txn.id.slice(0,8)}</p><p className="text-xs text-muted-foreground">{fmt(txn.total)}</p></div>
                       </div>
-                      <p className="text-sm font-medium">{txn.amount}</p>
+                      <p className="text-sm font-medium">{fmt(txn.total)}</p>
                     </div>
-                  ))}
+                  )) : <p className="text-sm text-muted-foreground">{loading ? 'Loading...' : 'No transactions today'}</p>}
                 </div>
               </CardContent>
             </Card>
 
-            {/* Low Stock Products */}
+            {/* Top Products */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-sm font-medium">Low Stock Products</CardTitle>
+                <CardTitle className="text-sm font-medium">Top Products Today</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {[
-                    { name: "Amoxicillin 500mg", sku: "AMX-500", stock: 5, min: 20 },
-                    { name: "Paracetamol 500mg", sku: "PCM-500", stock: 8, min: 50 },
-                    { name: "Ibuprofen 400mg", sku: "IBU-400", stock: 12, min: 30 },
-                    { name: "Cetirizine 10mg", sku: "CTZ-10", stock: 3, min: 25 },
-                    { name: "Omeprazole 20mg", sku: "OMP-20", stock: 7, min: 15 },
-                  ].map((product) => (
-                    <div key={product.sku} className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium">{product.name}</p>
-                        <p className="text-xs text-muted-foreground">{product.sku}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium text-red-600">{product.stock} left</p>
-                        <p className="text-xs text-muted-foreground">Min: {product.min}</p>
-                      </div>
+                  {data?.topProducts?.length ? data.topProducts.map((p:any)=>(
+                    <div key={p.product_id} className="flex items-center justify-between">
+                      <div><p className="text-sm font-medium">{p.name}</p><p className="text-xs text-muted-foreground">{p.product_id.slice(0,8)}</p></div>
+                      <div className="text-right"><p className="text-sm font-medium">{p.qty} sold</p></div>
                     </div>
-                  ))}
+                  )) : <p className="text-sm text-muted-foreground">{loading ? 'Loading...' : 'No sales today'}</p>}
                 </div>
               </CardContent>
             </Card>

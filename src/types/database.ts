@@ -10,30 +10,19 @@
 // ---------------------------------------------------------------------------
 
 /** Movement direction for inventory tracking. */
-export type MovementType = 'in' | 'out' | 'adjustment' | 'transfer';
+export type MovementType = 'PURCHASE' | 'SALE' | 'SALE_RETURN' | 'PURCHASE_RETURN' | 'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT' | 'TRANSFER_IN' | 'TRANSFER_OUT' | 'OPENING_BALANCE' | 'EXPIRED' | 'DAMAGED';
 
 /** Current state of a sale. */
-export type SaleStatus = 'pending' | 'completed' | 'cancelled' | 'refunded';
+export type SaleStatus = 'COMPLETED' | 'HELD' | 'VOIDED' | 'REFUNDED' | 'PARTIALLY_REFUNDED';
 
 /** Current state of a purchase order. */
-export type PurchaseStatus =
-  | 'draft'
-  | 'pending'
-  | 'ordered'
-  | 'received'
-  | 'cancelled';
+export type PurchaseStatus = 'DRAFT' | 'ORDERED' | 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'CANCELLED';
 
 /** Accepted payment methods. */
-export type PaymentMethod =
-  | 'cash'
-  | 'card'
-  | 'mobile_money'
-  | 'bank_transfer'
-  | 'credit'
-  | 'other';
+export type PaymentMethod = 'CASH' | 'MOBILE_MONEY' | 'CARD' | 'BANK' | 'OTHER';
 
 /** Role of a user within the application. */
-export type UserRole = 'admin' | 'manager' | 'cashier' | 'inventory' | 'viewer';
+export type UserRole = 'owner' | 'admin' | 'manager' | 'cashier' | 'stock_manager' | 'viewer';
 
 /** General status flag used across several tables. */
 export type ActiveStatus = 'active' | 'inactive';
@@ -49,13 +38,53 @@ export type SyncOperation = 'create' | 'update' | 'delete';
 
 /** Expense categories. */
 export type ExpenseCategory =
-  | 'rent'
-  | 'utilities'
-  | 'salaries'
-  | 'supplies'
-  | 'maintenance'
-  | 'marketing'
-  | 'other';
+    | 'rent'
+    | 'utilities'
+    | 'salaries'
+    | 'supplies'
+    | 'maintenance'
+    | 'marketing'
+    | 'other';
+
+/** Payment status. */
+export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'refunded';
+
+/** Stock count lifecycle. */
+export type StockCountStatus = 'DRAFT' | 'IN_PROGRESS' | 'COUNTED' | 'REVIEW' | 'APPROVED' | 'POSTED' | 'CANCELLED';
+
+/** Purchase return status. */
+export type PurchaseReturnStatus = 'pending' | 'approved' | 'completed' | 'cancelled';
+
+/** Refund status. */
+export type RefundStatus = 'pending' | 'completed' | 'failed' | 'cancelled';
+
+/** Stock adjustment status. */
+export type StockAdjustmentStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'POSTED' | 'CANCELLED';
+
+/** Transfer status. */
+export type TransferStatus = 'DRAFT' | 'IN_TRANSIT' | 'RECEIVED' | 'CANCELLED';
+
+/** Stock count scope type. */
+export type StockCountScopeType = 'PRODUCT' | 'CATEGORY' | 'ALL';
+
+/** Return condition for returned stock. */
+export type ReturnCondition = 'SELLABLE' | 'DAMAGED' | 'COMPROMISED' | 'EXPIRED';
+
+/** Cash session status. */
+export type CashSessionStatus = 'OPEN' | 'CLOSING' | 'CLOSED' | 'APPROVAL_REQUIRED' | 'APPROVED';
+
+/** Cash movement types. */
+export type CashMovementType = 'OPENING_FLOAT' | 'SALE' | 'REFUND' | 'CASH_IN' | 'CASH_OUT' | 'ADJUSTMENT' | 'CLOSING_ADJUSTMENT';
+
+/** Cash movement direction. */
+export type CashDirection = 'IN' | 'OUT';
+
+/** Disposal types. */
+export type DisposalType = 'EXPIRED' | 'DAMAGED' | 'OTHER';
+export type DisposalStatus = 'PENDING' | 'APPROVED' | 'DISPOSED' | 'CANCELLED';
+
+/** Payment reconciliation. */
+export type ReconciliationStatus = 'UNRECONCILED' | 'MATCHED' | 'RECONCILED' | 'DISPUTED' | 'CANCELLED';
 
 // ---------------------------------------------------------------------------
 // Row types – one per database table
@@ -220,18 +249,19 @@ export interface ProductBatch {
  * Immutable record of every stock change.
  */
 export interface StockMovement {
-  id: string;
-  organization_id: string;
-  branch_id: string;
-  product_id: string;
-  batch_id: string | null;
-  movement_type: MovementType;
-  quantity: number;
-  reference_type: string | null;
-  reference_id: string | null;
-  notes: string | null;
-  performed_by: string;
-  created_at: string;
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    product_id: string;
+    batch_id: string | null;
+    movement_type: MovementType;
+    quantity: number;
+    reference_type: string | null;
+    reference_id: string | null;
+    unit_cost: number | null;
+    notes: string | null;
+    created_by: string | null;
+    created_at: string;
 }
 
 /**
@@ -254,149 +284,151 @@ export interface Supplier {
  * Header record for a purchase from a supplier.
  */
 export interface PurchaseOrder {
-  id: string;
-  organization_id: string;
-  branch_id: string;
-  supplier_id: string;
-  purchase_number: string;
-  status: PurchaseStatus;
-  subtotal: number;
-  discount: number;
-  tax: number;
-  total: number;
-  ordered_at: string;
-  received_at: string | null;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    supplier_id: string;
+    purchase_number: string;
+    status: PurchaseStatus;
+    subtotal: number;
+    discount: number;
+    tax: number;
+    total: number;
+    ordered_at: string | null;
+    received_at: string | null;
+    created_by: string;
+    created_at: string;
+    updated_at: string;
 }
 
 /**
  * Individual line item within a purchase order.
  */
 export interface PurchaseItem {
-  id: string;
-  purchase_order_id: string;
-  product_id: string;
-  batch_number: string;
-  quantity: number;
-  unit_cost: number;
-  total_cost: number;
-  expiry_date: string;
-  received_quantity: number;
-  created_at: string;
+    id: string;
+    purchase_order_id: string;
+    product_id: string;
+    quantity_ordered: number;
+    quantity_received: number;
+    unit_cost: number;
+    discount: number;
+    tax: number;
+    subtotal: number;
+    created_at: string;
 }
 
 /**
  * Header record for a customer sale.
  */
 export interface Sale {
-  id: string;
-  organization_id: string;
-  branch_id: string;
-  sale_number: string;
-  customer_id: string | null;
-  status: SaleStatus;
-  subtotal: number;
-  discount: number;
-  tax: number;
-  total: number;
-  cashier_id: string;
-  sold_at: string;
-  created_at: string;
-  updated_at: string;
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    sale_number: string;
+    customer_id: string | null;
+    status: SaleStatus;
+    subtotal: number;
+    discount: number;
+    tax: number;
+    total: number;
+    cashier_id: string;
+    sold_at: string;
+    created_at: string;
+    updated_at: string;
 }
 
 /**
  * Individual line item within a sale.
  */
 export interface SaleItem {
-  id: string;
-  sale_id: string;
-  product_id: string;
-  batch_id: string;
-  quantity: number;
-  unit_price: number;
-  discount: number;
-  tax: number;
-  subtotal: number;
-  created_at: string;
+    id: string;
+    sale_id: string;
+    product_id: string;
+    batch_id: string;
+    quantity: number;
+    unit_price: number;
+    discount: number;
+    tax: number;
+    subtotal: number;
+    created_at: string;
 }
 
 /**
  * A payment record against a sale.
  */
 export interface Payment {
-  id: string;
-  sale_id: string;
-  payment_method: PaymentMethod;
-  amount: number;
-  reference: string | null;
-  status: string;
-  paid_at: string;
-  created_at: string;
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    sale_id: string | null;
+    payment_method: PaymentMethod;
+    amount: number;
+    reference: string | null;
+    status: string;
+    paid_at: string;
+    created_at: string;
 }
 
 /**
  * A return initiated by a customer for a completed sale.
  */
 export interface Return {
-  id: string;
-  organization_id: string;
-  branch_id: string;
-  sale_id: string;
-  return_number: string;
-  reason: string | null;
-  total: number;
-  status: 'pending' | 'approved' | 'rejected' | 'completed';
-  processed_by: string;
-  created_at: string;
-  updated_at: string;
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    return_number: string;
+    sale_id: string;
+    reason: string | null;
+    total: number;
+    status: 'pending' | 'approved' | 'rejected' | 'completed';
+    processed_by: string | null;
+    created_at: string;
+    updated_at: string;
 }
 
 /**
  * Individual item being returned.
  */
 export interface ReturnItem {
-  id: string;
-  return_id: string;
-  sale_item_id: string;
-  product_id: string;
-  batch_id: string;
-  quantity: number;
-  amount: number;
-  created_at: string;
+    id: string;
+    return_id: string;
+    sale_item_id: string;
+    product_id: string;
+    batch_id: string;
+    quantity: number;
+    amount: number;
+    created_at: string;
 }
 
 /**
  * Customer record.
  */
 export interface Customer {
-  id: string;
-  organization_id: string;
-  name: string;
-  phone: string | null;
-  email: string | null;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
+    id: string;
+    organization_id: string;
+    name: string;
+    phone: string | null;
+    email: string | null;
+    is_active: boolean;
+    created_at: string;
+    updated_at: string;
 }
 
 /**
  * Business expense entry.
  */
 export interface Expense {
-  id: string;
-  organization_id: string;
-  branch_id: string;
-  category: ExpenseCategory;
-  description: string;
-  amount: number;
-  payment_method: PaymentMethod | null;
-  expense_date: string;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    category: ExpenseCategory;
+    description: string;
+    amount: number;
+    payment_method: PaymentMethod | null;
+    expense_date: string;
+    created_by: string;
+    created_at: string;
+    updated_at: string;
 }
 
 /**
@@ -494,6 +526,276 @@ export interface BranchSetting {
   default_payment_method: PaymentMethod | null;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Physical stock count session.
+ */
+export interface StockCount {
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    name: string;
+    status: StockCountStatus;
+    scope_type: StockCountScopeType;
+    scope_id: string | null;
+    counted_by: string | null;
+    approved_by: string | null;
+    approval_reason: string | null;
+    posted_at: string | null;
+    variance_total: number;
+    financial_impact: number;
+    notes: string | null;
+    created_by: string;
+    created_at: string;
+    updated_at: string;
+}
+
+/**
+ * Individual line item in a stock count.
+ */
+export interface StockCountItem {
+    id: string;
+    stock_count_id: string;
+    product_id: string;
+    batch_id: string | null;
+    system_quantity: number;
+    counted_quantity: number;
+    variance: number;
+    reason: string | null;
+    notes: string | null;
+    created_by: string;
+    created_at: string;
+    updated_at: string;
+}
+
+/**
+ * Return of goods to a supplier.
+ */
+export interface PurchaseReturn {
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    purchase_order_id: string;
+    supplier_id: string;
+    return_number: string;
+    reason: string | null;
+    total: number;
+    status: PurchaseReturnStatus;
+    approved_by: string | null;
+    processed_by: string | null;
+    approved_at: string | null;
+    created_by: string;
+    created_at: string;
+    updated_at: string;
+}
+
+/**
+ * Line item within a purchase return.
+ */
+export interface PurchaseReturnItem {
+    id: string;
+    purchase_return_id: string;
+    purchase_item_id: string;
+    product_id: string;
+    batch_id: string | null;
+    quantity: number;
+    unit_cost: number;
+    amount: number;
+    reason: string | null;
+    created_at: string;
+}
+
+/**
+ * Refund of a customer payment.
+ */
+export interface Refund {
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    sale_id: string;
+    return_id: string | null;
+    refund_number: string;
+    amount: number;
+    payment_method: PaymentMethod;
+    reference: string | null;
+    status: RefundStatus;
+    processed_by: string;
+    approved_by: string | null;
+    reason: string | null;
+    processed_at: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+/**
+ * Controlled stock adjustment record.
+ */
+export interface StockAdjustment {
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    adjustment_number: string;
+    reason: string;
+    notes: string | null;
+    status: StockAdjustmentStatus;
+    total_variance: number;
+    financial_impact: number;
+    requested_by: string;
+    approved_by: string | null;
+    approved_at: string | null;
+    approval_reason: string | null;
+    posted_at: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+/**
+ * Line item within a stock adjustment.
+ */
+export interface AdjustmentItem {
+    id: string;
+    stock_adjustment_id: string;
+    product_id: string;
+    batch_id: string | null;
+    adjustment_type: 'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT';
+    quantity: number;
+    unit_cost: number;
+    amount: number;
+    reason: string | null;
+    notes: string | null;
+    created_at: string;
+}
+
+/**
+ * Inter-branch stock transfer.
+ */
+export interface Transfer {
+    id: string;
+    organization_id: string;
+    source_branch_id: string;
+    destination_branch_id: string;
+    transfer_number: string;
+    status: TransferStatus;
+    requested_by: string;
+    received_by: string | null;
+    received_at: string | null;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+/**
+ * Line item within a transfer.
+ */
+export interface TransferItem {
+    id: string;
+    transfer_id: string;
+    product_id: string;
+    batch_id: string | null;
+    quantity: number;
+    unit_cost: number;
+    created_at: string;
+}
+
+/**
+ * Price change history for audit and reporting.
+ */
+export interface PriceHistory {
+    id: string;
+    organization_id: string;
+    product_id: string;
+    batch_id: string | null;
+    field_name: string;
+    old_value: string | null;
+    new_value: string | null;
+    changed_by: string;
+    reason: string | null;
+    effective_date: string;
+    created_at: string;
+}
+
+export interface CashRegister {
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    name: string;
+    code: string;
+    is_active: boolean;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CashSession {
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    register_id: string;
+    cashier_id: string;
+    status: CashSessionStatus;
+    opening_float: number;
+    expected_cash: number;
+    closing_cash: number | null;
+    cash_variance: number | null;
+    opened_at: string;
+    closed_at: string | null;
+    closed_by: string | null;
+    approved_by: string | null;
+    approved_at: string | null;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CashMovement {
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    session_id: string;
+    type: CashMovementType;
+    amount: number;
+    direction: CashDirection;
+    reference_type: string | null;
+    reference_id: string | null;
+    reason: string | null;
+    created_by: string | null;
+    created_at: string;
+}
+
+export interface SupplierPayment {
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    supplier_id: string;
+    purchase_order_id: string | null;
+    amount: number;
+    payment_method: PaymentMethod;
+    reference: string | null;
+    payment_date: string;
+    created_by: string | null;
+    created_at: string;
+}
+
+export interface Disposal {
+    id: string;
+    organization_id: string;
+    branch_id: string;
+    type: DisposalType;
+    status: DisposalStatus;
+    product_id: string;
+    batch_id: string | null;
+    quantity: number;
+    unit_cost: number;
+    reason: string | null;
+    condition: string | null;
+    reported_by: string | null;
+    approved_by: string | null;
+    approved_at: string | null;
+    disposed_at: string | null;
+    disposal_method: string | null;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -648,6 +950,81 @@ export interface Database {
         Row: BranchSetting;
         Insert: Omit<BranchSetting, 'id' | 'created_at' | 'updated_at'>;
         Update: Partial<Omit<BranchSetting, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      stock_counts: {
+        Row: StockCount;
+        Insert: Omit<StockCount, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<StockCount, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      stock_count_items: {
+        Row: StockCountItem;
+        Insert: Omit<StockCountItem, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<StockCountItem, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      purchase_returns: {
+        Row: PurchaseReturn;
+        Insert: Omit<PurchaseReturn, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<PurchaseReturn, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      purchase_return_items: {
+        Row: PurchaseReturnItem;
+        Insert: Omit<PurchaseReturnItem, 'id' | 'created_at'>;
+        Update: Partial<Omit<PurchaseReturnItem, 'id' | 'created_at'>>;
+      };
+      refunds: {
+        Row: Refund;
+        Insert: Omit<Refund, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<Refund, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      stock_adjustments: {
+        Row: StockAdjustment;
+        Insert: Omit<StockAdjustment, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<StockAdjustment, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      adjustment_items: {
+        Row: AdjustmentItem;
+        Insert: Omit<AdjustmentItem, 'id' | 'created_at'>;
+        Update: Partial<Omit<AdjustmentItem, 'id' | 'created_at'>>;
+      };
+      transfers: {
+        Row: Transfer;
+        Insert: Omit<Transfer, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<Transfer, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      transfer_items: {
+        Row: TransferItem;
+        Insert: Omit<TransferItem, 'id' | 'created_at'>;
+        Update: Partial<Omit<TransferItem, 'id' | 'created_at'>>;
+      };
+      price_history: {
+        Row: PriceHistory;
+        Insert: Omit<PriceHistory, 'id' | 'created_at'>;
+        Update: Partial<Omit<PriceHistory, 'id' | 'created_at'>>;
+      };
+      cash_registers: {
+        Row: CashRegister;
+        Insert: Omit<CashRegister, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<CashRegister, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      cash_sessions: {
+        Row: CashSession;
+        Insert: Omit<CashSession, 'id' | 'created_at' | 'updated_at' | 'opened_at'>;
+        Update: Partial<Omit<CashSession, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      cash_movements: {
+        Row: CashMovement;
+        Insert: Omit<CashMovement, 'id' | 'created_at'>;
+        Update: Partial<Omit<CashMovement, 'id' | 'created_at'>>;
+      };
+      supplier_payments: {
+        Row: SupplierPayment;
+        Insert: Omit<SupplierPayment, 'id' | 'created_at'>;
+        Update: Partial<Omit<SupplierPayment, 'id' | 'created_at'>>;
+      };
+      disposals: {
+        Row: Disposal;
+        Insert: Omit<Disposal, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<Disposal, 'id' | 'created_at' | 'updated_at'>>;
       };
     };
     Views: Record<string, never>;

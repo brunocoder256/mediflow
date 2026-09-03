@@ -31,9 +31,15 @@ export default function RootLayout({
           name="apple-mobile-web-app-status-bar-style"
           content="default"
         />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
       <body className="antialiased min-h-screen">
         <ToastProvider>{children}</ToastProvider>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js').catch(()=>{});});}`,
+          }}
+        />
       </body>
     </html>
   );

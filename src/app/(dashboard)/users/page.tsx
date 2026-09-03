@@ -1,238 +1,100 @@
 "use client";
-
 import * as React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Search,
-  Plus,
-  Eye,
-  Edit,
-  Trash2,
-  Shield,
-  UserCheck,
-  UserX,
-} from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Search, Plus, Eye, Edit, Trash2, Shield } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Select } from "@/components/ui/select";
 
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: "admin" | "manager" | "cashier" | "inventory";
-  status: "active" | "inactive";
-  lastLogin: string;
-  avatar?: string;
-}
+type UserRow = { id:string; full_name:string; phone:string|null; is_active:boolean; last_login_at:string|null; created_at:string; roles:string[] };
 
-const mockUsers: User[] = [
-  { id: "USR-001", name: "Admin User", email: "admin@mediflow.com", role: "admin", status: "active", lastLogin: "2026-09-02 10:30" },
-  { id: "USR-002", name: "Manager One", email: "manager@mediflow.com", role: "manager", status: "active", lastLogin: "2026-09-02 09:15" },
-  { id: "USR-003", name: "Cashier One", email: "cashier1@mediflow.com", role: "cashier", status: "active", lastLogin: "2026-09-02 08:00" },
-  { id: "USR-004", name: "Cashier Two", email: "cashier2@mediflow.com", role: "cashier", status: "active", lastLogin: "2026-09-01 17:30" },
-  { id: "USR-005", name: "Inventory Staff", email: "inventory@mediflow.com", role: "inventory", status: "inactive", lastLogin: "2026-08-28 14:20" },
-];
+export default function UsersPage(){
+  const [loading,setLoading]=React.useState(true);
+  const [q,setQ]=React.useState("");
+  const [users,setUsers]=React.useState<UserRow[]>([]);
+  const [roles,setRoles]=React.useState<any[]>([]);
+  const [show,setShow]=React.useState(false);
+  const [form,setForm]=React.useState({full_name:"", phone:"", role_id:"", branch_id:""});
 
-export default function UsersPage() {
-  const [loading, setLoading] = React.useState(true);
-  const [searchQuery, setSearchQuery] = React.useState("");
-
-  React.useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1000);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const filteredUsers = mockUsers.filter(
-    (user) =>
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const getRoleBadge = (role: User["role"]) => {
-    switch (role) {
-      case "admin":
-        return <Badge variant="destructive">Admin</Badge>;
-      case "manager":
-        return <Badge variant="warning">Manager</Badge>;
-      case "cashier":
-        return <Badge variant="secondary">Cashier</Badge>;
-      case "inventory":
-        return <Badge>Inventory</Badge>;
-      default:
-        return <Badge>{role}</Badge>;
+  const fetchData=React.useCallback(async()=>{
+    setLoading(true);
+    const [ur, rr]=await Promise.all([fetch("/api/users").then(r=>r.json()), fetch("/api/roles").then(r=>r.json()).catch(()=>[])]);
+    setUsers(Array.isArray(ur)?ur: (ur.data??[]));
+    // roles fallback to supabase direct
+    if(Array.isArray(rr)) setRoles(rr);
+    else {
+      // fetch roles via supabase client side fallback: get from /api may not exist, try direct
+      try{
+        const r2=await fetch("/api/settings"); const j2=await r2.json();
+        // roles not in settings, leave empty
+      }catch{}
     }
+    setLoading(false);
+  },[]);
+  React.useEffect(()=>{ fetchData(); },[fetchData]);
+
+  // fetch roles directly via supabase client if API missing
+  React.useEffect(()=>{
+    (async()=>{
+      try{
+        const { createBrowserClient } = await import("@/lib/supabase/client");
+        const sb=createBrowserClient();
+        const {data}=await sb.from("roles").select("id, name");
+        if(data) setRoles(data);
+      }catch{}
+    })();
+  },[]);
+
+  const filtered=users.filter(u=> !q || u.full_name.toLowerCase().includes(q.toLowerCase()) || (u.phone ?? "").includes(q));
+
+  const createUser=async()=>{
+    const r=await fetch("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(form)});
+    const j=await r.json();
+    if(!r.ok) alert(j.error); else { setShow(false); fetchData(); }
+  };
+  const toggleActive=async(u:UserRow)=>{
+    await fetch("/api/users",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:u.id, is_active: !u.is_active})});
+    fetchData();
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Users</h1>
-          <p className="text-muted-foreground">
-            Manage user accounts and permissions
-          </p>
-        </div>
-        <Button>
-          <Plus className="h-4 w-4 mr-2" />
-          Add User
-        </Button>
+        <div><h1 className="text-2xl font-bold">Users</h1><p className="text-muted-foreground">Real profiles, roles, RLS enforced — server authoritative</p></div>
+        <Button onClick={()=>setShow(true)}><Plus className="h-4 w-4 mr-2"/>Add User</Button>
       </div>
-
-      {/* Summary */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Users</CardTitle>
-            <Shield className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{mockUsers.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Users</CardTitle>
-            <UserCheck className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {mockUsers.filter((u) => u.status === "active").length}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Inactive Users</CardTitle>
-            <UserX className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {mockUsers.filter((u) => u.status === "inactive").length}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Online Now</CardTitle>
-            <UserCheck className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">3</div>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Users</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{users.length}</div></CardContent></Card>
+        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Active</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-green-600">{users.filter(u=>u.is_active).length}</div></CardContent></Card>
+        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Inactive</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-muted-foreground">{users.filter(u=>!u.is_active).length}</div></CardContent></Card>
       </div>
+      <Card><CardContent className="p-4"><div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input placeholder="Search name/phone" value={q} onChange={e=>setQ(e.target.value)} className="pl-9"/></div></CardContent></Card>
+      <Card><CardContent className="p-0">
+        {loading ? <div className="p-6 space-y-3">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
+        : filtered.length===0 ? <div className="py-12 text-center text-muted-foreground">No users — create your first team member</div>
+        : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>User</TableHead><TableHead>Phone</TableHead><TableHead>Roles</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
+          {filtered.map(u=>(
+            <TableRow key={u.id}><TableCell><div className="flex items-center gap-3"><Avatar className="h-8 w-8"><AvatarFallback>{u.full_name.split(" ").map(n=>n[0]).join("").slice(0,2)}</AvatarFallback></Avatar><span className="font-medium">{u.full_name}</span></div></TableCell><TableCell>{u.phone ?? "—"}</TableCell><TableCell>{u.roles.length? u.roles.map(r=><Badge key={r} variant="secondary" className="mr-1">{r}</Badge>) : <Badge variant="outline">No role</Badge>}</TableCell><TableCell><Badge variant={u.is_active?"success":"secondary"}>{u.is_active?"active":"inactive"}</Badge></TableCell><TableCell className="text-right"><Button variant="ghost" size="icon" onClick={()=>toggleActive(u)}><Shield className="h-4 w-4"/></Button></TableCell></TableRow>
+          ))}
+        </TableBody></Table></div>}
+      </CardContent></Card>
 
-      {/* Search */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search users..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
+      <Dialog open={show} onOpenChange={setShow}>
+        <DialogContent><DialogHeader><DialogTitle>Add User</DialogTitle><DialogDescription>Creates profile + role assignment. Auth user via Supabase Auth email invite (outside V1 scope — creates profile placeholder).</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <Input placeholder="Full name *" value={form.full_name} onChange={e=>setForm({...form, full_name:e.target.value})}/>
+            <Input placeholder="Phone" value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})}/>
+            <Select value={form.role_id} onChange={e=>setForm({...form, role_id:e.target.value})}><option value="">Select role</option>{roles.map((r:any)=><option key={r.id} value={r.id}>{r.name}</option>)}</Select>
+            <Button onClick={createUser} disabled={!form.full_name.trim()} className="w-full">Create</Button>
+            <p className="text-xs text-muted-foreground">Server validates organization isolation, RLS, permission <code>users.manage</code>. Audit logged.</p>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Table */}
-      <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-6 space-y-4">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="flex items-center gap-4">
-                  <Skeleton className="h-12 w-12 rounded-full" />
-                  <div className="flex-1 space-y-2">
-                    <Skeleton className="h-4 w-48" />
-                    <Skeleton className="h-3 w-32" />
-                  </div>
-                  <Skeleton className="h-8 w-20" />
-                </div>
-              ))}
-            </div>
-          ) : filteredUsers.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <p className="text-muted-foreground">No users found</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>User</TableHead>
-                  <TableHead className="hidden md:table-cell">Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="hidden lg:table-cell">Last Login</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredUsers.map((user) => (
-                  <TableRow key={user.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src={user.avatar} alt={user.name} />
-                          <AvatarFallback>
-                            {user.name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="font-medium">{user.name}</p>
-                          <p className="text-xs text-muted-foreground md:hidden">{user.email}</p>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell text-muted-foreground">
-                      {user.email}
-                    </TableCell>
-                    <TableCell>{getRoleBadge(user.role)}</TableCell>
-                    <TableCell>
-                      <Badge variant={user.status === "active" ? "success" : "secondary"}>
-                        {user.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="hidden lg:table-cell text-muted-foreground">
-                      {user.lastLogin}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="icon">
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

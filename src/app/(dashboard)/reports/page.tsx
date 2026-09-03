@@ -18,11 +18,12 @@ import {
 export default function ReportsPage() {
   const [loading, setLoading] = React.useState(true);
   const [activeTab, setActiveTab] = React.useState("sales");
+  const [reportData, setReportData] = React.useState<any>(null);
 
   React.useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1000);
-    return () => clearTimeout(timer);
-  }, []);
+    fetch(`/api/reports?type=${activeTab}`).then(r=>r.json()).then(d=>{ setReportData(d); setLoading(false); }).catch(()=>setLoading(false));
+  }, [activeTab]);
+  const handleTab = (id:string)=>{ setLoading(true); setActiveTab(id); };
 
   const tabs = [
     { id: "sales", label: "Sales Reports", icon: BarChart3 },
@@ -57,7 +58,7 @@ export default function ReportsPage() {
       <Tabs defaultValue="sales">
         <TabsList>
           {tabs.map((tab) => (
-            <TabsTrigger key={tab.id} value={tab.id} active={activeTab === tab.id} onClick={() => setActiveTab(tab.id)}>
+            <TabsTrigger key={tab.id} value={tab.id} active={activeTab === tab.id} onClick={() => handleTab(tab.id)}>
               <tab.icon className="h-4 w-4 mr-2" />
               {tab.label}
             </TabsTrigger>
@@ -94,8 +95,8 @@ export default function ReportsPage() {
                     <BarChart3 className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">$45,231.89</div>
-                    <p className="text-xs text-muted-foreground">+20.1% from last month</p>
+                    <div className="text-2xl font-bold">{reportData ? new Intl.NumberFormat('en-UG',{style:'currency',currency:'UGX'}).format(reportData.aggregates?.totalRevenue ?? 0) : '—'}</div>
+                    <p className="text-xs text-muted-foreground">{reportData?.aggregates?.count ?? 0} transactions</p>
                   </CardContent>
                 </Card>
                 <Card>
@@ -104,8 +105,8 @@ export default function ReportsPage() {
                     <TrendingUp className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">$85.25</div>
-                    <p className="text-xs text-muted-foreground">+5.2% from last month</p>
+                    <div className="text-2xl font-bold">{reportData ? new Intl.NumberFormat('en-UG',{style:'currency',currency:'UGX'}).format(reportData.aggregates?.avgOrder ?? 0) : '—'}</div>
+                    <p className="text-xs text-muted-foreground">Avg per txn</p>
                   </CardContent>
                 </Card>
                 <Card>
@@ -114,8 +115,8 @@ export default function ReportsPage() {
                     <FileText className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">531</div>
-                    <p className="text-xs text-muted-foreground">+12.5% from last month</p>
+                    <div className="text-2xl font-bold">{reportData?.aggregates?.count ?? 0}</div>
+                    <p className="text-xs text-muted-foreground">Sales count</p>
                   </CardContent>
                 </Card>
               </div>
