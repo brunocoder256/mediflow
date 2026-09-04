@@ -62,12 +62,36 @@ interface PendingSale {
   synced_at?: string;
 }
 
+interface CachedPurchase {
+  id: string;
+  purchase_number?: string;
+  supplier_id: string;
+  branch_id: string;
+  status: string;
+  total?: number;
+  payload: Record<string, unknown>;
+  sync_status: "synced" | "pending" | "failed";
+  created_at: string;
+  updated_at?: string;
+  operation_id?: string;
+}
+
+interface CachedSupplier {
+  id: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  updated_at: string;
+}
+
 class MediFlowDB extends Dexie {
   products!: EntityTable<Product, "id">;
   batches!: EntityTable<Batch, "id">;
   cart!: EntityTable<CartItem, "id">;
   syncQueue!: EntityTable<SyncQueueEntry, "id">;
   pendingSales!: EntityTable<PendingSale, "id">;
+  cachedPurchases!: EntityTable<CachedPurchase, "id">;
+  cachedSuppliers!: EntityTable<CachedSupplier, "id">;
 
   constructor() {
     super("MediFlowDB");
@@ -80,12 +104,20 @@ class MediFlowDB extends Dexie {
       pendingSales: "id, operation_id, status",
     });
 
-    // v2 adds error field to syncQueue (backward compatible, no store change required for dexie v2)
-    // Dexie handles schema upgrades; keeping version 1 stores identical for now and adding implicit upgrade
-    // If browsers have v1, no migration needed as new fields are optional
+    this.version(2).stores({
+      products: "id, organization_id, barcode",
+      batches: "id, product_id, branch_id, expiry_date",
+      cart: "id, organization_id, branch_id",
+      syncQueue: "id, operation_id, status",
+      pendingSales: "id, operation_id, status",
+      cachedPurchases: "id, branch_id, supplier_id, status, sync_status",
+      cachedSuppliers: "id, name",
+    }).upgrade(async (tx) => {
+      // No data migration needed
+    });
   }
 }
 
 export const db = new MediFlowDB();
 
-export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale };
+export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier };

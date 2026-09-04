@@ -37,6 +37,52 @@ export async function queuePosSale(payload: Record<string, unknown>, operation_i
   });
 }
 
+export async function queuePurchaseCreate(payload: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  const id = crypto.randomUUID();
+  await db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "purchases",
+    operation: "create",
+    payload: { ...payload, _offlineId: id, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  });
+  // also cache locally for immediate UI
+  try{
+    await db.cachedPurchases.add({
+      id,
+      supplier_id: (payload as any).supplier_id ?? "",
+      branch_id: (payload as any).branch_id ?? "",
+      status: "DRAFT",
+      payload,
+      sync_status: "pending",
+      created_at: new Date().toISOString(),
+      operation_id: op,
+    });
+  }catch{}
+  return op;
+}
+
+export async function queuePurchaseReceive(payload: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  await db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "purchases",
+    operation: "update",
+    payload: { action: "receive", ...payload, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  });
+  return op;
+}
+
 export async function checkDuplicateOperation(operation_id: string): Promise<boolean> {
   const existing = await db.syncQueue.where("operation_id").equals(operation_id).first();
   if (existing) return true;
@@ -46,6 +92,14 @@ export async function checkDuplicateOperation(operation_id: string): Promise<boo
 
 export async function getPendingCount(): Promise<number> {
   return db.syncQueue.where("status").equals("pending").count();
+}
+
+export async function getPurchasePendingCount(): Promise<number> {
+  try{
+    const c = await db.cachedPurchases.where("sync_status").equals("pending").count();
+    const q = await db.syncQueue.where("table_name").equals("purchases").count();
+    return Math.max(c, q);
+  }catch{ return 0; }
 }
 
 export async function processSyncQueue(): Promise<{
@@ -62,7 +116,6 @@ export async function processSyncQueue(): Promise<{
     try {
       await db.syncQueue.update(entry.id, { status: "processing", last_attempt_at: new Date().toISOString() });
 
-      // Sales go to /api/sales (authoritative, idempotent via operation_id)
       let response: Response;
       if (entry.table_name === "sales") {
         response = await fetch("/api/sales", {
@@ -70,6 +123,37 @@ export async function processSyncQueue(): Promise<{
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(entry.payload),
         });
+      } else if (entry.table_name === "purchases") {
+        // purchases: route to /api/purchases with idempotency via operation_id
+        const payload: any = entry.payload;
+        // creation
+        if (entry.operation === "create" && !payload.action) {
+          response = await fetch("/api/purchases", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+        } else {
+          // receive or other actions
+          response = await fetch("/api/purchases", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+        }
+        // on success, mark cached purchase synced
+        if (response.ok) {
+          const op = (payload as any)._operationId ?? entry.operation_id;
+          const offId = (payload as any)._offlineId;
+          if (offId) {
+            try{ await db.cachedPurchases.update(offId, { sync_status: "synced" as any }); }catch{}
+          } else if (op) {
+            try{
+              const c = await db.cachedPurchases.where("operation_id").equals(op).first();
+              if(c) await db.cachedPurchases.update(c.id, { sync_status: "synced" as any });
+            }catch{}
+          }
+        }
       } else {
         response = await fetch("/api/sync", {
           method: "POST",
@@ -86,9 +170,8 @@ export async function processSyncQueue(): Promise<{
       const json = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        // Conflict/insufficient stock -> mark failed with reason (don't auto-retry forever)
         const msg: string = json?.error ?? `Sync failed: ${response.status}`;
-        const isConflict = /insufficient|stock|expired|unauthorized|branch/i.test(msg);
+        const isConflict = /insufficient|stock|expired|unauthorized|branch|duplicate/i.test(msg);
         const retries = entry.retries + 1;
         if (isConflict) {
           await db.syncQueue.update(entry.id, {
@@ -96,6 +179,12 @@ export async function processSyncQueue(): Promise<{
             retries,
             error: msg,
           } as any);
+          // also mark cached purchase failed
+          try{
+            const op = (entry.payload as any)._operationId ?? entry.operation_id;
+            const c = await db.cachedPurchases.where("operation_id").equals(op).first();
+            if(c) await db.cachedPurchases.update(c.id, { sync_status: "failed" as any });
+          }catch{}
         } else {
           await db.syncQueue.update(entry.id, {
             status: retries >= 3 ? "failed" : "pending",
@@ -107,7 +196,6 @@ export async function processSyncQueue(): Promise<{
         continue;
       }
 
-      // success or duplicate (200 with duplicate flag) -> remove
       await db.syncQueue.delete(entry.id);
       processed++;
     } catch (e: any) {
@@ -136,7 +224,6 @@ export function setupAutoSync(onUpdate?: () => void) {
     }
   };
   window.addEventListener("online", handler);
-  // periodic retry
   const interval = window.setInterval(handler, 15000);
   return () => {
     window.removeEventListener("online", handler);

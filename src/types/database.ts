@@ -15,8 +15,8 @@ export type MovementType = 'PURCHASE' | 'SALE' | 'SALE_RETURN' | 'PURCHASE_RETUR
 /** Current state of a sale. */
 export type SaleStatus = 'COMPLETED' | 'HELD' | 'VOIDED' | 'REFUNDED' | 'PARTIALLY_REFUNDED';
 
-/** Current state of a purchase order. */
-export type PurchaseStatus = 'DRAFT' | 'ORDERED' | 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'CANCELLED';
+/** Current state of a purchase order. Full pharmacy approval workflow. */
+export type PurchaseStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'SENT' | 'ORDERED' | 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'CLOSED' | 'CANCELLED';
 
 /** Accepted payment methods. */
 export type PaymentMethod = 'CASH' | 'MOBILE_MONEY' | 'CARD' | 'BANK' | 'OTHER';
@@ -345,6 +345,51 @@ export interface PurchaseItem {
     tax: number;
     subtotal: number;
     created_at: string;
+}
+
+/** Goods Received Note — one per receive transaction (GRN). */
+export interface GoodsReceipt {
+  id: string;
+  organization_id: string;
+  branch_id: string;
+  purchase_order_id: string;
+  grn_number: string;
+  status: 'DRAFT' | 'RECEIVED' | 'CANCELLED';
+  received_by: string | null;
+  received_at: string;
+  notes: string | null;
+  total_quantity: number;
+  total_value: number;
+  created_at: string;
+  updated_at: string;
+}
+export interface GoodsReceiptItem {
+  id: string;
+  goods_receipt_id: string;
+  purchase_item_id: string;
+  product_id: string;
+  batch_id: string | null;
+  quantity_received: number;
+  unit_cost: number;
+  batch_number: string | null;
+  expiry_date: string | null;
+  amount: number;
+  created_at: string;
+}
+
+/** Document attachment for a purchase/GRN (supplier invoice, delivery note, etc). */
+export interface PurchaseAttachment {
+  id: string;
+  organization_id: string;
+  purchase_order_id: string;
+  goods_receipt_id: string | null;
+  file_name: string;
+  file_url: string;
+  file_size: number | null;
+  mime_type: string | null;
+  document_type: 'SUPPLIER_INVOICE' | 'DELIVERY_NOTE' | 'PURCHASE_ORDER' | 'CREDIT_NOTE' | 'OTHER';
+  uploaded_by: string | null;
+  created_at: string;
 }
 
 /**
@@ -1055,6 +1100,21 @@ export interface Database {
         Row: Disposal;
         Insert: Omit<Disposal, 'id' | 'created_at' | 'updated_at'>;
         Update: Partial<Omit<Disposal, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      goods_receipts: {
+        Row: GoodsReceipt;
+        Insert: Omit<GoodsReceipt, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<GoodsReceipt, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      goods_receipt_items: {
+        Row: GoodsReceiptItem;
+        Insert: Omit<GoodsReceiptItem, 'id' | 'created_at'>;
+        Update: Partial<Omit<GoodsReceiptItem, 'id' | 'created_at'>>;
+      };
+      purchase_attachments: {
+        Row: PurchaseAttachment;
+        Insert: Omit<PurchaseAttachment, 'id' | 'created_at'>;
+        Update: Partial<Omit<PurchaseAttachment, 'id' | 'created_at'>>;
       };
     };
     Views: Record<string, never>;
