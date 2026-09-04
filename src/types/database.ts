@@ -476,17 +476,79 @@ export interface ReturnItem {
 }
 
 /**
- * Customer record.
+ * Customer record — 360 ERP-grade (spec sections 3-40).
  */
+export type CustomerType = 'INDIVIDUAL' | 'WALK_IN' | 'CORPORATE' | 'CLINIC' | 'HOSPITAL' | 'ORGANIZATION' | 'INSURANCE' | 'OTHER';
+export type CustomerStatus = 'ACTIVE' | 'INACTIVE' | 'BLOCKED';
 export interface Customer {
     id: string;
     organization_id: string;
+    customer_code: string | null;
+    customer_type: CustomerType;
     name: string;
+    first_name: string | null;
+    middle_name: string | null;
+    last_name: string | null;
+    display_name: string | null;
+    company_name: string | null;
     phone: string | null;
+    alternate_phone: string | null;
     email: string | null;
+    address: string | null;
+    city: string | null;
+    branch_id: string | null;
+    status: CustomerStatus;
+    external_reference: string | null;
+    tax_id: string | null;
+    credit_limit: number;
+    payment_terms: string | null;
+    loyalty_points: number;
+    preferred_contact: string | null;
+    sms_opt_in: boolean;
+    email_opt_in: boolean;
+    marketing_opt_in: boolean;
+    contact_person: string | null;
+    notes: string | null;
     is_active: boolean;
+    merged_into_id: string | null;
+    created_by: string | null;
+    updated_by: string | null;
     created_at: string;
     updated_at: string;
+}
+export interface CustomerNote {
+    id: string;
+    organization_id: string;
+    customer_id: string;
+    content: string;
+    author_id: string | null;
+    visibility: 'INTERNAL' | 'SHARED';
+    created_at: string;
+    updated_at: string;
+}
+export interface CustomerMerge {
+    id: string;
+    organization_id: string;
+    master_customer_id: string;
+    merged_customer_id: string;
+    merged_customer_snapshot: Record<string, unknown>;
+    merged_by: string | null;
+    reason: string | null;
+    sales_moved: number;
+    payments_moved: number;
+    returns_moved: number;
+    created_at: string;
+}
+export interface CustomerLoyaltyLedger {
+    id: string;
+    organization_id: string;
+    customer_id: string;
+    sale_id: string | null;
+    points: number;
+    type: 'EARNED' | 'REDEEMED' | 'ADJUSTMENT' | 'EXPIRED';
+    reference: string | null;
+    created_by: string | null;
+    created_at: string;
 }
 
 /**
@@ -1066,6 +1128,21 @@ export interface Database {
         Row: Customer;
         Insert: Omit<Customer, 'id' | 'created_at' | 'updated_at'>;
         Update: Partial<Omit<Customer, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      customer_notes: {
+        Row: CustomerNote;
+        Insert: Omit<CustomerNote, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<CustomerNote, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      customer_merges: {
+        Row: CustomerMerge;
+        Insert: Omit<CustomerMerge, 'id' | 'created_at'>;
+        Update: Partial<Omit<CustomerMerge, 'id' | 'created_at'>>;
+      };
+      customer_loyalty_ledger: {
+        Row: CustomerLoyaltyLedger;
+        Insert: Omit<CustomerLoyaltyLedger, 'id' | 'created_at'>;
+        Update: Partial<Omit<CustomerLoyaltyLedger, 'id' | 'created_at'>>;
       };
       expenses: {
         Row: Expense;

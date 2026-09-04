@@ -126,6 +126,23 @@ interface CachedExpense {
   created_at: string;
   updated_at?: string;
 }
+interface CachedCustomer {
+  id: string;
+  customer_code?: string | null;
+  name: string;
+  display_name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  branch_id?: string | null;
+  customer_type?: string | null;
+  status?: string | null;
+  is_active?: boolean;
+  payload: Record<string, unknown>;
+  sync_status: "synced" | "pending" | "failed" | "pending_sync";
+  operation_id?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
 
 class MediFlowDB extends Dexie {
   products!: EntityTable<Product, "id">;
@@ -137,6 +154,7 @@ class MediFlowDB extends Dexie {
   cachedSuppliers!: EntityTable<CachedSupplier, "id">;
   cachedReturns!: EntityTable<CachedReturn, "id">;
   cachedExpenses!: EntityTable<CachedExpense, "id">;
+  cachedCustomers!: EntityTable<CachedCustomer, "id">;
 
   constructor() {
     super("MediFlowDB");
@@ -199,9 +217,24 @@ class MediFlowDB extends Dexie {
     }).upgrade(async (tx) => {
       // v5 expenses offline
     });
+
+    this.version(6).stores({
+      products: "id, organization_id, barcode",
+      batches: "id, product_id, branch_id, expiry_date",
+      cart: "id, organization_id, branch_id",
+      syncQueue: "id, operation_id, status",
+      pendingSales: "id, operation_id, status",
+      cachedPurchases: "id, branch_id, supplier_id, status, sync_status",
+      cachedSuppliers: "id, name, supplier_code, status, sync_status",
+      cachedReturns: "id, branch_id, return_type, status, sync_status",
+      cachedExpenses: "id, branch_id, expense_number, approval_status, payment_status, sync_status",
+      cachedCustomers: "id, customer_code, name, phone, email, branch_id, sync_status",
+    }).upgrade(async (tx) => {
+      // v6 customers offline
+    });
   }
 }
 
 export const db = new MediFlowDB();
 
-export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier, CachedReturn, CachedExpense };
+export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier, CachedReturn, CachedExpense, CachedCustomer };

@@ -182,6 +182,22 @@ export async function queueExpenseCreate(payload: Record<string, unknown>): Prom
 export async function getExpensePendingCount(): Promise<number> {
   try{ const c=await db.cachedExpenses.where("sync_status").equals("pending").count(); const q=await db.syncQueue.where("table_name").equals("expenses").count(); return Math.max(c,q); }catch{return 0;}
 }
+export async function queueCustomerCreate(payload: Record<string, unknown>): Promise<string> {
+  const op=crypto.randomUUID(); const id=crypto.randomUUID();
+  await db.syncQueue.add({ id:crypto.randomUUID(), operation_id:op, table_name:"customers", operation:"create", payload:{...payload, _offlineId:id, _operationId:op}, status:"pending", created_at:new Date().toISOString(), retries:0, error:null });
+  try{
+    await db.cachedCustomers.add({ id, name: String((payload as any).display_name ?? (payload as any).name ?? "Customer"), display_name: String((payload as any).display_name ?? (payload as any).name ?? ""), phone: (payload as any).phone ?? null, email: (payload as any).email ?? null, branch_id: (payload as any).branch_id ?? null, customer_type: (payload as any).customer_type ?? "INDIVIDUAL", status:"ACTIVE", is_active:true, payload, sync_status:"pending", operation_id:op, created_at:new Date().toISOString()} as any);
+  }catch{}
+  return op;
+}
+export async function queueCustomerUpdate(id:string, payload: Record<string, unknown>): Promise<string>{
+  const op=crypto.randomUUID();
+  await db.syncQueue.add({ id:crypto.randomUUID(), operation_id:op, table_name:"customers", operation:"update", payload:{id, ...payload, _operationId:op}, status:"pending", created_at:new Date().toISOString(), retries:0, error:null });
+  return op;
+}
+export async function getCustomerPendingCount(): Promise<number>{
+  try{ const c=await db.cachedCustomers.where("sync_status").equals("pending").count(); const q=await db.syncQueue.where("table_name").equals("customers").count(); return Math.max(c,q);}catch{return 0;}
+}
 
 export async function processSyncQueue(): Promise<{
   processed: number;
@@ -249,6 +265,26 @@ export async function processSyncQueue(): Promise<{
           if(offId){ try{ await db.cachedExpenses.update(offId,{ sync_status:"synced" as any }); }catch{} }
           else if(op){ try{ const c=await db.cachedExpenses.where("operation_id").equals(op).first(); if(c) await db.cachedExpenses.update(c.id,{ sync_status:"synced" as any }); }catch{} }
         }
+      } else if (entry.table_name === "customers") {
+        const payload:any=entry.payload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId;
+        if(entry.operation==="create"){
+          response = await fetch("/api/customers",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, continue_anyway: false }) });
+        } else {
+          const cid=clean.id; delete clean.id;
+          response = await fetch("/api/customers",{ method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ id: cid, ...clean }) });
+        }
+        if(response.ok){
+          if(offId){ try{ await db.cachedCustomers.update(offId,{ sync_status:"synced" as any }); }catch{} }
+          else if(op){ try{ const c=await db.cachedCustomers.where("operation_id").equals(op).first(); if(c) await db.cachedCustomers.update(c.id,{ sync_status:"synced" as any }); }catch{} }
+        } else {
+          // duplicate detection — mark as failed not retry infinitely
+          const txt=await response.text().catch(()=> "");
+          if(txt.includes("similar customer") || response.status===409){
+            await db.syncQueue.update(entry.id,{ status:"failed", error:"Duplicate customer — review" } as any);
+            if(offId) try{ await db.cachedCustomers.update(offId,{ sync_status:"failed" as any }); }catch{}
+            failed++; continue;
+          }
+        }
       } else if (entry.table_name === "suppliers") {
         const payload: any = entry.payload;
         const offId = payload._offlineId;
@@ -315,6 +351,8 @@ export async function processSyncQueue(): Promise<{
             if(cr) await db.cachedReturns.update(cr.id, { sync_status: "failed" as any });
             const ce = await db.cachedExpenses.where("operation_id").equals(op).first();
             if(ce) await db.cachedExpenses.update(ce.id, { sync_status: "failed" as any });
+            const cc = await db.cachedCustomers.where("operation_id").equals(op).first();
+            if(cc) await db.cachedCustomers.update(cc.id, { sync_status: "failed" as any });
           }catch{}
         } else {
           await db.syncQueue.update(entry.id, {

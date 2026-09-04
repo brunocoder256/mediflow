@@ -53,6 +53,41 @@ function expiryLabel(expiry:string, warningDays:number){
   if(d<=warningDays) return { label:`⚠ Expires in ${d} days`, variant:'warning' as const, text:`Expires in ${d}d` };
   return null;
 }
+function NewCustomerInline({ onCreated, preserveCartNote }:{ onCreated:(c:any)=>void; preserveCartNote?:string }){
+  const [name,setName]=React.useState(""); const [phone,setPhone]=React.useState(""); const [email,setEmail]=React.useState(""); const [dup,setDup]=React.useState<any[]>([]); const [busy,setBusy]=React.useState(false);
+  const checkDup=React.useCallback(async()=>{
+    if(!phone && !email && !name) { setDup([]); return; }
+    const p=new URLSearchParams(); if(phone) p.set("phone",phone); if(email) p.set("email",email); if(name) p.set("name",name);
+    try{ const r=await fetch(`/api/customers?check=1&${p.toString()}`); const j=await r.json(); if(Array.isArray(j)) setDup(j); }catch{}
+  },[phone,email,name]);
+  React.useEffect(()=>{ const t=setTimeout(checkDup,400); return()=>clearTimeout(t); },[checkDup]);
+  const save=async(force=false)=>{
+    if(!name.trim()) return alert("Name required");
+    setBusy(true);
+    try{
+      if(!force && dup.length>0){ alert("A similar customer already exists — choose View Existing or Continue Anyway"); setBusy(false); return; }
+      const payload:any={ display_name: name.trim(), name: name.trim(), phone: phone||null, email: email||null, customer_type:"INDIVIDUAL", continue_anyway: force };
+      const r=await fetch("/api/customers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      const j=await r.json();
+      if(r.status===409 && j.duplicate_detected){ setDup(j.duplicates ?? []); setBusy(false); return; }
+      if(!r.ok) throw new Error(j.error);
+      setName(""); setPhone(""); setEmail(""); setDup([]); onCreated(j);
+    }catch(e:any){ alert(e.message); }
+    setBusy(false);
+  };
+  return (
+    <div className="space-y-2">
+      {dup.length>0 && <div className="border border-amber-300 bg-amber-50 rounded p-2 text-xs"><p className="font-medium flex items-center gap-1"><AlertTriangle className="h-3 w-3"/> A similar customer already exists.</p>{dup.map((d:any)=><div key={d.id} className="flex justify-between bg-white border rounded p-1 mt-1"><span>{d.display_name ?? d.name} • {d.phone}</span><button onClick={()=>onCreated(d)} className="text-primary underline">View Existing</button></div>)}</div>}
+      <Input placeholder="Name *" value={name} onChange={e=>setName(e.target.value)} />
+      <div className="flex gap-2"><Input placeholder="Phone" value={phone} onChange={e=>setPhone(e.target.value)} className="flex-1"/><Input placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} className="flex-1"/></div>
+      <div className="flex gap-2">
+        <Button size="sm" onClick={()=>save(false)} disabled={!name.trim()||busy} className="flex-1">{busy?"Saving...":"Save"}</Button>
+        {dup.length>0 && <Button size="sm" variant="outline" onClick={()=>save(true)} disabled={busy} className="flex-1">Continue Anyway</Button>}
+      </div>
+      {preserveCartNote && <p className="text-xs text-muted-foreground">{preserveCartNote}</p>}
+    </div>
+  );
+}
 
 export default function PosPage(){
   const [products, setProducts] = React.useState<Product[]>([]);
@@ -769,12 +804,12 @@ export default function PosPage(){
         </DialogContent>
       </Dialog>
 
-      {/* Customer picker */}
+      {/* Customer picker — POS fast create without losing cart */}
       <Dialog open={showCustomer} onOpenChange={setShowCustomer}>
         <DialogContent>
           <DialogHeader><DialogTitle>Select Customer — optional</DialogTitle></DialogHeader>
           <Input placeholder="Search name/phone/email" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} autoFocus/>
-          <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+          <div className="space-y-2 max-h-[32vh] overflow-y-auto">
             <button onClick={()=>{setSelectedCustomer(null); setShowCustomer(false);}} className="w-full text-left border rounded p-3 hover:bg-accent flex items-center justify-between">
               <span>Walk-in Customer</span><Badge variant="secondary">Default</Badge>
             </button>
@@ -783,6 +818,12 @@ export default function PosPage(){
                 <p className="font-medium">{c.name}</p><p className="text-xs text-muted-foreground">{c.phone ?? ''} {c.email ? `· ${c.email}`:''}</p>
               </button>
             ))}
+            {customers.length===0 && customerSearch.trim() && <p className="text-xs text-muted-foreground text-center py-2">No match — create new customer below</p>}
+          </div>
+          {/* Inline new customer — preserves cart */}
+          <div className="border-t pt-3 space-y-2">
+            <p className="text-sm font-medium">+ New Customer (fast, returns to cart)</p>
+            <NewCustomerInline onCreated={(c:any)=>{ setSelectedCustomer(c); setCustomers(prev=>[...prev, c]); setShowCustomer(false); }} preserveCartNote="Cart preserved — sale continues" />
           </div>
           <Button variant="outline" onClick={()=>setShowCustomer(false)}>Close</Button>
         </DialogContent>
