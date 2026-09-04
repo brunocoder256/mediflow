@@ -51,12 +51,27 @@ export async function getCOGSReport(params: { branch_id?: string; date_from?: st
 export async function getNetProfitReport(params: { branch_id?: string; date_from?: string; date_to?: string } = {}) {
   const cogsReport = await getCOGSReport(params);
   const sb: any = await getSB();
-  let expQ = sb.from('expenses').select('amount').eq('status','APPROVED');
+  let expQ = sb.from('expenses').select('total_amount, amount, posting_status, approval_status, is_reversal').eq('organization_id', await getOrgId());
+  // Approved + Posted, not reversed/cancelled — real operating expenses
+  expQ = expQ.eq('posting_status','POSTED').eq('approval_status','APPROVED');
   if (params.branch_id) expQ = expQ.eq('branch_id', params.branch_id);
   if (params.date_from) expQ = expQ.gte('expense_date', params.date_from);
   if (params.date_to) expQ = expQ.lte('expense_date', params.date_to);
-  const { data: exps } = await expQ;
-  const totalExpenses = (exps ?? []).reduce((s:any,e:any)=>s+Number(e.amount),0);
+  const { data: exps, error } = await expQ;
+  let totalExpenses = 0;
+  if (!error && exps) {
+    totalExpenses = (exps ?? []).filter((e:any)=> !e.is_reversal).reduce((s:any,e:any)=> s + Number(e.total_amount ?? e.amount),0);
+    const reversals = (exps ?? []).filter((e:any)=> e.is_reversal).reduce((s:any,e:any)=> s + Number(e.total_amount ?? 0),0);
+    totalExpenses = roundToCents(totalExpenses + reversals); // reversals are negative
+  } else {
+    // fallback legacy
+    let q2 = sb.from('expenses').select('amount').eq('status','APPROVED');
+    if (params.branch_id) q2 = q2.eq('branch_id', params.branch_id);
+    if (params.date_from) q2 = q2.gte('expense_date', params.date_from);
+    if (params.date_to) q2 = q2.lte('expense_date', params.date_to);
+    const { data: exps2 } = await q2;
+    totalExpenses = (exps2 ?? []).reduce((s:any,e:any)=>s+Number(e.amount),0);
+  }
   const netProfit = calcNetProfit(cogsReport.grossProfit, totalExpenses);
   return { ...cogsReport, totalExpenses: roundToCents(totalExpenses), netProfit };
 }
@@ -85,13 +100,14 @@ export async function getSupplierHistory(supplierId: string, params: { branch_id
 
 export async function getExpenseSummary(params: { branch_id?: string; date_from?: string; date_to?: string; groupBy?: 'category'|'branch' } = {}) {
   const sb:any = await getSB();
-  let q = sb.from('expenses').select('amount, category, branch_id, expense_date');
+  let q = sb.from('expenses').select('total_amount, amount, category, branch_id, expense_date, posting_status, is_reversal');
   if (params.branch_id) q = q.eq('branch_id', params.branch_id);
   if (params.date_from) q = q.gte('expense_date', params.date_from);
   if (params.date_to) q = q.lte('expense_date', params.date_to);
   const { data } = await q;
-  const total = (data??[]).reduce((s:any,e:any)=>s+Number(e.amount),0);
+  const filtered = (data??[]).filter((e:any)=> !e.is_reversal && e.posting_status!=='REVERSED');
+  const total = filtered.reduce((s:any,e:any)=>s+Number(e.total_amount ?? e.amount),0);
   const byCategory: Record<string,number> = {};
-  for (const e of (data??[])) byCategory[e.category] = (byCategory[e.category]??0)+Number(e.amount);
-  return { total: roundToCents(total), count: (data??[]).length, byCategory };
+  for (const e of filtered) byCategory[e.category] = (byCategory[e.category]??0)+Number(e.total_amount ?? e.amount);
+  return { total: roundToCents(total), count: filtered.length, byCategory };
 }

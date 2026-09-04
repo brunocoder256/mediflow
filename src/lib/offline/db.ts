@@ -108,6 +108,25 @@ interface CachedSupplier {
   updated_at: string;
 }
 
+interface CachedExpense {
+  id: string;
+  expense_number?: string | null;
+  branch_id: string;
+  category?: string | null;
+  category_id?: string | null;
+  supplier_id?: string | null;
+  amount?: number;
+  total_amount?: number;
+  expense_date: string;
+  approval_status: string;
+  payment_status: string;
+  payload: Record<string, unknown>;
+  sync_status: "synced" | "pending" | "failed" | "pending_sync";
+  operation_id?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
 class MediFlowDB extends Dexie {
   products!: EntityTable<Product, "id">;
   batches!: EntityTable<Batch, "id">;
@@ -117,6 +136,7 @@ class MediFlowDB extends Dexie {
   cachedPurchases!: EntityTable<CachedPurchase, "id">;
   cachedSuppliers!: EntityTable<CachedSupplier, "id">;
   cachedReturns!: EntityTable<CachedReturn, "id">;
+  cachedExpenses!: EntityTable<CachedExpense, "id">;
 
   constructor() {
     super("MediFlowDB");
@@ -165,9 +185,23 @@ class MediFlowDB extends Dexie {
     }).upgrade(async (tx) => {
       // v4 returns offline
     });
+
+    this.version(5).stores({
+      products: "id, organization_id, barcode",
+      batches: "id, product_id, branch_id, expiry_date",
+      cart: "id, organization_id, branch_id",
+      syncQueue: "id, operation_id, status",
+      pendingSales: "id, operation_id, status",
+      cachedPurchases: "id, branch_id, supplier_id, status, sync_status",
+      cachedSuppliers: "id, name, supplier_code, status, sync_status",
+      cachedReturns: "id, branch_id, return_type, status, sync_status",
+      cachedExpenses: "id, branch_id, expense_number, approval_status, payment_status, sync_status",
+    }).upgrade(async (tx) => {
+      // v5 expenses offline
+    });
   }
 }
 
 export const db = new MediFlowDB();
 
-export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier, CachedReturn };
+export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier, CachedReturn, CachedExpense };

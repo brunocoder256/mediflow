@@ -490,20 +490,98 @@ export interface Customer {
 }
 
 /**
- * Business expense entry.
+ * Business expense entry — ERP-grade (spec sections 3-40).
  */
 export interface Expense {
     id: string;
     organization_id: string;
     branch_id: string;
-    category: ExpenseCategory;
+    expense_number: string | null;
+    category: string | null;
+    category_id: string | null;
+    subcategory_id: string | null;
+    supplier_id: string | null;
     description: string;
+    reference_number: string | null;
     amount: number;
-    payment_method: PaymentMethod | null;
+    tax_amount: number | null;
+    total_amount: number | null;
+    currency: string | null;
+    exchange_rate: number | null;
+    payment_method: PaymentMethod | string | null;
+    payment_account_id: string | null;
+    payment_status: string | null;
+    approval_status: string | null;
+    posting_status: string | null;
     expense_date: string;
     created_by: string;
+    submitted_by: string | null;
+    approved_by: string | null;
+    paid_by: string | null;
+    paid_at: string | null;
+    payment_date: string | null;
+    notes: string | null;
+    reversal_of: string | null;
+    reversal_reason: string | null;
+    idempotency_key: string | null;
+    is_reversal: boolean | null;
+    tax_inclusive: boolean | null;
+    status?: string | null;
+    receipt_reference?: string | null;
     created_at: string;
     updated_at: string;
+}
+
+export interface ExpenseCategoryRow {
+  id: string;
+  organization_id: string;
+  name: string;
+  code: string;
+  parent_id: string | null;
+  account_mapping: string | null;
+  tax_treatment: string | null;
+  is_active: boolean;
+  branch_id: string | null;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExpenseLine {
+  id: string;
+  expense_id: string;
+  organization_id: string;
+  category_id: string | null;
+  description: string | null;
+  amount: number;
+  tax_amount: number;
+  total_amount: number;
+  created_at: string;
+}
+
+export interface ExpenseAttachment {
+  id: string;
+  organization_id: string;
+  expense_id: string;
+  file_name: string;
+  file_url: string;
+  file_size: number | null;
+  mime_type: string | null;
+  document_type: string;
+  uploaded_by: string | null;
+  created_at: string;
+}
+
+export interface ExpenseApproval {
+  id: string;
+  organization_id: string;
+  expense_id: string;
+  action: string;
+  actor_id: string | null;
+  reason: string | null;
+  previous_status: string | null;
+  new_status: string | null;
+  created_at: string;
 }
 
 /**
@@ -1115,6 +1193,26 @@ export interface Database {
         Row: PurchaseAttachment;
         Insert: Omit<PurchaseAttachment, 'id' | 'created_at'>;
         Update: Partial<Omit<PurchaseAttachment, 'id' | 'created_at'>>;
+      };
+      expense_categories: {
+        Row: ExpenseCategoryRow;
+        Insert: Omit<ExpenseCategoryRow, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<ExpenseCategoryRow, 'id' | 'created_at' | 'updated_at'>>;
+      };
+      expense_lines: {
+        Row: ExpenseLine;
+        Insert: Omit<ExpenseLine, 'id' | 'created_at'>;
+        Update: Partial<Omit<ExpenseLine, 'id' | 'created_at'>>;
+      };
+      expense_attachments: {
+        Row: ExpenseAttachment;
+        Insert: Omit<ExpenseAttachment, 'id' | 'created_at'>;
+        Update: Partial<Omit<ExpenseAttachment, 'id' | 'created_at'>>;
+      };
+      expense_approvals: {
+        Row: ExpenseApproval;
+        Insert: Omit<ExpenseApproval, 'id' | 'created_at'>;
+        Update: Partial<Omit<ExpenseApproval, 'id' | 'created_at'>>;
       };
     };
     Views: Record<string, never>;

@@ -171,6 +171,18 @@ export async function getPurchasePendingCount(): Promise<number> {
   }catch{ return 0; }
 }
 
+export async function queueExpenseCreate(payload: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID(); const id=crypto.randomUUID();
+  await db.syncQueue.add({ id: crypto.randomUUID(), operation_id: op, table_name: "expenses", operation: "create", payload: { ...payload, _offlineId:id, _operationId:op, idempotency_key: op }, status:"pending", created_at:new Date().toISOString(), retries:0, error:null });
+  try{
+    await db.cachedExpenses.add({ id, branch_id: String((payload as any).branch_id ?? ""), category: String((payload as any).category ?? ""), category_id: (payload as any).category_id ?? null, supplier_id: (payload as any).supplier_id ?? null, amount: Number((payload as any).amount ?? 0), total_amount: Number((payload as any).amount ?? 0)+Number((payload as any).tax_amount??0), expense_date: String((payload as any).expense_date ?? new Date().toISOString().slice(0,10)), approval_status:"DRAFT", payment_status:"UNPAID", payload, sync_status:"pending", operation_id:op, created_at:new Date().toISOString() } as any);
+  }catch{}
+  return op;
+}
+export async function getExpensePendingCount(): Promise<number> {
+  try{ const c=await db.cachedExpenses.where("sync_status").equals("pending").count(); const q=await db.syncQueue.where("table_name").equals("expenses").count(); return Math.max(c,q); }catch{return 0;}
+}
+
 export async function processSyncQueue(): Promise<{
   processed: number;
   failed: number;
@@ -229,6 +241,13 @@ export async function processSyncQueue(): Promise<{
         if(response.ok){
           if(offId){ try{ await db.cachedReturns.update(offId,{ sync_status:"synced" as any }); }catch{} }
           else if(op){ try{ const c=await db.cachedReturns.where("operation_id").equals(op).first(); if(c) await db.cachedReturns.update(c.id,{ sync_status:"synced" as any }); }catch{} }
+        }
+      } else if (entry.table_name === "expenses") {
+        const payload:any=entry.payload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId; // keep idempotency_key
+        response = await fetch("/api/expenses",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, idempotency_key: op }) });
+        if(response.ok){
+          if(offId){ try{ await db.cachedExpenses.update(offId,{ sync_status:"synced" as any }); }catch{} }
+          else if(op){ try{ const c=await db.cachedExpenses.where("operation_id").equals(op).first(); if(c) await db.cachedExpenses.update(c.id,{ sync_status:"synced" as any }); }catch{} }
         }
       } else if (entry.table_name === "suppliers") {
         const payload: any = entry.payload;
@@ -294,6 +313,8 @@ export async function processSyncQueue(): Promise<{
             if(cs) await db.cachedSuppliers.update(cs.id, { sync_status: "failed" as any });
             const cr = await db.cachedReturns.where("operation_id").equals(op).first();
             if(cr) await db.cachedReturns.update(cr.id, { sync_status: "failed" as any });
+            const ce = await db.cachedExpenses.where("operation_id").equals(op).first();
+            if(ce) await db.cachedExpenses.update(ce.id, { sync_status: "failed" as any });
           }catch{}
         } else {
           await db.syncQueue.update(entry.id, {
