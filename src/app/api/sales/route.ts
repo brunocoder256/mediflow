@@ -13,10 +13,22 @@ export async function GET(request: Request) {
         const payment_method = searchParams.get('payment_method') ?? undefined;
         const date_from = searchParams.get('date_from') ?? searchParams.get('dateFrom') ?? undefined;
         const date_to = searchParams.get('date_to') ?? searchParams.get('dateTo') ?? undefined;
-        const search = searchParams.get('search') ?? undefined;
+        const search = searchParams.get('search') ?? searchParams.get('q') ?? undefined;
         const page = parseInt(searchParams.get('page') ?? '1');
         const perPage = parseInt(searchParams.get('perPage') ?? '20');
         const id = searchParams.get('id');
+        const kpi = searchParams.get('kpi');
+        const product_id = searchParams.get('product_id') ?? undefined;
+        const batch_id = searchParams.get('batch_id') ?? undefined;
+        const category_id = searchParams.get('category_id') ?? undefined;
+        const amount_min = searchParams.get('amount_min') ? Number(searchParams.get('amount_min')) : undefined;
+        const amount_max = searchParams.get('amount_max') ? Number(searchParams.get('amount_max')) : undefined;
+
+        if (kpi === '1'){
+            const { getSalesKPIs } = await import('@/lib/services/sales');
+            const data = await getSalesKPIs(branch_id);
+            return NextResponse.json(data);
+        }
 
         if (id) {
             const data = await getSaleById(id);
@@ -24,9 +36,9 @@ export async function GET(request: Request) {
         }
 
         // Use advanced history query if any advanced filter present
-        if (customer_id || cashier_id || payment_method || date_from || date_to || search) {
+        if (customer_id || cashier_id || payment_method || date_from || date_to || search || product_id || batch_id || category_id || amount_min || amount_max || status || branch_id) {
             const { getSalesHistory } = await import('@/lib/services/sales');
-            const data = await getSalesHistory({ branch_id, page, perPage, customer_id, cashier_id, payment_method, status, date_from, date_to, search } as any);
+            const data = await getSalesHistory({ branch_id, page, perPage, customer_id, cashier_id, payment_method, status, date_from, date_to, search, product_id, batch_id, category_id, amount_min, amount_max } as any);
             return NextResponse.json(data);
         }
 

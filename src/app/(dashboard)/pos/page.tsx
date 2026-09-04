@@ -82,6 +82,8 @@ export default function PosPage(){
   const [showClear,setShowClear]=React.useState(false);
   const [showBatch,setShowBatch]=React.useState<CartItem|null>(null);
   const [saleDiscount,setSaleDiscount]=React.useState<number>(0);
+  const [splitMode,setSplitMode]=React.useState(false);
+  const [splitPayments,setSplitPayments]=React.useState<Array<{id:string; method:'CASH'|'MOBILE_MONEY'|'CARD'|'BANK'|'OTHER'; amount:string; reference:string}>>([]);
   const [categoryFilter,setCategoryFilter]=React.useState<string>("all");
   const [categories,setCategories]=React.useState<any[]>([]);
   const {isOnline}=useOnlineStatus();
@@ -260,19 +262,36 @@ export default function PosPage(){
     setCart(c=> c.map(x=> x.product_id===id ? {...x, discount: n, discount_type:type}:x));
   };
   const removeItem=(id:string)=> setCart(c=>c.filter(x=>x.product_id!==id));
-  const clearCart=()=>{ setCart([]); setSaleDiscount(0); setShowClear(false); };
+  const clearCart=()=>{ setCart([]); setSaleDiscount(0); setShowClear(false); setSplitPayments([]); setSplitMode(false); };
 
   const subtotal = React.useMemo(()=> cart.reduce((s,x)=>{
     const disc = x.discount_type==='percent' ? Math.round(x.quantity*x.unit_price*x.discount/100*100)/100 : x.discount;
     return s + x.quantity*x.unit_price - disc;
   },0),[cart]);
   const totalAfterSaleDisc = Math.max(0, Math.round((subtotal - saleDiscount)*100)/100);
-  const change = paymentMethod==='CASH' && amountReceived ? Math.max(0, Math.round((Number(amountReceived||0) - totalAfterSaleDisc)*100)/100) : 0;
+  const change = (()=> {
+    if(splitMode){
+      const cashSum = splitPayments.filter(p=>p.method==='CASH').reduce((s,p)=> s+Number(p.amount||0),0);
+      const totalPaid = splitPayments.reduce((s,p)=> s+Number(p.amount||0),0);
+      if(cashSum>0 && totalPaid>=totalAfterSaleDisc) return Math.max(0, Math.round((cashSum - Math.max(0, totalAfterSaleDisc - (totalPaid - cashSum)))*100)/100);
+      return 0;
+    }
+    return paymentMethod==='CASH' && amountReceived ? Math.max(0, Math.round((Number(amountReceived||0) - totalAfterSaleDisc)*100)/100) : 0;
+  })();
 
   const canPay = (()=> {
     if(!cart.length) return false;
     if(busy) return false;
     if(!branchId) return false;
+    if(splitMode){
+      const sum = splitPayments.reduce((s,p)=> s+Number(p.amount||0),0);
+      if(sum < totalAfterSaleDisc - 0.01) return false;
+      if(splitPayments.some(p=> !p.amount || Number(p.amount)<=0)) return false;
+      if(splitPayments.some(p=> p.method!=='CASH' && !p.reference.trim())) return false;
+      if(splitPayments.some(p=> p.method==='CASH') && !cashSession) return false;
+      if(splitPayments.length===0) return false;
+      return true;
+    }
     if(paymentMethod==='CASH'){
       const recv=Number(amountReceived||0);
       if(!amountReceived || recv < totalAfterSaleDisc - 0.01) return false;
@@ -286,12 +305,23 @@ export default function PosPage(){
     if(!cart.length || !branchId) return;
     try{
       const op=crypto.randomUUID();
-      const payload={ branch_id:branchId, items: cart.map(c=>({product_id:c.product_id, quantity:c.quantity, discount:c.discount, discount_type:c.discount_type})), payments:[{method:'CASH',amount: totalAfterSaleDisc}], held:true, operation_id: op };
+      let itemsForHold: any;
+      if(saleDiscount>0 && subtotal>0){
+        let rem=saleDiscount;
+        itemsForHold = cart.map((c, idx)=>{
+          const lineDisc = c.discount_type==='percent' ? Math.round(c.quantity*c.unit_price*(c.discount/100)*100)/100 : c.discount;
+          const lineTotal=c.quantity*c.unit_price - lineDisc;
+          const share= idx===cart.length-1 ? Math.round(rem*100)/100 : Math.round((lineTotal/subtotal)*saleDiscount*100)/100;
+          rem=Math.round((rem-share)*100)/100;
+          return {product_id:c.product_id, quantity:c.quantity, discount: Math.round((lineDisc+share)*100)/100, discount_type:'fixed'};
+        });
+      } else itemsForHold = cart.map(c=>({product_id:c.product_id, quantity:c.quantity, discount:c.discount, discount_type:c.discount_type}));
+      const payload={ branch_id:branchId, items: itemsForHold, payments:[{method:'CASH',amount: totalAfterSaleDisc}], held:true, operation_id: op };
       const r=await fetch("/api/sales",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
       const j=await r.json();
       if(!r.ok) throw new Error(j.error ?? 'Hold failed');
       setHeld(h=>[...h, j.sale]);
-      setCart([]); setSaleDiscount(0);
+      setCart([]); setSaleDiscount(0); setSplitPayments([]); setSplitMode(false);
     }catch(e:any){ alert(e.message); }
   };
 
@@ -328,21 +358,40 @@ export default function PosPage(){
     if(!cart.length || !branchId) return;
     setBusy(true);
     const op=crypto.randomUUID();
+    // distribute sale-level discount proportionally as fixed discounts so server total matches totalAfterSaleDisc
+    let itemsForPayload: Array<{product_id:string; quantity:number; discount:number; discount_type:'fixed'|'percent'}>;
+    if(saleDiscount>0 && subtotal>0){
+      let remaining=saleDiscount;
+      itemsForPayload = cart.map((c, idx)=>{
+        const lineDiscFixed = c.discount_type==='percent' ? Math.round(c.quantity*c.unit_price*(c.discount/100)*100)/100 : c.discount;
+        const lineTotal = c.quantity*c.unit_price - lineDiscFixed;
+        const share = idx===cart.length-1 ? Math.round(remaining*100)/100 : Math.round((lineTotal/subtotal)*saleDiscount*100)/100;
+        remaining = Math.round((remaining - share)*100)/100;
+        const totalDisc = Math.round((lineDiscFixed + share)*100)/100;
+        return { product_id:c.product_id, quantity:c.quantity, discount: totalDisc, discount_type: 'fixed' as const };
+      });
+    } else {
+      itemsForPayload = cart.map(c=>({product_id:c.product_id, quantity:c.quantity, discount:c.discount, discount_type:c.discount_type ?? 'fixed'}));
+    }
+    let paymentsForPayload: Array<{method:'CASH'|'MOBILE_MONEY'|'CARD'|'BANK'|'OTHER'; amount:number; reference?:string}>;
+    if(splitMode && splitPayments.length){
+      paymentsForPayload = splitPayments.map(p=>({ method:p.method, amount: Math.round(Number(p.amount||0)*100)/100, reference: p.method!=='CASH' ? p.reference || undefined : undefined }));
+    } else {
+      paymentsForPayload = [{method:paymentMethod, amount: Math.round(totalAfterSaleDisc*100)/100, reference: paymentMethod!=='CASH' ? paymentRef || undefined : undefined}];
+    }
     const payload={
       branch_id: branchId,
       customer_id: selectedCustomer?.id || undefined,
-      items: cart.map(c=>({product_id:c.product_id, quantity:c.quantity, discount:c.discount, discount_type:c.discount_type})),
-      payments: [{method:paymentMethod, amount: totalAfterSaleDisc, reference: paymentMethod!=='CASH' ? paymentRef || undefined : undefined}],
+      items: itemsForPayload,
+      payments: paymentsForPayload,
       operation_id: op
     };
-    // add sale-level discount if any -> distribute? For now add as discount on first item proportionally? Server doesn't support sale-level discount param, so distribute evenly
-    // We'll keep saleDiscount as sale-level discount applied via first item discount increase
     // Offline queue
     if(!isOnline){
       try{
         await queuePosSale(payload as any, op);
         setPendingCount(await db.syncQueue.where("status").equals("pending").count());
-        setCart([]); setSaleDiscount(0); setShowPay(false); setAmountReceived(""); setPaymentRef("");
+        setCart([]); setSaleDiscount(0); setShowPay(false); setAmountReceived(""); setPaymentRef(""); setSplitPayments([]); setSplitMode(false);
         alert('OFFLINE — sale queued with operation_id ' + op + '. Will sync when online. Server validates stock & prevents duplicates.');
       }catch(e:any){ alert('Queue failed: '+e.message); }
       setBusy(false);
@@ -361,8 +410,9 @@ export default function PosPage(){
       }
       // server returns allocations in items
       const saleItems = j.items ?? cart.map(c=>({ ...c, batch_id: null }));
-      setReceiptData({ sale: j.sale, items: saleItems, total: j.saleTotal ?? totalAfterSaleDisc, subtotal: j.saleSubtotal ?? subtotal, branchId, paymentMethod, change, customer: selectedCustomer?.name });
-      setCart([]); setSaleDiscount(0); setShowPay(false); setAmountReceived(""); setPaymentRef("");
+      const paySummary = splitMode && splitPayments.length ? splitPayments.map(p=>`${p.method}:${formatUGX(Number(p.amount))}${p.reference?`(${p.reference})`:''}`).join(' + ') : paymentMethod;
+      setReceiptData({ sale: j.sale, items: saleItems, total: j.saleTotal ?? totalAfterSaleDisc, subtotal: j.saleSubtotal ?? subtotal, branchId, paymentMethod: paySummary, change, customer: selectedCustomer?.name });
+      setCart([]); setSaleDiscount(0); setShowPay(false); setAmountReceived(""); setPaymentRef(""); setSplitPayments([]); setSplitMode(false);
       // refresh products (stock)
       fetchProducts(branchId);
       const c=await db.syncQueue.where("status").equals("pending").count(); setPendingCount(c);
@@ -626,44 +676,73 @@ export default function PosPage(){
         </Sheet>
       </div>
 
-      {/* Desktop pay dialog */}
+      {/* Desktop pay dialog — supports split payments (Cash + Mobile etc.) */}
       <Dialog open={showPay} onOpenChange={setShowPay}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Complete Sale — {formatUGX(totalAfterSaleDisc)}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="rounded border p-3 bg-muted/10 text-sm space-y-1">
               <div className="flex justify-between"><span>Items</span><span>{totalItems}</span></div>
               <div className="flex justify-between"><span>Subtotal</span><span>{formatUGX(subtotal)}</span></div>
+              {saleDiscount>0 && <div className="flex justify-between text-green-600"><span>Sale discount</span><span>-{formatUGX(saleDiscount)}</span></div>}
               <div className="flex justify-between font-bold"><span>Total</span><span>{formatUGX(totalAfterSaleDisc)}</span></div>
+              {splitMode && <div className="flex justify-between text-xs"><span>Paid (split)</span><span>{formatUGX(splitPayments.reduce((s,p)=>s+Number(p.amount||0),0))} / {formatUGX(totalAfterSaleDisc)}</span></div>}
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <Button variant={paymentMethod==='CASH'?"default":"outline"} onClick={()=>setPaymentMethod('CASH')}><Banknote className="h-4 w-4 mr-1"/>Cash</Button>
-              <Button variant={paymentMethod==='MOBILE_MONEY'?"default":"outline"} onClick={()=>setPaymentMethod('MOBILE_MONEY')}><Smartphone className="h-4 w-4 mr-1"/>Mobile Money</Button>
-              <Button variant={paymentMethod==='CARD'?"default":"outline"} onClick={()=>setPaymentMethod('CARD')}><CreditCard className="h-4 w-4 mr-1"/>Card</Button>
+
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={splitMode} onChange={e=>{ setSplitMode(e.target.checked); if(e.target.checked && splitPayments.length===0){ setSplitPayments([{id:crypto.randomUUID(), method:'CASH', amount:String(totalAfterSaleDisc), reference:''},{id:crypto.randomUUID(), method:'MOBILE_MONEY', amount:'', reference:''}]); } }}/> Split payment (e.g. Cash 20k + Mobile 30k)</label>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Button variant={paymentMethod==='BANK'?"default":"outline"} size="sm" onClick={()=>setPaymentMethod('BANK')}>Bank</Button>
-              <Button variant={paymentMethod==='OTHER'?"default":"outline"} size="sm" onClick={()=>setPaymentMethod('OTHER')}>Other</Button>
-            </div>
-            {paymentMethod==='CASH' ? (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Amount Received</label>
-                <Input type="number" value={amountReceived} onChange={e=>setAmountReceived(e.target.value)} placeholder="UGX" autoFocus/>
-                <div className="flex justify-between text-sm"><span>Change</span><span className="font-bold text-green-600">{formatUGX(change)}</span></div>
-                {!cashSession && <p className="text-sm text-amber-600 flex items-center gap-1"><AlertTriangle className="h-4 w-4"/> No open cash session</p>}
-                {amountReceived && Number(amountReceived) < totalAfterSaleDisc && <p className="text-sm text-destructive">Received must be ≥ Total</p>}
+
+            {splitMode ? (
+              <div className="space-y-3">
+                {splitPayments.map((sp, idx)=>(
+                  <div key={sp.id} className="border rounded p-2 space-y-2">
+                    <div className="flex gap-2">
+                      <Select value={sp.method} onChange={e=> setSplitPayments(a=> a.map(x=> x.id===sp.id ? {...x, method:e.target.value as any}:x))} className="w-[140px]"><option value="CASH">Cash</option><option value="MOBILE_MONEY">Mobile Money</option><option value="CARD">Card</option><option value="BANK">Bank</option><option value="OTHER">Other</option></Select>
+                      <Input placeholder="Amount" type="number" value={sp.amount} onChange={e=> setSplitPayments(a=> a.map(x=> x.id===sp.id ? {...x, amount:e.target.value}:x))} className="flex-1"/>
+                      <Button variant="ghost" size="icon" onClick={()=> setSplitPayments(a=> a.filter(x=>x.id!==sp.id))} disabled={splitPayments.length<=1}><Trash2 className="h-4 w-4"/></Button>
+                    </div>
+                    {sp.method!=='CASH' && <Input placeholder="Reference (required)" value={sp.reference} onChange={e=> setSplitPayments(a=> a.map(x=> x.id===sp.id ? {...x, reference:e.target.value}:x))}/>}
+                    {sp.method==='CASH' && !cashSession && <p className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle className="h-3 w-3"/> No cash session</p>}
+                  </div>
+                ))}
+                <Button variant="outline" size="sm" onClick={()=> setSplitPayments(a=> [...a, {id:crypto.randomUUID(), method:'MOBILE_MONEY', amount:'', reference:''}])}><Plus className="h-4 w-4 mr-1"/>Add payment</Button>
+                {splitPayments.reduce((s,p)=>s+Number(p.amount||0),0) < totalAfterSaleDisc -0.01 && <p className="text-xs text-destructive">Sum {formatUGX(splitPayments.reduce((s,p)=>s+Number(p.amount||0),0))} &lt; Total {formatUGX(totalAfterSaleDisc)}</p>}
+                {splitPayments.reduce((s,p)=>s+Number(p.amount||0),0) > totalAfterSaleDisc +0.01 && <p className="text-xs text-amber-600">Overpay {formatUGX(splitPayments.reduce((s,p)=>s+Number(p.amount||0),0)-totalAfterSaleDisc)} change {formatUGX(change)}</p>}
               </div>
             ) : (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Transaction Reference</label>
-                <Input value={paymentRef} onChange={e=>setPaymentRef(e.target.value)} placeholder="e.g. MTN 123..."/>
-                <p className="text-xs text-muted-foreground">Payment will be marked as collected. External verification if provider configured; otherwise modeled as unreconciled.</p>
-              </div>
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  <Button variant={paymentMethod==='CASH'?"default":"outline"} onClick={()=>setPaymentMethod('CASH')}><Banknote className="h-4 w-4 mr-1"/>Cash</Button>
+                  <Button variant={paymentMethod==='MOBILE_MONEY'?"default":"outline"} onClick={()=>setPaymentMethod('MOBILE_MONEY')}><Smartphone className="h-4 w-4 mr-1"/>Mobile Money</Button>
+                  <Button variant={paymentMethod==='CARD'?"default":"outline"} onClick={()=>setPaymentMethod('CARD')}><CreditCard className="h-4 w-4 mr-1"/>Card</Button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant={paymentMethod==='BANK'?"default":"outline"} size="sm" onClick={()=>setPaymentMethod('BANK')}>Bank</Button>
+                  <Button variant={paymentMethod==='OTHER'?"default":"outline"} size="sm" onClick={()=>setPaymentMethod('OTHER')}>Other / Credit</Button>
+                </div>
+                {paymentMethod==='CASH' ? (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Amount Received</label>
+                    <Input type="number" value={amountReceived} onChange={e=>setAmountReceived(e.target.value)} placeholder="UGX" autoFocus/>
+                    <div className="flex justify-between text-sm"><span>Change</span><span className="font-bold text-green-600">{formatUGX(change)}</span></div>
+                    {!cashSession && <p className="text-sm text-amber-600 flex items-center gap-1"><AlertTriangle className="h-4 w-4"/> No open cash session</p>}
+                    {amountReceived && Number(amountReceived) < totalAfterSaleDisc && <p className="text-sm text-destructive">Received must be ≥ Total</p>}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Transaction Reference {paymentMethod==='OTHER' ? '(optional for credit)' : ''}</label>
+                    <Input value={paymentRef} onChange={e=>setPaymentRef(e.target.value)} placeholder="e.g. MTN 123... or credit note"/>
+                    <p className="text-xs text-muted-foreground">If OTHER/Credit, validates customer exists. External verification if provider configured; otherwise UNRECONCILED.</p>
+                  </div>
+                )}
+              </>
             )}
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={()=>setShowPay(false)}>Cancel (Esc)</Button>
               <Button className="flex-1" disabled={!canPay} onClick={checkout}>{busy?"Completing... — Validating stock & FEFO":"Complete Sale — Enter"}</Button>
             </div>
+            <p className="text-xs text-muted-foreground text-center">Enter validates • Esc closes • FEFO auto • Server price authoritative • Idempotent via operation_id</p>
           </div>
         </DialogContent>
       </Dialog>
