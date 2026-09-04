@@ -125,7 +125,7 @@ BEGIN
       v_discount := COALESCE((v_item->>'discount')::numeric, 0);
       v_discount_type := COALESCE(v_item->>'discount_type', 'fixed');
       IF v_discount > 0 AND v_max_disc = 0 THEN RAISE EXCEPTION 'Discount not permitted for your role (max 0%%)'; END IF;
-      IF v_discount_type = 'percent' AND v_discount > v_max_disc THEN RAISE EXCEPTION 'Discount %% exceeds your limit (max %%)', v_max_disc; END IF;
+      IF v_discount_type = 'percent' AND v_discount > v_max_disc THEN RAISE EXCEPTION 'Discount % exceeds your limit (max %)', v_discount, v_max_disc; END IF;
     END LOOP;
 
     INSERT INTO sales (organization_id, branch_id, sale_number, status, subtotal, discount, tax, total, customer_id, cashier_id, operation_id, sold_at)
@@ -196,7 +196,7 @@ BEGIN
     IF v_quantity <= 0 THEN RAISE EXCEPTION 'Quantity must be >0'; END IF;
     IF v_discount < 0 THEN RAISE EXCEPTION 'Discount cannot be negative'; END IF;
     IF v_discount > 0 AND v_max_disc = 0 THEN RAISE EXCEPTION 'Discount not permitted for your role (max 0%%)'; END IF;
-    IF v_discount_type = 'percent' AND v_discount > v_max_disc THEN RAISE EXCEPTION 'Discount %% exceeds your limit (max %%)', v_max_disc; END IF;
+    IF v_discount_type = 'percent' AND v_discount > v_max_disc THEN RAISE EXCEPTION 'Discount % exceeds your limit (max %)', v_discount, v_max_disc; END IF;
     IF v_discount_type = 'percent' AND v_discount > 100 THEN RAISE EXCEPTION 'Discount percent >100'; END IF;
 
     SELECT is_active INTO v_is_active FROM products WHERE id = v_product_id;
