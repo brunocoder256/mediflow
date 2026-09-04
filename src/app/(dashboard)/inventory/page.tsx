@@ -238,10 +238,45 @@ export default function InventoryPage() {
     const a=document.createElement("a"); a.href=url; a.download=`inventory_${activeTab}_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
   };
 
+  const [pendingAdjustments, setPendingAdjustments] = React.useState(0);
+  React.useEffect(()=>{
+    (async()=>{
+      const { db } = await import("@/lib/offline/db");
+      const c=await db.syncQueue.where("status").equals("pending").count().catch(()=>0);
+      setPendingAdjustments(c);
+    })();
+    const id=setInterval(async()=>{
+      const { db } = await import("@/lib/offline/db");
+      const c=await db.syncQueue.where("status").equals("pending").count().catch(()=>0);
+      setPendingAdjustments(c);
+    },3000);
+    return ()=>clearInterval(id);
+  },[]);
   const handleAdjustment=async()=>{
     if(!adjustForm.batch_id || !adjustForm.quantity || !adjustForm.reason) return alert("Batch, quantity and reason required");
     const qty=Number(adjustForm.quantity);
     if(isNaN(qty) || qty===0) return alert("Quantity must be non-zero (+5 or -5)");
+    // Offline queue: same sync engine as POS (db.syncQueue)
+    if(!isOnline){
+      try{
+        const { db } = await import("@/lib/offline/db");
+        const operation_id = crypto.randomUUID();
+        await db.syncQueue.add({
+          id: crypto.randomUUID(),
+          operation_id,
+          table_name: "stock_movements",
+          operation: "create",
+          payload: { batch_id: adjustForm.batch_id, quantity: qty, reason: adjustForm.reason, type: qty>0?"ADJUSTMENT_IN":"ADJUSTMENT_OUT" } as any,
+          status: "pending",
+          created_at: new Date().toISOString(),
+          retries: 0,
+        });
+        alert(`Offline — adjustment queued (${qty>0?"+":""}${qty}) for batch ${adjustForm.batch_id.slice(0,8)}. Will sync when online. Server remains authoritative.`);
+        setShowAdjustment(false); setAdjustForm({batch_id:"", quantity:"", reason:"", type:"ADJUSTMENT_IN"});
+        setPendingAdjustments(c=>c+1);
+        return;
+      }catch(e:any){ alert(e.message); return; }
+    }
     try{
       const { createBrowserClient } = await import("@/lib/supabase/client");
       const sb=createBrowserClient();
@@ -276,6 +311,7 @@ export default function InventoryPage() {
         <div><h1 className="text-2xl font-bold flex items-center gap-2"><Layers className="h-6 w-6"/>Inventory</h1><p className="text-muted-foreground">Perpetual inventory — PRODUCT → BATCH → LOCATION → QUANTITY. Single source: product_batches + stock_movements</p></div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={isOnline ? "success":"warning"} className="gap-1">{isOnline ? <Wifi className="h-3 w-3"/> : <WifiOff className="h-3 w-3"/>}{isOnline ? "Online" : "Offline — cached"}</Badge>
+          {pendingAdjustments>0 && <Badge variant="warning">{pendingAdjustments} pending sync</Badge>}
           <Button variant="outline" size="sm" onClick={()=>fetchData()}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
           <Button variant="outline" size="sm" onClick={handleExport}><Download className="h-4 w-4 mr-2"/>Export CSV</Button>
           <Button size="sm" onClick={()=>setShowAdjustment(true)}><Plus className="h-4 w-4 mr-2"/>Adjustment</Button>
@@ -326,6 +362,7 @@ export default function InventoryPage() {
                 <Button variant="outline" size="sm" onClick={()=>window.location.href="/pos"}><Scan className="h-4 w-4 mr-1"/>POS FEFO</Button>
               </div>
               {!isOnline && <p className="text-xs text-amber-600">Offline — showing cached batches. Counts/expiry from last sync. Barcode scan works against cached.</p>}
+              {pendingAdjustments>0 && <p className="text-xs text-amber-600">{pendingAdjustments} transaction{pendingAdjustments>1?"s":""} pending sync — will sync when connection returns. <a href="/sync" className="underline">Sync Center</a></p>}
             </div>
           </CardContent></Card>
 

@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Toaster } from "@/components/ui/toast";
+import { Eye, EyeOff } from "lucide-react";
 
 function safeRedirect(path: string | null, fallback: string = "/dashboard"): string {
   if (!path) return fallback;
@@ -28,6 +29,7 @@ function LoginForm() {
   const redirectTo = safeRedirect(searchParams.get("redirect"), "/dashboard");
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     register,

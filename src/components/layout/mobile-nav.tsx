@@ -49,17 +49,20 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="left" className="w-[280px] p-0">
-        <SheetHeader className="border-b p-4">
-          <SheetTitle className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
+      <SheetContent side="left" className="w-[300px] p-0 flex flex-col overflow-hidden bg-card">
+        <SheetHeader className="border-b bg-muted/30 p-4 shrink-0">
+          <SheetTitle className="flex items-center gap-3 text-left">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm shadow-sm">
               MF
             </div>
-            <span>MediFlow</span>
+            <div className="flex flex-col">
+              <span className="text-base font-semibold leading-none">MediFlow</span>
+              <span className="text-xs font-normal text-muted-foreground">Drug Shop Management</span>
+            </div>
           </SheetTitle>
         </SheetHeader>
-        <nav className="overflow-y-auto py-4">
-          <ul className="space-y-1 px-2">
+        <nav className="flex-1 overflow-y-auto py-3">
+          <ul className="space-y-1 px-3">
             {navItems.map((item) => {
               const isActive =
                 pathname === item.href || pathname?.startsWith(item.href + "/");
@@ -70,13 +73,13 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
                     href={item.href}
                     onClick={() => onOpenChange(false)}
                     className={cn(
-                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                      "flex items-center gap-3 rounded-lg px-3 py-3 text-[15px] font-medium transition-all border",
                       isActive
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        ? "bg-primary text-primary-foreground shadow-sm border-primary"
+                        : "bg-card text-foreground border-transparent hover:bg-accent hover:text-accent-foreground hover:border-border shadow-sm"
                     )}
                   >
-                    <Icon className="h-5 w-5 shrink-0" />
+                    <Icon className={cn("h-5 w-5 shrink-0", isActive ? "text-primary-foreground" : "text-muted-foreground")} />
                     <span>{item.title}</span>
                   </Link>
                 </li>
@@ -84,6 +87,9 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
             })}
           </ul>
         </nav>
+        <div className="border-t p-3 shrink-0 bg-muted/20">
+          <p className="text-xs text-muted-foreground text-center">© 2024 MediFlow</p>
+        </div>
       </SheetContent>
     </Sheet>
   );
