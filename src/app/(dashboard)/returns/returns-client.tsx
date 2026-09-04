@@ -109,10 +109,10 @@ export default function ReturnsPage(){
         fetch("/api/products?perPage=200").then(r=>r.json()).catch(()=>({data:[]})),
         fetch(`/api/returns?kpi=1${branchFilter!=='all'?`&branch_id=${branchFilter}`:""}`).then(r=>r.json()).catch(()=>null),
       ]);
-      let salesList = (salesRes.data ?? salesRes ?? []) as any[];
-      salesList = salesList.map((r:any)=>({...r, _type:'SALES' as const, _orig: r.sale_id, _counterparty: r.sales?.customers?.name ?? r.customer_id ?? "Walk-in"}));
-      let purchList = (purchRes.data ?? purchRes ?? []) as any[];
-      purchList = purchList.map((r:any)=>({...r, _type:'PURCHASE' as const, _orig: r.purchase_order_id, _counterparty: r.suppliers?.name ?? r.supplier_id?.slice(0,6)}));
+      let salesList = (Array.isArray(salesRes?.data) ? salesRes.data : Array.isArray(salesRes) ? salesRes : []) as any[];
+      salesList = salesList.filter(Boolean).map((r:any)=>({...r, _type:'SALES' as const, _orig: r?.sale_id ?? null, _counterparty: r?.sales?.customers?.name ?? r?.customer_id ?? "Walk-in"}));
+      let purchList = (Array.isArray(purchRes?.data) ? purchRes.data : Array.isArray(purchRes) ? purchRes : []) as any[];
+      purchList = purchList.filter(Boolean).map((r:any)=>({...r, _type:'PURCHASE' as const, _orig: r?.purchase_order_id ?? null, _counterparty: r?.suppliers?.name ?? r?.supplier_id?.slice(0,6) ?? "—"}));
       let merged = [...salesList, ...purchList];
       // client filters for type
       if(typeFilter!=='all'){
@@ -471,7 +471,7 @@ export default function ReturnsPage(){
         <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto bg-card">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">{showDetail?.return_number} <span className="text-sm font-normal">{showDetail?._type==='SALES'?'Sales Return':'Purchase Return'}</span> {showDetail && rBadge(showDetail.status)}</DialogTitle>
-            <DialogDescription>Original {showDetail?._type==='SALES' ? `Sale ${showDetail._orig?.slice(0,8)} → customer ${showDetail._counterparty}` : `Purchase ${showDetail._orig?.slice(0,8)} → supplier ${showDetail._counterparty}`} • Branch {showDetail?.branch_id?.slice(0,6)} • {showDetail?.refund_status ?? showDetail?.credit_status ? `Refund/Credit ${showDetail?.refund_status ?? showDetail?.credit_status}` : ''}</DialogDescription>
+            <DialogDescription>Original {showDetail?._type==='SALES' ? `Sale ${showDetail?._orig?.slice(0,8) ?? ''} → customer ${showDetail?._counterparty ?? ''}` : `Purchase ${showDetail?._orig?.slice(0,8) ?? ''} → supplier ${showDetail?._counterparty ?? ''}`} • Branch {showDetail?.branch_id?.slice(0,6)} • {showDetail?.refund_status ?? showDetail?.credit_status ? `Refund/Credit ${showDetail?.refund_status ?? showDetail?.credit_status}` : ''}</DialogDescription>
           </DialogHeader>
           {!detailData ? <div className="space-y-3"><Skeleton className="h-24 w-full"/><Skeleton className="h-64 w-full"/></div> : (
             <div className="space-y-4">
