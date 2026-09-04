@@ -67,13 +67,24 @@ export default function ProductsPage(){
   const [editingId,setEditingId]=React.useState<string|null>(null);
 
   const [form,setForm]=React.useState({
-    name:"", generic_name:"", brand_name:"", sku:"", barcode:"", product_type:"Human Medicine", category_id:"", unit_id:"", description:"", alternative_names:"", image_url:"",
+    name:"", generic_name:"", brand_name:"", sku:"", barcode:"", product_type:"Human Medicine", category_id:"", unit_id:"", description:"", alternative_names:"",
     strength:"", strength_unit:"", dosage_form:"", route:"", pack_size:"", units_per_pack:"", manufacturer:"", country_of_origin:"", registration_number:"", classification:"OTC",
     reorder_level:10, min_stock:0, max_stock:"", reorder_quantity:"", storage_location:"", shelf:"", rack:"", bin:"",
     track_batch:true, track_expiry:true, fefo_enabled:true, allow_negative_stock:false,
     default_purchase_cost:"", default_selling_price:"", min_selling_price:"", tax_category:"standard", tax_inclusive:false,
     preferred_supplier_id:"", supplier_product_code:""
   });
+  const therapeuticCategories = [
+    "Analgesics / Pain Relief","Antipyretics","Anti-inflammatory","Anti-infective / Antimicrobial","Antimalarial","Antiallergic / Antihistamine","Respiratory","Gastrointestinal","Cardiovascular","Endocrine / Metabolic","Dermatological","Ophthalmic","Otic","Oral / Dental","Genitourinary","Reproductive / Maternal Health","Vitamins & Minerals","Electrolytes / Rehydration","Neurological","Musculoskeletal","Blood / Hematological","Immunological","Other / Unclassified"
+  ];
+  const categoryOptions = React.useMemo(()=>{
+    const dbNames = new Set(categories.map((c:any)=>c.name));
+    const merged = [...categories];
+    for(const t of therapeuticCategories){
+      if(!dbNames.has(t)) merged.push({ id: t, name: t, __fallback: true });
+    }
+    return merged;
+  },[categories]);
 
   // Permissions check (simple)
   React.useEffect(()=>{
@@ -120,7 +131,8 @@ export default function ProductsPage(){
     try{
       const params=new URLSearchParams();
       if(debouncedSearch) params.set("search", debouncedSearch);
-      if(categoryFilter!=="all") params.set("category_id", categoryFilter);
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(categoryFilter);
+      if(categoryFilter!=="all" && isUuid) params.set("category_id", categoryFilter);
       if(typeFilter!=="all") params.set("product_type", typeFilter);
       if(statusFilter!=="all") params.set("status", statusFilter);
       if(supplierFilter!=="all") params.set("supplier_id", supplierFilter);
@@ -156,8 +168,11 @@ export default function ProductsPage(){
         expiringQty: map[p.id]?.expiring ?? 0,
         batches: map[p.id]?.batches ?? [],
       }));
-      // client lowStock/expiring filter fallback if API didn't filter
       let filtered=enriched;
+      // client fallback for therapeutic category (fallback id = name) when not yet in DB
+      if(categoryFilter!=="all" && !isUuid){
+        filtered=filtered.filter((p:any)=> (p.categories?.name || "").toLowerCase() === categoryFilter.toLowerCase());
+      }
       if(lowStockOnly) filtered=filtered.filter(p=> (p.totalStock ?? 0) <= (p.reorder_level ?? 10));
       if(expiringOnly) filtered=filtered.filter(p=> (p as any).expiringQty>0);
       setProducts(filtered);
@@ -173,9 +188,24 @@ export default function ProductsPage(){
     if(!form.name.trim()) return alert("Product name is required");
     setSaving(true);
     try{
+      // Resolve therapeutic fallback category (product.md Section 7) to real DB id if needed
+      let resolvedCategoryId = form.category_id;
+      if(resolvedCategoryId && therapeuticCategories.includes(resolvedCategoryId) && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resolvedCategoryId)){
+        try{
+          const {createBrowserClient}=await import("@/lib/supabase/client");
+          const sb=createBrowserClient();
+          const {data: existing}=await (sb.from("categories") as any).select("id").eq("name", resolvedCategoryId).maybeSingle();
+          if(existing) resolvedCategoryId = existing.id;
+          else {
+            const {data: newCat, error}=await (sb.from("categories") as any).insert({ name: resolvedCategoryId, description: `Therapeutic: ${resolvedCategoryId}` }).select().single();
+            if(!error && newCat){ resolvedCategoryId = newCat.id; setCategories(prev=>[...prev, newCat]); }
+            else resolvedCategoryId = "";
+          }
+        }catch{ resolvedCategoryId = ""; }
+      }
       const payload:any={
         name:form.name.trim(), generic_name:form.generic_name.trim(), brand_name:form.brand_name.trim(),
-        sku:form.sku.trim(), barcode:form.barcode.trim(), product_type:form.product_type, category_id:form.category_id || "", unit_id:form.unit_id || "", description:form.description.trim(),
+        sku:form.sku.trim(), barcode:form.barcode.trim(), product_type:form.product_type, category_id:resolvedCategoryId || "", unit_id:form.unit_id || "", description:form.description.trim(), alternative_names: (form as any).alternative_names?.trim() || "",
         strength:form.strength.trim(), strength_unit:form.strength_unit || "", dosage_form:form.dosage_form || "", route:form.route || "",
         pack_size: form.pack_size ? Number(form.pack_size): undefined, units_per_pack: form.units_per_pack ? Number(form.units_per_pack): undefined,
         manufacturer:form.manufacturer.trim(), country_of_origin:form.country_of_origin.trim(), registration_number:form.registration_number.trim(), classification:form.classification,
@@ -191,7 +221,7 @@ export default function ProductsPage(){
       const j=await res.json();
       if(!res.ok) throw new Error(j.error || "Failed");
       setShowAdd(false); setAddStep(1); setEditingId(null);
-      setForm({ name:"", generic_name:"", brand_name:"", sku:"", barcode:"", product_type:"Human Medicine", category_id:"", unit_id:"", description:"", alternative_names:"", image_url:"", strength:"", strength_unit:"", dosage_form:"", route:"", pack_size:"", units_per_pack:"", manufacturer:"", country_of_origin:"", registration_number:"", classification:"OTC", reorder_level:10, min_stock:0, max_stock:"", reorder_quantity:"", storage_location:"", shelf:"", rack:"", bin:"", track_batch:true, track_expiry:true, fefo_enabled:true, allow_negative_stock:false, default_purchase_cost:"", default_selling_price:"", min_selling_price:"", tax_category:"standard", tax_inclusive:false, preferred_supplier_id:"", supplier_product_code:"" });
+      setForm({ name:"", generic_name:"", brand_name:"", sku:"", barcode:"", product_type:"Human Medicine", category_id:"", unit_id:"", description:"", alternative_names:"", strength:"", strength_unit:"", dosage_form:"", route:"", pack_size:"", units_per_pack:"", manufacturer:"", country_of_origin:"", registration_number:"", classification:"OTC", reorder_level:10, min_stock:0, max_stock:"", reorder_quantity:"", storage_location:"", shelf:"", rack:"", bin:"", track_batch:true, track_expiry:true, fefo_enabled:true, allow_negative_stock:false, default_purchase_cost:"", default_selling_price:"", min_selling_price:"", tax_category:"standard", tax_inclusive:false, preferred_supplier_id:"", supplier_product_code:"" });
       fetchProducts();
       if(editingId) alert("Product updated");
     }catch(e:any){ alert(e.message); } finally{ setSaving(false); }
@@ -216,7 +246,7 @@ export default function ProductsPage(){
   function handleEdit(p:ProductRow){
     setEditingId(p.id);
     setForm({
-      name:p.name, generic_name:p.generic_name||"", brand_name:p.brand_name||"", sku:p.sku||"", barcode:p.barcode||"", product_type:(p as any).product_type||"Human Medicine", category_id:(p as any).category_id||"", unit_id:(p as any).unit_id||"", description:(p as any).description||"", alternative_names:(p as any).alternative_names||"", image_url:(p as any).image_url||"",
+      name:p.name, generic_name:p.generic_name||"", brand_name:p.brand_name||"", sku:p.sku||"", barcode:p.barcode||"", product_type:(p as any).product_type||"Human Medicine", category_id:(p as any).category_id||"", unit_id:(p as any).unit_id||"", description:(p as any).description||"", alternative_names:(p as any).alternative_names||"",
       strength:(p as any).strength||"", strength_unit:(p as any).strength_unit||"", dosage_form:(p as any).dosage_form||"", route:(p as any).route||"", pack_size:(p as any).pack_size ? String((p as any).pack_size):"", units_per_pack:(p as any).units_per_pack ? String((p as any).units_per_pack):"", manufacturer:(p as any).manufacturer||"", country_of_origin:(p as any).country_of_origin||"", registration_number:(p as any).registration_number||"", classification:(p as any).classification||"OTC",
       reorder_level:p.reorder_level, min_stock:(p as any).min_stock ?? 0, max_stock:(p as any).max_stock ? String((p as any).max_stock):"", reorder_quantity:(p as any).reorder_quantity ? String((p as any).reorder_quantity):"", storage_location:(p as any).storage_location||"", shelf:(p as any).shelf||"", rack:(p as any).rack||"", bin:(p as any).bin||"",
       track_batch:(p as any).track_batch ?? true, track_expiry:(p as any).track_expiry ?? true, fefo_enabled:(p as any).fefo_enabled ?? true, allow_negative_stock:(p as any).allow_negative_stock ?? false,
@@ -261,9 +291,26 @@ export default function ProductsPage(){
     const payload= valid.map(r=>({
       name:r.name, generic_name:r.generic_name, brand_name:r.brand_name, sku:r.sku, barcode:r.barcode, product_type:r.product_type, category:r.category, dosage_form:r.dosage_form, strength:r.strength, strength_unit:r.strength_unit, pack_size:r.pack_size, manufacturer:r.manufacturer, reorder_level: Number(r.reorder_level)||10, min_stock: Number(r.min_stock)||0, max_stock: r.max_stock ? Number(r.max_stock): null, selling_price: r.selling_price ? Number(r.selling_price): null, purchase_cost: r.purchase_cost ? Number(r.purchase_cost): null
     }));
-    // map category name to id
-    const catMap=new Map(categories.map(c=>[c.name.toLowerCase(), c.id]));
-    const rowsForImport=payload.map(p=>({ name:p.name, sku:p.sku, barcode:p.barcode, category_id: catMap.get((p.category||"").toLowerCase())||"", generic_name:p.generic_name, brand_name:p.brand_name, dosage_form:p.dosage_form, strength:p.strength, strength_unit:p.strength_unit, pack_size:p.pack_size, manufacturer:p.manufacturer, reorder_level:p.reorder_level, min_stock:p.min_stock, max_stock:p.max_stock, default_selling_price:p.selling_price, default_purchase_cost:p.purchase_cost }));
+    // map category name to id (including therapeutic fallback)
+    const catMap=new Map(categoryOptions.map(c=>[(c.name as string).toLowerCase(), c.id]));
+    // Ensure therapeutic categories exist in DB before import (create missing)
+    for(const p of payload){
+      const key=(p.category||"").toLowerCase();
+      const mapped=catMap.get(key);
+      if(p.category && therapeuticCategories.map(t=>t.toLowerCase()).includes(key) && mapped && !/^[0-9a-f]{8}-/.test(mapped)){
+        try{
+          const {createBrowserClient}=await import("@/lib/supabase/client");
+          const sb=createBrowserClient();
+          const {data: existing}=await (sb.from("categories") as any).select("id").eq("name", p.category).maybeSingle();
+          if(existing){ catMap.set(key, existing.id); }
+          else{
+            const {data: newCat}=await (sb.from("categories") as any).insert({ name: p.category, description: `Therapeutic: ${p.category}` }).select().single();
+            if(newCat){ catMap.set(key, newCat.id); setCategories(prev=>[...prev, newCat]); }
+          }
+        }catch{}
+      }
+    }
+    const rowsForImport=payload.map(p=>({ name:p.name, sku:p.sku, barcode:p.barcode, category_id: /^[0-9a-f]{8}-/.test(catMap.get((p.category||"").toLowerCase())||"") ? catMap.get((p.category||"").toLowerCase())||"" : "", generic_name:p.generic_name, brand_name:p.brand_name, dosage_form:p.dosage_form, strength:p.strength, strength_unit:p.strength_unit, pack_size:p.pack_size, manufacturer:p.manufacturer, reorder_level:p.reorder_level, min_stock:p.min_stock, max_stock:p.max_stock, default_selling_price:p.selling_price, default_purchase_cost:p.purchase_cost }));
     const res=await fetch("/api/products", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({action:"bulk_import", rows: rowsForImport})});
     const j=await res.json();
     alert(`Imported ${j.success} succeeded, ${j.failed} failed`);
@@ -305,7 +352,7 @@ export default function ProductsPage(){
             </Select>
             <Select value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)} className="w-[200px]">
               <option value="all">All Categories</option>
-              {categories.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}
+              {categoryOptions.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}
             </Select>
             <Select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className="w-[150px]">
               <option value="all">All Status</option>
@@ -496,12 +543,9 @@ export default function ProductsPage(){
               </div>
               <div className="grid md:grid-cols-2 gap-3">
                 <div><Label>Product Type</Label><Select value={form.product_type} onChange={e=>setForm({...form, product_type:e.target.value})}><option value="">Select</option>{productTypes.map(t=><option key={t} value={t}>{t}</option>)}</Select></div>
-                <div><Label>Category (Therapeutic)</Label><Select value={form.category_id} onChange={e=>setForm({...form, category_id:e.target.value})}><option value="">No category</option>{categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Select></div>
+                <div><Label>Category (Therapeutic)</Label><Select value={form.category_id} onChange={e=>setForm({...form, category_id:e.target.value})}><option value="">No category</option>{categoryOptions.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}</Select></div>
               </div>
-              <div className="grid md:grid-cols-2 gap-3">
-                <div><Label>Alternative/Search Names</Label><Input value={form.alternative_names} onChange={e=>setForm({...form, alternative_names:e.target.value})} placeholder="Also known as..."/></div>
-                <div><Label>Image URL</Label><Input value={form.image_url} onChange={e=>setForm({...form, image_url:e.target.value})} placeholder="https://..."/></div>
-              </div>
+              <div><Label>Alternative/Search Names</Label><Input value={form.alternative_names} onChange={e=>setForm({...form, alternative_names:e.target.value})} placeholder="Also known as... (comma separated)"/></div>
               <div><Label>Short Description</Label><Textarea value={form.description} onChange={e=>setForm({...form, description:e.target.value})} placeholder="Product master description"/></div>
             </div>
           )}
@@ -582,7 +626,7 @@ export default function ProductsPage(){
 
           {addStep===6 && (
             <div className="space-y-3 text-sm">
-              <Card><CardContent className="p-4 space-y-1"><p><strong>Name:</strong> {form.name} {form.strength && `${form.strength}${form.strength_unit}`} ({form.dosage_form||"—"})</p><p><strong>SKU:</strong> {form.sku||"—"} • <strong>Barcode:</strong> {form.barcode||"—"} • <strong>Type:</strong> {form.product_type}</p><p><strong>Category:</strong> {categories.find(c=>c.id===form.category_id)?.name||"—"} • <strong>Manuf:</strong> {form.manufacturer||"—"} • <strong>Reg:</strong> {form.registration_number||"—"}</p><p><strong>Stock:</strong> Reorder {form.reorder_level} • Min {form.min_stock} • Max {form.max_stock||"—"} • Loc {form.storage_location||"—"} {form.shelf&&`S:${form.shelf}`} </p><p><strong>Pricing:</strong> Cost {form.default_purchase_cost||"—"} • Sell {form.default_selling_price||"—"} • Tax {form.tax_category}</p><p><strong>Supplier:</strong> {suppliers.find(s=>s.id===form.preferred_supplier_id)?.name||"—"}</p></CardContent></Card>
+              <Card><CardContent className="p-4 space-y-1"><p><strong>Name:</strong> {form.name} {form.strength && `${form.strength}${form.strength_unit}`} ({form.dosage_form||"—"})</p><p><strong>SKU:</strong> {form.sku||"—"} • <strong>Barcode:</strong> {form.barcode||"—"} • <strong>Type:</strong> {form.product_type}</p><p><strong>Category:</strong> {categoryOptions.find((c:any)=>c.id===form.category_id)?.name || form.category_id || "—"} • <strong>Manuf:</strong> {form.manufacturer||"—"} • <strong>Reg:</strong> {form.registration_number||"—"}</p><p><strong>Stock:</strong> Reorder {form.reorder_level} • Min {form.min_stock} • Max {form.max_stock||"—"} • Loc {form.storage_location||"—"} {form.shelf&&`S:${form.shelf}`} </p><p><strong>Pricing:</strong> Cost {form.default_purchase_cost||"—"} • Sell {form.default_selling_price||"—"} • Tax {form.tax_category}</p><p><strong>Supplier:</strong> {suppliers.find(s=>s.id===form.preferred_supplier_id)?.name||"—"}</p></CardContent></Card>
               <p className="text-xs text-muted-foreground">Review — go back to edit any step. Save creates product master; inventory remains 0 until purchase receiving creates batches (FEFO).</p>
             </div>
           )}

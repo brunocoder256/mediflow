@@ -32,7 +32,6 @@ ALTER TABLE products ADD COLUMN IF NOT EXISTS min_selling_price numeric(14,2);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS tax_category text DEFAULT 'standard';
 ALTER TABLE products ADD COLUMN IF NOT EXISTS tax_inclusive boolean DEFAULT false;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS preferred_supplier_id uuid REFERENCES suppliers(id) ON DELETE SET NULL;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS organization_id_not_used text; -- placeholder to avoid breaking existing insertOne generic
 -- Note: organization_id already exists, keep as is
 
 -- Constraints & indexes

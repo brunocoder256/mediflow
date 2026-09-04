@@ -204,7 +204,7 @@ export interface Unit {
 }
 
 /**
- * A sellable product (drug / medical item).
+ * A sellable product (drug / medical item) — master definition, batch data lives in product_batches.
  */
 export interface Product {
   id: string;
@@ -217,7 +217,37 @@ export interface Product {
   sku: string;
   barcode: string | null;
   description: string | null;
+  alternative_names: string | null;
+  image_url: string | null;
+  product_type: string | null;
+  strength: string | null;
+  strength_unit: string | null;
+  dosage_form: string | null;
+  route: string | null;
+  pack_size: number | null;
+  units_per_pack: number | null;
+  manufacturer: string | null;
+  country_of_origin: string | null;
+  registration_number: string | null;
+  classification: string | null;
   reorder_level: number;
+  min_stock: number | null;
+  max_stock: number | null;
+  reorder_quantity: number | null;
+  storage_location: string | null;
+  shelf: string | null;
+  rack: string | null;
+  bin: string | null;
+  track_batch: boolean;
+  track_expiry: boolean;
+  fefo_enabled: boolean;
+  allow_negative_stock: boolean;
+  default_purchase_cost: number | null;
+  default_selling_price: number | null;
+  min_selling_price: number | null;
+  tax_category: string | null;
+  tax_inclusive: boolean;
+  preferred_supplier_id: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
