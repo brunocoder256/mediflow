@@ -90,6 +90,9 @@ DO $$ DECLARE r RECORD; n int := 0; BEGIN
   END LOOP;
 END $$;
 
+-- Enable pg_trgm first (required for GIN trigram indexes)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- 2. Unique indexes (organization-scoped)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_customer_code_org ON customers(organization_id, customer_code) WHERE customer_code IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_phone_org ON customers(organization_id, phone) WHERE phone IS NOT NULL AND phone <> '';
@@ -100,9 +103,6 @@ CREATE INDEX IF NOT EXISTS idx_customers_type_status ON customers(customer_type,
 CREATE INDEX IF NOT EXISTS idx_customers_branch ON customers(branch_id);
 CREATE INDEX IF NOT EXISTS idx_customers_created_at ON customers(created_at);
 CREATE INDEX IF NOT EXISTS idx_customers_is_active ON customers(is_active);
-
--- Enable pg_trgm if not exists (for ilike performance)
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- 3. Customer notes
 CREATE TABLE IF NOT EXISTS customer_notes (

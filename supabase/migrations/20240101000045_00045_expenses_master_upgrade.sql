@@ -225,12 +225,12 @@ on conflict (organization_id, code) do nothing;
 -- 8. Add new permissions for granular expense workflow
 -- ============================================================================
 insert into permissions (id, code, name, description) values
-  ('e0ebc99-9001-4000-8000-000000000001', 'expenses.submit', 'Submit Expenses', 'Submit expense for approval'),
-  ('e0ebc99-9001-4000-8000-000000000002', 'expenses.approve', 'Approve Expenses', 'Approve pending expenses'),
-  ('e0ebc99-9001-4000-8000-000000000003', 'expenses.pay', 'Pay Expenses', 'Mark expense as paid'),
-  ('e0ebc99-9001-4000-8000-000000000004', 'expenses.reverse', 'Reverse Expenses', 'Reverse posted expenses'),
-  ('e0ebc99-9001-4000-8000-000000000005', 'expenses.manage_categories', 'Manage Categories', 'Create/edit expense categories'),
-  ('e0ebc99-9001-4000-8000-000000000006', 'expenses.export', 'Export Expenses', 'Export expense reports')
+  ('e0ebc999-9001-4000-8000-000000000001', 'expenses.submit', 'Submit Expenses', 'Submit expense for approval'),
+  ('e0ebc999-9001-4000-8000-000000000002', 'expenses.approve', 'Approve Expenses', 'Approve pending expenses'),
+  ('e0ebc999-9001-4000-8000-000000000003', 'expenses.pay', 'Pay Expenses', 'Mark expense as paid'),
+  ('e0ebc999-9001-4000-8000-000000000004', 'expenses.reverse', 'Reverse Expenses', 'Reverse posted expenses'),
+  ('e0ebc999-9001-4000-8000-000000000005', 'expenses.manage_categories', 'Manage Categories', 'Create/edit expense categories'),
+  ('e0ebc999-9001-4000-8000-000000000006', 'expenses.export', 'Export Expenses', 'Export expense reports')
 on conflict (code) do nothing;
 
 -- Grant new perms to Owner/Manager
