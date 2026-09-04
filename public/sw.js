@@ -1,6 +1,6 @@
 // MediFlow Service Worker — offline shell, do not cache private data indiscriminately
 const CACHE_NAME = "mediflow-v1";
-const SHELL = ["/", "/dashboard", "/offline", "/manifest.json"];
+const SHELL = ["/", "/dashboard", "/pos", "/sync", "/offline", "/offline.html", "/manifest.json"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

@@ -46,6 +46,8 @@ interface SyncQueueEntry {
   status: "pending" | "processing" | "completed" | "failed";
   created_at: string;
   retries: number;
+  error?: string | null;
+  last_attempt_at?: string | null;
 }
 
 interface PendingSale {
@@ -77,6 +79,10 @@ class MediFlowDB extends Dexie {
       syncQueue: "id, operation_id, status",
       pendingSales: "id, operation_id, status",
     });
+
+    // v2 adds error field to syncQueue (backward compatible, no store change required for dexie v2)
+    // Dexie handles schema upgrades; keeping version 1 stores identical for now and adding implicit upgrade
+    // If browsers have v1, no migration needed as new fields are optional
   }
 }
 

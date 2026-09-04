@@ -9,6 +9,17 @@ async function getOrgId(){ const sb:any=await getSB(); const pid=await getProfil
 async function getUserBranches(): Promise<string[]> {
   const sb:any=await getSB(); const {data}=await sb.rpc('get_user_branch_ids'); return (data ?? []) as string[];
 }
+async function hasPermission(code:string): Promise<boolean> {
+  const sb:any=await getSB();
+  const {data}=await sb.rpc('has_permission', { p_code: code });
+  return !!data;
+}
+async function getMaxDiscount(): Promise<number> {
+  const sb:any=await getSB();
+  const {data}=await sb.rpc('max_discount_percent');
+  if(data!==null && data!==undefined) return Number(data);
+  return 0;
+}
 
 export async function searchProducts(branchId: string, query: string, limit=20){
   const sb:any=await getSB();
@@ -59,15 +70,59 @@ export async function createSaleTransaction(input:{
   const allowed=await getUserBranches();
   if(!allowed.includes(input.branch_id)) throw new Error('Unauthorized branch');
 
-  // idempotency
+  // idempotency (also handled inside RPC)
   if(input.operation_id){
     const {data: existing}=await sb.from('sales').select('id, sale_number, status').eq('operation_id', input.operation_id).maybeSingle();
     if(existing) return { sale: existing, duplicate:true };
   }
 
+  // Attempt atomic RPC path first (true PostgreSQL transaction)
+  try {
+    const { data: rpcData, error: rpcError } = await sb.rpc('create_pos_sale', {
+      p_branch_id: input.branch_id,
+      p_customer_id: input.customer_id ?? null,
+      p_items: JSON.parse(JSON.stringify(input.items)),
+      p_payments: JSON.parse(JSON.stringify(input.payments)),
+      p_operation_id: input.operation_id ?? null,
+      p_held: !!input.held
+    });
+    if (!rpcError && rpcData) {
+      const res:any = rpcData;
+      if (res.duplicate) {
+        const { data: existing } = await sb.from('sales').select('id, sale_number, status').eq('operation_id', input.operation_id!).maybeSingle();
+        return { sale: existing ?? { id: res.sale_id, sale_number: res.sale_number, status: res.status }, duplicate: true };
+      }
+      // Fetch full sale record + items for receipt
+      const { data: sale } = await sb.from('sales').select('*').eq('id', res.sale_id).single();
+      const { data: items } = await sb.from('sale_items').select('*').eq('sale_id', res.sale_id);
+      return { sale, items: items ?? [], saleTotal: res.total, saleSubtotal: res.subtotal, duplicate: false };
+    }
+    // If RPC missing (function not deployed), fall through to legacy JS transaction
+    if (rpcError && !String(rpcError.message).includes('create_pos_sale')) throw new Error(rpcError.message);
+  } catch (e:any) {
+    // Only fallback if function does not exist; otherwise rethrow (discount/stock errors)
+    if (e.message && String(e.message).includes('Could not find the function')) {
+      // fallback
+    } else if (e.message && /(Unauthorized|Discount|Insufficient|stock|expired|Product inactive|Payment total|No open cash session|Concurrent)/i.test(e.message)) {
+      throw e;
+    } else if (String(e.message).includes('create_pos_sale')) {
+      // ignore, fallback
+    } else {
+      // For other RPC errors, propagate
+      if (e.message && !String(e.message).toLowerCase().includes('not found')) throw e;
+    }
+  }
+
   // HELD sale: no stock decrement, no COGS
   if(input.held){
     const saleNumber=`HLD-${Date.now().toString(36).toUpperCase()}`;
+    // server-side discount permission enforcement (fallback path)
+    const maxDiscHeld = await getMaxDiscount().catch(()=>0);
+    for(const req of input.items){
+      const d = req.discount ?? 0;
+      if(d>0 && maxDiscHeld===0) throw new Error('Discount not permitted for your role (max 0%)');
+      if(req.discount_type==='percent' && d>maxDiscHeld) throw new Error(`Discount % exceeds your limit (max ${maxDiscHeld}%)`);
+    }
     // still need to allocate prices for receipt preview but not decrement
     const allocations: any[]=[]; let total=0; let subtotal=0;
     for(const req of input.items){
@@ -95,6 +150,7 @@ export async function createSaleTransaction(input:{
 
   // Regular sale: FEFO + server pricing + atomic decrement
   // Step 1: resolve all allocations first (fail fast on stock)
+  const maxDisc = await getMaxDiscount().catch(()=>0);
   const allAllocations: Array<{product_id:string, batch_id:string, qty:number, unit_price:number, purchase_price:number, discount:number, tax:number}> = [];
   let saleSubtotal=0;
   for(const req of input.items){
@@ -102,6 +158,10 @@ export async function createSaleTransaction(input:{
     // verify product active
     const {data: prod}=await sb.from('products').select('is_active').eq('id', req.product_id).single();
     if(!prod?.is_active) throw new Error('Product inactive or not found');
+    // discount permission
+    const rawDiscCheck = req.discount ?? 0;
+    if(rawDiscCheck>0 && maxDisc===0) throw new Error('Discount not permitted for your role (max 0%)');
+    if(req.discount_type==='percent' && rawDiscCheck>maxDisc) throw new Error(`Discount % exceeds your limit (max ${maxDisc}%)`);
     const slices=await resolveBatches(input.branch_id, req.product_id, req.quantity);
     for(const s of slices){
       const rawDisc=req.discount ?? 0;
