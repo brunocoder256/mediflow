@@ -51,7 +51,6 @@ export async function queuePurchaseCreate(payload: Record<string, unknown>): Pro
     retries: 0,
     error: null,
   });
-  // also cache locally for immediate UI
   try{
     await db.cachedPurchases.add({
       id,
@@ -81,6 +80,63 @@ export async function queuePurchaseReceive(payload: Record<string, unknown>): Pr
     error: null,
   });
   return op;
+}
+
+export async function queueSupplierCreate(payload: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  const id = crypto.randomUUID();
+  await db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "suppliers",
+    operation: "create",
+    payload: { ...payload, _offlineId: id, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  });
+  try{
+    await db.cachedSuppliers.add({
+      id,
+      name: String((payload as any).name ?? "Draft Supplier"),
+      supplier_code: null,
+      supplier_type: (payload as any).supplier_type ?? null,
+      status: "Active",
+      phone: (payload as any).phone ?? null,
+      email: (payload as any).email ?? null,
+      is_active: true,
+      payload,
+      sync_status: "pending",
+      operation_id: op,
+      updated_at: new Date().toISOString(),
+    } as any);
+  }catch{}
+  return op;
+}
+
+export async function queueSupplierUpdate(id: string, payload: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  await db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "suppliers",
+    operation: "update",
+    payload: { id, ...payload, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  });
+  return op;
+}
+
+export async function getSupplierPendingCount(): Promise<number> {
+  try{
+    const c = await db.cachedSuppliers.where("sync_status").equals("pending").count();
+    const q = await db.syncQueue.where("table_name").equals("suppliers").count();
+    return Math.max(c, q);
+  }catch{ return 0; }
 }
 
 export async function checkDuplicateOperation(operation_id: string): Promise<boolean> {
@@ -124,9 +180,7 @@ export async function processSyncQueue(): Promise<{
           body: JSON.stringify(entry.payload),
         });
       } else if (entry.table_name === "purchases") {
-        // purchases: route to /api/purchases with idempotency via operation_id
         const payload: any = entry.payload;
-        // creation
         if (entry.operation === "create" && !payload.action) {
           response = await fetch("/api/purchases", {
             method: "POST",
@@ -134,14 +188,12 @@ export async function processSyncQueue(): Promise<{
             body: JSON.stringify(payload),
           });
         } else {
-          // receive or other actions
           response = await fetch("/api/purchases", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
         }
-        // on success, mark cached purchase synced
         if (response.ok) {
           const op = (payload as any)._operationId ?? entry.operation_id;
           const offId = (payload as any)._offlineId;
@@ -153,6 +205,37 @@ export async function processSyncQueue(): Promise<{
               if(c) await db.cachedPurchases.update(c.id, { sync_status: "synced" as any });
             }catch{}
           }
+        }
+      } else if (entry.table_name === "suppliers") {
+        const payload: any = entry.payload;
+        const offId = payload._offlineId;
+        const op = payload._operationId ?? entry.operation_id;
+        // filter internal keys
+        const clean: any = { ...payload };
+        delete clean._offlineId; delete clean._operationId;
+        if (entry.operation === "create") {
+          response = await fetch("/api/suppliers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(clean),
+          });
+        } else {
+          const sid = clean.id;
+          delete clean.id;
+          response = await fetch(`/api/suppliers?id=${sid}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(clean),
+          });
+        }
+        if (response.ok && offId) {
+          try{ await db.cachedSuppliers.update(offId, { sync_status: "synced" as any }); }catch{}
+          // also remove local cached pending after sync success - keep but mark synced
+        } else if (response.ok && op) {
+          try{
+            const c = await db.cachedSuppliers.where("operation_id").equals(op).first();
+            if(c) await db.cachedSuppliers.update(c.id, { sync_status: "synced" as any });
+          }catch{}
         }
       } else {
         response = await fetch("/api/sync", {
@@ -179,11 +262,12 @@ export async function processSyncQueue(): Promise<{
             retries,
             error: msg,
           } as any);
-          // also mark cached purchase failed
           try{
             const op = (entry.payload as any)._operationId ?? entry.operation_id;
             const c = await db.cachedPurchases.where("operation_id").equals(op).first();
             if(c) await db.cachedPurchases.update(c.id, { sync_status: "failed" as any });
+            const cs = await db.cachedSuppliers.where("operation_id").equals(op).first();
+            if(cs) await db.cachedSuppliers.update(cs.id, { sync_status: "failed" as any });
           }catch{}
         } else {
           await db.syncQueue.update(entry.id, {

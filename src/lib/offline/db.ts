@@ -79,8 +79,16 @@ interface CachedPurchase {
 interface CachedSupplier {
   id: string;
   name: string;
+  supplier_code?: string | null;
+  supplier_type?: string | null;
+  status?: string | null;
   phone?: string | null;
   email?: string | null;
+  city?: string | null;
+  is_active?: boolean;
+  payload?: Record<string, unknown>;
+  sync_status?: "synced" | "pending" | "failed" | "pending_sync";
+  operation_id?: string | null;
   updated_at: string;
 }
 
@@ -114,6 +122,18 @@ class MediFlowDB extends Dexie {
       cachedSuppliers: "id, name",
     }).upgrade(async (tx) => {
       // No data migration needed
+    });
+
+    this.version(3).stores({
+      products: "id, organization_id, barcode",
+      batches: "id, product_id, branch_id, expiry_date",
+      cart: "id, organization_id, branch_id",
+      syncQueue: "id, operation_id, status",
+      pendingSales: "id, operation_id, status",
+      cachedPurchases: "id, branch_id, supplier_id, status, sync_status",
+      cachedSuppliers: "id, name, supplier_code, status, sync_status",
+    }).upgrade(async (tx) => {
+      // v3 extend cachedSuppliers with sync fields
     });
   }
 }
