@@ -26,24 +26,16 @@ alter table product_suppliers add column if not exists availability text default
 alter table product_suppliers add column if not exists effective_date date default current_date;
 alter table product_suppliers add column if not exists catalogue_notes text;
 
--- Price alert threshold: stored in organization_settings as JSON key supplier_price_alert_pct (default 10)
--- Ensure settings table exists; insert default if missing
+-- Price alert threshold: stored in organization_settings columns (add if missing)
 do $$
 begin
-  if not exists (select 1 from information_schema.tables where table_name='organization_settings') then
-    create table organization_settings (id uuid primary key default gen_random_uuid(), organization_id uuid not null references organizations(id) on delete cascade, key text not null, value jsonb, created_at timestamptz not null default now(), unique(organization_id,key));
-  end if;
+  alter table organization_settings add column if not exists supplier_price_alert_pct integer default 10;
+  alter table organization_settings add column if not exists supplier_catalogue_import_enabled boolean default true;
+exception when others then null;
 end $$;
-
-insert into organization_settings (organization_id, key, value)
-select id, 'supplier_price_alert_pct', to_jsonb(10)
-from organizations
-on conflict (organization_id, key) do nothing;
-
-insert into organization_settings (organization_id, key, value)
-select id, 'supplier_catalogue_import_enabled', to_jsonb(true)
-from organizations
-on conflict (organization_id, key) do nothing;
+-- set defaults where null
+update organization_settings set supplier_price_alert_pct = coalesce(supplier_price_alert_pct, 10) where supplier_price_alert_pct is null;
+update organization_settings set supplier_catalogue_import_enabled = coalesce(supplier_catalogue_import_enabled, true) where supplier_catalogue_import_enabled is null;
 
 -- Helper view for price alerts (price change > threshold)
 create or replace view supplier_price_alerts as

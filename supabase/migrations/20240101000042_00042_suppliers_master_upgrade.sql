@@ -159,6 +159,7 @@ create index if not exists idx_supplier_notes_supplier on supplier_notes(supplie
 
 -- 7) Supplier activity timeline materialized via audit_logs already; add helper view for supplier KPI aggregation
 -- Supplier balance helper: get_supplier_balance already referenced in suppliers API — ensure it exists (transaction-derived)
+drop function if exists get_supplier_balance(uuid, uuid) cascade;
 create or replace function get_supplier_balance(p_supplier_id uuid, p_org_id uuid)
 returns table(balance numeric) language sql stable security definer as $$
   select coalesce(

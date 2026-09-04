@@ -664,7 +664,7 @@ export async function getPriceAlerts(thresholdPct?: number){
   const sb:any = await getSB();
   const orgId = await getOrgId();
   let threshold = thresholdPct ?? 10;
-  try{ const { data } = await sb.from('organization_settings').select('value').eq('organization_id',orgId).eq('key','supplier_price_alert_pct').maybeSingle(); if(data?.value) threshold = Number(data.value); }catch{}
+  try{ const { data } = await sb.from('organization_settings').select('supplier_price_alert_pct').eq('organization_id',orgId).maybeSingle(); if(data?.supplier_price_alert_pct) threshold = Number(data.supplier_price_alert_pct); }catch{}
   // fetch recent price history and compute pct locally to avoid view dependence
   const { data } = await sb.from('supplier_price_history').select('*, products(name), suppliers(name)').eq('organization_id',orgId).order('created_at',{ascending:false}).limit(100);
   const grouped: Record<string, any[]> = {};

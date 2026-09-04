@@ -82,11 +82,17 @@ CREATE TRIGGER trg_products_updated_at BEFORE UPDATE ON products FOR EACH ROW EX
 DROP TRIGGER IF EXISTS trg_product_suppliers_updated_at ON product_suppliers;
 CREATE TRIGGER trg_product_suppliers_updated_at BEFORE UPDATE ON product_suppliers FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
 
--- 5. Seed additional therapeutic categories (if missing)
-INSERT INTO categories (id, organization_id, name, description) VALUES
-  ('e0eebc99-9c0b-4ef8-bb6d-6bb9bd390a01', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Analgesics / Pain Relief', 'Pain management'),
-  ('e0eebc99-9c0b-4ef8-bb6d-6bb9bd390a02', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd390a03', 'Immunological', 'Vaccines and immunoglobulins')
-ON CONFLICT DO NOTHING;
+-- 5. Seed additional therapeutic categories (if missing) — safe if org not present on this instance
+DO $$ BEGIN
+  INSERT INTO categories (id, organization_id, name, description) VALUES
+    ('e0eebc99-9c0b-4ef8-bb6d-6bb9bd390a01', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Analgesics / Pain Relief', 'Pain management')
+  ON CONFLICT DO NOTHING;
+EXCEPTION WHEN foreign_key_violation OR OTHERS THEN NULL; END $$;
+DO $$ BEGIN
+  INSERT INTO categories (id, organization_id, name, description) VALUES
+    ('e0eebc99-9c0b-4ef8-bb6d-6bb9bd390a02', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd390a03', 'Immunological', 'Vaccines and immunoglobulins')
+  ON CONFLICT DO NOTHING;
+EXCEPTION WHEN foreign_key_violation OR OTHERS THEN NULL; END $$;
 
 -- 6. Permissions for products master
 INSERT INTO permissions (code, name, description) VALUES
