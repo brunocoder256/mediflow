@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const publicRoutes = ["/", "/auth/*", "/features", "/pricing", "/about", "/contact"];
+const publicRoutes = ["/", "/auth/*", "/features", "/pricing", "/about", "/contact", "/manifest.json", "/sw.js", "/offline.html", "/offline/*", "/icon-*.png"];
 
 function isPublicRoute(pathname: string): boolean {
   return publicRoutes.some((route) => {
@@ -47,6 +47,11 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
+
+  // Don't redirect API or asset requests — let them return JSON 401/404 instead of HTML redirect (fixes manifest Syntax error & api 404 loops)
+  if (pathname.startsWith("/api/") || pathname === "/manifest.json" || pathname === "/sw.js" || pathname === "/offline.html" || pathname.match(/\.(?:json|png|jpg|jpeg|svg|ico|webp)$/)) {
+    return supabaseResponse;
+  }
 
   if (!isPublicRoute(pathname) && !user) {
     const loginUrl = new URL("/auth/login", request.url);
