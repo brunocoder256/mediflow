@@ -590,3 +590,92 @@ export async function addSupplierDocument(supplierId: string, input: { file_name
   await createAuditLog("SUPPLIER_DOCUMENT_ADDED", "supplier_documents", data.id, null, data);
   return data;
 }
+
+export async function requestCreditApproval(supplierId: string, requestedLimit: number, reason?: string){
+  const sb:any = await getSB();
+  const orgId = await getOrgId();
+  const pid = await getProfileId();
+  const supplier = await getSupplierById(supplierId);
+  const prev = Number(supplier.credit_limit ?? 0);
+  // threshold: >20% or >500k UGX requires approval; otherwise auto-approve if caller has permission
+  const diffPct = prev===0 ? 100 : Math.abs(requestedLimit - prev)/prev*100;
+  const needsApproval = diffPct > 20 || Math.abs(requestedLimit - prev) > 500000;
+  if(!needsApproval){
+    return updateSupplier(supplierId, { credit_limit: requestedLimit } as any);
+  }
+  const { data, error } = await sb.from('supplier_credit_approvals').insert({ organization_id: orgId, supplier_id: supplierId, requested_by: pid, previous_limit: prev, requested_limit: requestedLimit, reason: reason ?? null, status: 'PENDING' }).select().single();
+  if(error) throw new Error(error.message);
+  await createAuditLog('SUPPLIER_CREDIT_APPROVAL_REQUESTED','supplier_credit_approvals',data.id,null,data);
+  return { approval: data, needsApproval: true };
+}
+export async function getCreditApprovals(supplierId?: string){
+  const sb:any = await getSB();
+  let q = sb.from('supplier_credit_approvals').select('*, suppliers(name)').order('created_at',{ascending:false}).limit(50);
+  if(supplierId) q=q.eq('supplier_id', supplierId);
+  const { data } = await q;
+  return data ?? [];
+}
+export async function decideCreditApproval(id: string, decision: 'APPROVED'|'REJECTED', _note?: string){
+  const sb:any = await getSB();
+  const pid = await getProfileId();
+  const { data: appr, error: e0 } = await sb.from('supplier_credit_approvals').select('*').eq('id', id).single();
+  if(e0) throw new Error(e0.message);
+  if(appr.status !== 'PENDING') throw new Error('Already decided');
+  const { data, error } = await sb.from('supplier_credit_approvals').update({ status: decision, approved_by: pid, decided_at: new Date().toISOString() }).eq('id', id).select().single();
+  if(error) throw new Error(error.message);
+  if(decision === 'APPROVED'){
+    await updateSupplier(appr.supplier_id, { credit_limit: appr.requested_limit } as any);
+  }
+  await createAuditLog('SUPPLIER_CREDIT_'+decision,'supplier_credit_approvals',id,appr,data);
+  return data;
+}
+export async function importSupplierCatalogue(supplierId: string, rows: Array<{ product_id?: string; sku?: string; barcode?: string; supplier_sku?: string; price: number; moq?: number; lead_time_days?: number; availability?: string; pack_size?: number }>){
+  const sb:any = await getSB();
+  const orgId = await getOrgId();
+  let imported=0; const errors:any[]=[];
+  for(let i=0;i<rows.length;i++){
+    const r=rows[i] as any;
+    try{
+      let productId=r.product_id;
+      if(!productId && (r.sku || r.barcode)){
+        const q = r.sku ? sb.from('products').select('id').eq('organization_id',orgId).eq('sku',r.sku).maybeSingle() : sb.from('products').select('id').eq('organization_id',orgId).eq('barcode',r.barcode).maybeSingle();
+        const { data: prod } = await q;
+        if(prod) productId=prod.id; else throw new Error('Product not found for SKU/barcode '+ (r.sku||r.barcode));
+      }
+      if(!productId) throw new Error('product_id or sku/barcode required');
+      const existing = await sb.from('product_suppliers').select('id').eq('product_id',productId).eq('supplier_id',supplierId).maybeSingle().then((x:any)=>x.data) as any;
+      const payload:any={ organization_id: orgId, product_id: productId, supplier_id: supplierId, supplier_sku: r.supplier_sku ?? null, supplier_product_code: r.supplier_sku ?? null, supplier_price: r.price, current_price: r.price, minimum_order_quantity: r.moq ?? null, lead_time_days: r.lead_time_days ?? null, pack_size: r.pack_size ?? null, availability: r.availability ?? 'Available', effective_date: new Date().toISOString().slice(0,10) };
+      if(existing){
+        const { error } = await sb.from('product_suppliers').update({ supplier_price: r.price, current_price: r.price, minimum_order_quantity: r.moq ?? undefined, lead_time_days: r.lead_time_days ?? undefined, availability: r.availability ?? undefined, updated_at: new Date().toISOString() }).eq('id', existing.id);
+        if(error) throw new Error(error.message);
+      } else {
+        const { error } = await sb.from('product_suppliers').insert(payload);
+        if(error) throw new Error(error.message);
+      }
+      // price history
+      await sb.from('supplier_price_history').insert({ organization_id: orgId, supplier_id: supplierId, product_id: productId, price: r.price, effective_date: new Date().toISOString().slice(0,10) }).then(()=>{}).catch(()=>{});
+      imported++;
+    }catch(e:any){ errors.push({ row: i+1, error: e.message }); }
+  }
+  await createAuditLog('SUPPLIER_CATALOGUE_IMPORTED','suppliers',supplierId,null,{ imported, errorCount: errors.length });
+  return { imported, errors };
+}
+export async function getPriceAlerts(thresholdPct?: number){
+  const sb:any = await getSB();
+  const orgId = await getOrgId();
+  let threshold = thresholdPct ?? 10;
+  try{ const { data } = await sb.from('organization_settings').select('value').eq('organization_id',orgId).eq('key','supplier_price_alert_pct').maybeSingle(); if(data?.value) threshold = Number(data.value); }catch{}
+  // fetch recent price history and compute pct locally to avoid view dependence
+  const { data } = await sb.from('supplier_price_history').select('*, products(name), suppliers(name)').eq('organization_id',orgId).order('created_at',{ascending:false}).limit(100);
+  const grouped: Record<string, any[]> = {};
+  for(const h of (data??[]) as any[]){ const k=h.supplier_id+'|'+h.product_id; (grouped[k]=grouped[k]||[]).push(h); }
+  const alerts:any[]=[];
+  for(const k of Object.keys(grouped)){
+    const arr=grouped[k].sort((a,b)=> new Date(b.effective_date).getTime() - new Date(a.effective_date).getTime());
+    if(arr.length>=2){
+      const cur=Number(arr[0].price), prev=Number(arr[1].price);
+      if(prev>0){ const pct=Math.abs(cur-prev)/prev*100; if(pct>=threshold) alerts.push({ supplier_id: arr[0].supplier_id, supplier_name: arr[0].suppliers?.name, product_id: arr[0].product_id, product_name: arr[0].products?.name, prev, cur, pct: Number(pct.toFixed(1)), date: arr[0].effective_date }); }
+    }
+  }
+  return alerts;
+}

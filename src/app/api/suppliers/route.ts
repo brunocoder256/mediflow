@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getSuppliers, createSupplier, getSupplierDetail, updateSupplier, deleteSupplier, getSupplierStatement, setSupplierStatus, getSupplierPriceHistory, addSupplierNote, addSupplierDocument, linkSupplierProduct, unlinkSupplierProduct } from '@/lib/services/suppliers';
+import { getSuppliers, createSupplier, getSupplierDetail, updateSupplier, deleteSupplier, getSupplierStatement, setSupplierStatus, getSupplierPriceHistory, addSupplierNote, addSupplierDocument, linkSupplierProduct, unlinkSupplierProduct, getPriceAlerts, importSupplierCatalogue, requestCreditApproval, getCreditApprovals, decideCreditApproval } from '@/lib/services/suppliers';
 import { getSB } from '@/lib/services/supabase';
 
 export async function GET(req: Request){
@@ -9,7 +9,18 @@ export async function GET(req: Request){
     const detail = url.searchParams.get('detail');
     const statement = url.searchParams.get('statement');
     const priceHistory = url.searchParams.get('priceHistory');
+    const priceAlerts = url.searchParams.get('priceAlerts');
+    const creditApprovals = url.searchParams.get('creditApprovals');
 
+    if(priceAlerts === '1'){
+      const alerts = await getPriceAlerts();
+      return NextResponse.json(alerts);
+    }
+    if(creditApprovals === '1'){
+      const sid = url.searchParams.get('supplier_id') ?? id ?? undefined;
+      const data = await getCreditApprovals(sid);
+      return NextResponse.json(data);
+    }
     if(id && detail === '1'){
       const data = await getSupplierDetail(id);
       return NextResponse.json(data);
@@ -73,6 +84,18 @@ export async function POST(req: Request){
     }
     if(body.action === 'status'){
       const data = await setSupplierStatus(body.id, body.status);
+      return NextResponse.json(data);
+    }
+    if(body.action === 'import_catalogue'){
+      const data = await importSupplierCatalogue(body.supplier_id, body.rows);
+      return NextResponse.json(data,{status:201});
+    }
+    if(body.action === 'request_credit_approval'){
+      const data = await requestCreditApproval(body.supplier_id, body.requested_limit, body.reason);
+      return NextResponse.json(data,{status:201});
+    }
+    if(body.action === 'decide_credit_approval'){
+      const data = await decideCreditApproval(body.id, body.decision, body.note);
       return NextResponse.json(data);
     }
     const data = await createSupplier(body);

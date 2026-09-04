@@ -76,6 +76,22 @@ interface CachedPurchase {
   operation_id?: string;
 }
 
+interface CachedReturn {
+  id: string;
+  return_number?: string;
+  return_type: "SALES"|"PURCHASE";
+  sale_id?: string | null;
+  purchase_order_id?: string | null;
+  supplier_id?: string | null;
+  branch_id: string;
+  status: string;
+  total?: number;
+  payload: Record<string, unknown>;
+  sync_status: "synced" | "pending" | "failed" | "pending_sync";
+  operation_id?: string;
+  created_at: string;
+}
+
 interface CachedSupplier {
   id: string;
   name: string;
@@ -100,6 +116,7 @@ class MediFlowDB extends Dexie {
   pendingSales!: EntityTable<PendingSale, "id">;
   cachedPurchases!: EntityTable<CachedPurchase, "id">;
   cachedSuppliers!: EntityTable<CachedSupplier, "id">;
+  cachedReturns!: EntityTable<CachedReturn, "id">;
 
   constructor() {
     super("MediFlowDB");
@@ -135,9 +152,22 @@ class MediFlowDB extends Dexie {
     }).upgrade(async (tx) => {
       // v3 extend cachedSuppliers with sync fields
     });
+
+    this.version(4).stores({
+      products: "id, organization_id, barcode",
+      batches: "id, product_id, branch_id, expiry_date",
+      cart: "id, organization_id, branch_id",
+      syncQueue: "id, operation_id, status",
+      pendingSales: "id, operation_id, status",
+      cachedPurchases: "id, branch_id, supplier_id, status, sync_status",
+      cachedSuppliers: "id, name, supplier_code, status, sync_status",
+      cachedReturns: "id, branch_id, return_type, status, sync_status",
+    }).upgrade(async (tx) => {
+      // v4 returns offline
+    });
   }
 }
 
 export const db = new MediFlowDB();
 
-export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier };
+export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier, CachedReturn };

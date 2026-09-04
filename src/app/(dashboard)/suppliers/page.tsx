@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { queueSupplierCreate, queueSupplierUpdate, getSupplierPendingCount } from "@/lib/offline/sync";
-import { Search, Plus, Eye, Edit, Building2, Phone, Mail, MapPin, CreditCard, Package, Truck, Undo2, FileText, History, TrendingUp, Layers, DollarSign, Clock, AlertTriangle, CheckCircle, XCircle, PauseCircle, Wifi, WifiOff, RefreshCw, Download, Trash2, ShieldCheck, Globe, Users, FileArchive, MessageSquare } from "lucide-react";
+import { Search, Plus, Eye, Edit, Building2, Phone, Mail, MapPin, CreditCard, Package, Truck, Undo2, FileText, History, TrendingUp, Layers, DollarSign, Clock, AlertTriangle, CheckCircle, XCircle, PauseCircle, Wifi, WifiOff, RefreshCw, Download, Trash2, ShieldCheck, Globe, Users, FileArchive, MessageSquare, ScanLine, Upload, FileSpreadsheet, Printer, Bell } from "lucide-react";
 import { db } from "@/lib/offline/db";
 
 type Supplier = any;
@@ -59,6 +59,17 @@ export default function SuppliersPage(){
   const [docForm,setDocForm]=React.useState({document_type:"AGREEMENT", file_name:"", file_url:""});
   const [paymentForm,setPaymentForm]=React.useState({amount:"", method:"CASH", reference:""});
   const [wizardStep,setWizardStep]=React.useState(1);
+  const [showBarcodeScan,setShowBarcodeScan]=React.useState(false);
+  const [barcodeTarget,setBarcodeTarget]=React.useState<string|null>(null);
+  const [showCatalogue,setShowCatalogue]=React.useState(false);
+  const [catalogueRows,setCatalogueRows]=React.useState<any[]>([]);
+  const [catalogueErrors,setCatalogueErrors]=React.useState<any[]>([]);
+  const [priceAlerts,setPriceAlerts]=React.useState<any[]>([]);
+  const [priceThreshold,setPriceThreshold]=React.useState(10);
+  const [creditApprovals,setCreditApprovals]=React.useState<any[]>([]);
+  const [showApproval,setShowApproval]=React.useState(false);
+  const [approvalAmount,setApprovalAmount]=React.useState("");
+  const [approvalReason,setApprovalReason]=React.useState("");
   const perPage=14;
 
   // form for create/edit
@@ -102,6 +113,11 @@ export default function SuppliersPage(){
     setLoading(false);
   },[debouncedQ,typeFilter,statusFilter,branchFilter,page,onlyHasBalance,onlyOpenPO]);
   React.useEffect(()=>{ fetchData(); },[fetchData]);
+  React.useEffect(()=>{ // fetch price alerts + threshold
+    fetch("/api/suppliers?priceAlerts=1").then(r=>r.json()).then(j=>{ if(Array.isArray(j)) setPriceAlerts(j); else if(j.alerts) setPriceAlerts(j.alerts); }).catch(()=>{});
+    fetch("/api/suppliers?creditApprovals=1").then(r=>r.json()).then(j=>{ if(Array.isArray(j)) setCreditApprovals(j); }).catch(()=>{});
+    fetch("/api/settings").then(r=>r.json()).then(j=>{ const v=j?.organization_settings?.supplier_price_alert_pct ?? j?.supplier_price_alert_pct; if(v) setPriceThreshold(Number(v)); }).catch(()=>{});
+  },[]);
 
   const kpi = React.useMemo(()=>{
     const total = data.length;
@@ -242,11 +258,118 @@ export default function SuppliersPage(){
     const j=await r.json();
     if(!r.ok) alert(j.error); else { setLinkProductId(""); openDetail(showDetail); }
   };
-  const exportSuppliers=()=>{
+  const exportSuppliers=(fmt: 'csv'|'excel'|'pdf'|'print' = 'csv')=>{
+    const rows=data as any[];
+    if(fmt==='pdf' || fmt==='print'){
+      const html = `<html><head><title>Suppliers Statement</title><style>table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px;font-size:11px}th{background:#f3f4f6}</style></head><body><h2>MediFlow Suppliers — ${new Date().toLocaleDateString()}</h2><p>Total ${rows.length} • Outstanding UGX ${rows.reduce((a:number,s:any)=>a+Number(s.balance??0),0).toLocaleString()}</p><table><thead><tr><th>Supplier</th><th>Code</th><th>Type</th><th>Contact</th><th>Phone</th><th>City</th><th>Products</th><th>Outstanding</th><th>Status</th></tr></thead><tbody>${rows.map((s:any)=>`<tr><td>${s.name}</td><td>${s.supplier_code??''}</td><td>${s.supplier_type??''}</td><td>${s.contact_person??''}</td><td>${s.phone??''}</td><td>${s.city??''}</td><td>${s.products_count??0}</td><td>UGX ${Number(s.balance??0).toLocaleString()}</td><td>${s.status??''}</td></tr>`).join('')}</tbody></table><p style="font-size:10px;color:#666">Generated ${new Date().toLocaleString()} — transaction-derived balances. Branch isolation enforced.</p></body></html>`;
+      if(fmt==='print'){ const w=window.open('','_blank'); if(w){ w.document.write(html); w.document.close(); w.focus(); w.print(); } return; }
+      const blob=new Blob([html],{type:'text/html'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`suppliers_${new Date().toISOString().slice(0,10)}.html`; a.click(); URL.revokeObjectURL(url); return;
+    }
+    if(fmt==='excel'){
+      // Excel via HTML table with mso formatting — opens in Excel/Sheets without extra dep
+      const header=["Supplier","Code","Type","Contact","Phone","Email","City","Products","Open POs","Outstanding","Terms","Status"];
+      const lines=rows.map((s:any)=>[s.name, s.supplier_code??"", s.supplier_type??"", s.contact_person??"", s.phone??"", s.email??"", s.city??"", s.products_count??0, s.open_pos??0, s.balance??0, s.payment_terms??"", s.status??""]);
+      const table = `<table><thead><tr>${header.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${lines.map(r=>`<tr>${r.map((c:any)=>`<td>${String(c).replace(/</g,'&lt;')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+      const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"><style>br{mso-data-placement:same-cell}</style></head><body>${table}</body></html>`;
+      const blob=new Blob([html],{type:'application/vnd.ms-excel'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`suppliers_${new Date().toISOString().slice(0,10)}.xls`; a.click(); URL.revokeObjectURL(url); return;
+    }
     const header=["Supplier","Code","Type","Contact","Phone","Email","City","Products","Open POs","Outstanding","Terms","Status","Last Purchase"].join(",");
-    const lines=data.map((s:any)=>[s.name, s.supplier_code??"", s.supplier_type??"", s.contact_person??"", s.phone??"", s.email??"", s.city??"", s.products_count??0, s.open_pos??0, s.balance??0, s.payment_terms??"", s.status??"", s.last_purchase_at? new Date(s.last_purchase_at).toLocaleDateString(): ""].map(v=>`"${String(v).replace(/"/g,'""')}"`).join(","));
+    const lines=rows.map((s:any)=>[s.name, s.supplier_code??"", s.supplier_type??"", s.contact_person??"", s.phone??"", s.email??"", s.city??"", s.products_count??0, s.open_pos??0, s.balance??0, s.payment_terms??"", s.status??"", s.last_purchase_at? new Date(s.last_purchase_at).toLocaleDateString(): ""].map((v:any)=>`"${String(v).replace(/"/g,'""')}"`).join(","));
     const csv=[header,...lines].join("\n"); const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`suppliers_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
   };
+  const handleCatalogueFile=async(e:React.ChangeEvent<HTMLInputElement>)=>{
+    const file=e.target.files?.[0]; if(!file) return;
+    const text=await file.text();
+    const lines=text.split(/\r?\n/).filter(l=>l.trim());
+    if(lines.length<2) return alert("CSV needs header");
+    const header=lines[0].split(',').map(h=>h.trim().toLowerCase());
+    const idx=(n:string)=>header.indexOf(n);
+    const rows:any[]=[];
+    for(let i=1;i<lines.length;i++){
+      const cols=lines[i].split(',').map(c=>c.trim().replace(/^"|"$/g,''));
+      const get=(n:string)=>{ const p=idx(n); return p>=0? cols[p]: ""; };
+      const price=Number(get('price')||get('supplier_price')||get('current_price')||0);
+      rows.push({ sku: get('sku')||"", barcode: get('barcode')||"", supplier_sku: get('supplier_sku')||get('supplier_product_code')||"", price, moq: Number(get('moq')||get('minimum_order_quantity')||0)||undefined, lead_time_days: Number(get('lead_time_days')||0)||undefined, availability: get('availability')||"Available", pack_size: Number(get('pack_size')||0)||undefined });
+    }
+    setCatalogueRows(rows);
+  };
+  const submitCatalogue=async()=>{
+    if(!showDetail || catalogueRows.length===0) return alert("Load CSV first");
+    const r=await fetch("/api/suppliers",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"import_catalogue", supplier_id: showDetail.id, rows: catalogueRows})});
+    const j=await r.json();
+    if(!r.ok) { setCatalogueErrors(j.errors ?? []); return alert(j.error || "Import failed"); }
+    alert(`Imported ${j.imported} products — ${(j.errors?.length??0)} errors`);
+    setShowCatalogue(false); setCatalogueRows([]); openDetail(showDetail);
+  };
+  const downloadCatalogueTemplate=()=>{
+    const csv=["sku,barcode,supplier_sku,price,moq,lead_time_days,availability,pack_size","ABC001,,SUP-ABC-01,8500,10,2,Available,10"," ,800123456789,SUP-ORS-02,15000,5,3,Available,5"].join("\n");
+    const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download="supplier_catalogue_template.csv"; a.click();
+  };
+  const startBarcodeScan=(target: 'linkProduct' | 'poProduct')=>{
+    setBarcodeTarget(target); setShowBarcodeScan(true);
+    setTimeout(()=>{
+      const video=document.getElementById('barcode-video') as HTMLVideoElement | null;
+      if(!video) return;
+      navigator.mediaDevices?.getUserMedia({video:{facingMode:"environment"}}).then(stream=>{
+        video.srcObject=stream; video.play();
+        const scan=async()=>{
+          try{
+                        if((window as any).BarcodeDetector){
+                            const detector=new (window as any).BarcodeDetector({formats:['ean_13','ean_8','code_128','qr_code']});
+              const detect=async()=>{
+                if(video.readyState>=2){
+                  const bmp=await createImageBitmap(video);
+                  const codes=await detector.detect(bmp);
+                  if(codes[0]?.rawValue){
+                    const val=codes[0].rawValue;
+                    handleBarcodeDetected(val);
+                    stream.getTracks().forEach(t=>t.stop());
+                    return;
+                  }
+                }
+                if(showBarcodeScan) requestAnimationFrame(detect);
+              };
+              detect();
+            }
+          }catch{}
+        };
+        scan();
+      }).catch(()=>{});
+    },300);
+  };
+  const handleBarcodeDetected=(val:string)=>{
+    // find product by sku/barcode
+    const prod=(products as any[]).find((p:any)=> p.sku===val || p.barcode===val);
+    if(prod){
+      if(barcodeTarget==='linkProduct') setLinkProductId(prod.id);
+      alert(`Scanned ${val} → ${prod.name} auto-selected`);
+    } else {
+      alert(`Barcode ${val} not found — enter manually`);
+    }
+    const vid=document.getElementById('barcode-video') as HTMLVideoElement | null;
+    const stream=vid?.srcObject as MediaStream | null;
+    stream?.getTracks().forEach(t=>t.stop());
+    setShowBarcodeScan(false);
+  };
+  const requestCreditChange=async()=>{
+    if(!showDetail) return;
+    const amt=Number(approvalAmount);
+    if(!amt || amt<0) return alert("Enter credit limit");
+    const r=await fetch("/api/suppliers",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"request_credit_approval", supplier_id: showDetail.id, requested_limit: amt, reason: approvalReason})});
+    const j=await r.json();
+    if(!r.ok) return alert(j.error);
+    if(j.needsApproval) alert(`Approval required (>20% or >500k UGX): request ${amt} queued PENDING. Manager must approve.`);
+    else alert("Credit limit updated (within threshold, no approval needed)");
+    setShowApproval(false); setApprovalAmount(""); setApprovalReason(""); fetch("/api/suppliers?creditApprovals=1").then(x=>x.json()).then(x=>setCreditApprovals(Array.isArray(x)?x:[])).catch(()=>{}); openDetail(showDetail); fetchData();
+  };
+  const decideApproval=async(id:string, decision:'APPROVED'|'REJECTED')=>{
+    const r=await fetch("/api/suppliers",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"decide_credit_approval", id, decision})});
+    const j=await r.json();
+    if(!r.ok) return alert(j.error);
+    fetch("/api/suppliers?creditApprovals=1").then(x=>x.json()).then(x=>setCreditApprovals(Array.isArray(x)?x:[])).catch(()=>{});
+    fetchData(); if(showDetail) openDetail(showDetail);
+  };
+
 
   const totalPages=Math.max(1, Math.ceil(count/perPage));
 
@@ -258,7 +381,12 @@ export default function SuppliersPage(){
           <Badge variant={isOnline?"success":"warning"} className="gap-1">{isOnline ? <Wifi className="h-3 w-3"/> : <WifiOff className="h-3 w-3"/>}{isOnline ? "Online" : "Offline — Saved locally"}</Badge>
           {pendingSuppliers>0 && <Badge variant="warning">{pendingSuppliers} pending sync</Badge>}
           <Button variant="outline" size="sm" onClick={fetchData}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
-          <Button variant="outline" size="sm" onClick={exportSuppliers}><Download className="h-4 w-4 mr-2"/>Export</Button>
+          <div className="flex gap-1">
+            <Button variant="outline" size="sm" onClick={()=>exportSuppliers('csv')}><Download className="h-4 w-4 mr-1"/>CSV</Button>
+            <Button variant="outline" size="sm" onClick={()=>exportSuppliers('excel')} title="Excel .xls (SheetJS compatible)"><FileSpreadsheet className="h-4 w-4 mr-1"/>Excel</Button>
+            <Button variant="outline" size="sm" onClick={()=>exportSuppliers('pdf')}><FileArchive className="h-4 w-4 mr-1"/>PDF</Button>
+            <Button variant="outline" size="sm" onClick={()=>exportSuppliers('print')}><Printer className="h-4 w-4 mr-1"/>Print</Button>
+          </div>
           <Button onClick={openCreate}><Plus className="h-4 w-4 mr-2"/>Add Supplier</Button>
         </div>
       </div>
@@ -541,7 +669,7 @@ export default function SuppliersPage(){
                 <Button size="sm" variant="outline" onClick={()=>setDetailTab("products")}><Package className="h-4 w-4 mr-1"/>View Products</Button>
                 <Button size="sm" variant="outline" onClick={()=>setDetailTab("payments")}><CreditCard className="h-4 w-4 mr-1"/>Record Payment</Button>
                 <Button size="sm" variant="outline" onClick={()=>setDetailTab("returns")}><Undo2 className="h-4 w-4 mr-1"/>Create Return</Button>
-                <Button size="sm" variant="outline" onClick={exportSuppliers}><Download className="h-4 w-4 mr-1"/>Export</Button>
+                <Button size="sm" variant="outline" onClick={()=>exportSuppliers()}><Download className="h-4 w-4 mr-1"/>Export</Button>
                 <Select value={showDetail?.status ?? "Active"} onChange={e=>handleStatusChange(showDetail!, e.target.value)} className="w-[140px]">
                   <option>Active</option><option>Inactive</option><option>Suspended</option><option>Under Review</option>
                 </Select>
@@ -557,6 +685,15 @@ export default function SuppliersPage(){
                 <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Last Purchase</div><div className="font-bold text-xs">{detailData.detail.kpi.lastPurchaseAt ? new Date(detailData.detail.kpi.lastPurchaseAt).toLocaleDateString() : "N/A"}</div><div className="text-[10px]">{detailData.detail.kpi.lastPurchaseValue? `UGX ${Number(detailData.detail.kpi.lastPurchaseValue).toLocaleString()}`: ""}</div></CardContent></Card>
               </div>
               {detailData.detail.kpi.avgLeadTime !== null && <p className="text-xs text-muted-foreground">Avg delivery {detailData.detail.kpi.avgLeadTime} days • On-time {detailData.detail.kpi.onTimeRate ?? "N/A"}% • Inventory → Reorder → Supplier → PO workflow preserved</p>}
+              <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20"><CardContent className="p-3 flex flex-wrap gap-2 items-center justify-between">
+                <div className="text-sm"><span className="font-medium flex items-center gap-1"><ShieldCheck className="h-4 w-4"/>Credit Limit Approval</span><span className="text-xs text-muted-foreground">Current UGX {(detailData.supplier.credit_limit ?? 0).toLocaleString()} • threshold &gt;20% or &gt;500k UGX requires manager approval</span>{creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id && a.status==='PENDING').length>0 && <Badge variant="warning" className="ml-2">{creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id && a.status==='PENDING').length} pending</Badge>}</div>
+                <Button size="sm" variant="outline" onClick={()=>setShowApproval(true)}>Request Change</Button>
+              </CardContent></Card>
+              {creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id).length>0 && (
+                <Card><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Prev → Req</TableHead><TableHead>Reason</TableHead><TableHead>Status</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>
+                  {creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id).slice(0,5).map((a:any)=><TableRow key={a.id}><TableCell className="text-xs">{new Date(a.created_at).toLocaleDateString()}</TableCell><TableCell className="text-xs">UGX {Number(a.previous_limit).toLocaleString()} → UGX {Number(a.requested_limit).toLocaleString()}</TableCell><TableCell className="text-xs">{a.reason ?? "—"}</TableCell><TableCell><Badge variant={a.status==='PENDING'?'warning': a.status==='APPROVED'?'success':'destructive'}>{a.status}</Badge></TableCell><TableCell>{a.status==='PENDING' && <><Button size="sm" variant="outline" className="mr-1" onClick={()=>decideApproval(a.id,'APPROVED')}>Approve</Button><Button size="sm" variant="ghost" onClick={()=>decideApproval(a.id,'REJECTED')}>Reject</Button></>}</TableCell></TableRow>)}
+                </TableBody></Table></CardContent></Card>
+              )}
 
               <Tabs defaultValue="overview">
                 <TabsList className="flex flex-wrap h-auto">
@@ -620,8 +757,14 @@ export default function SuppliersPage(){
                   {detailTab==="products" && (
                     <div className="space-y-3">
                       <div className="flex gap-2">
-                        <Select value={linkProductId} onChange={e=>setLinkProductId(e.target.value)} className="flex-1"><option value="">Select product to link (name/SKU/barcode)</option>{products.map((p:any)=><option key={p.id} value={p.id}>{p.name} {p.sku?`(${p.sku})`:""} — {p.generic_name ?? ""} strength {p.strength ?? ""}</option>)}</Select>
-                        <Button size="sm" onClick={linkProduct}>Link Product</Button>
+                        <Select value={linkProductId} onChange={e=>setLinkProductId(e.target.value)} className="flex-1"><option value="">Select product to link (name/SKU/barcode)</option>{products.map((p:any)=><option key={p.id} value={p.id}>{p.name} {p.sku? `(${p.sku})`:""} — {p.generic_name ?? ""} strength {p.strength ?? ""}</option>)}</Select>
+                        <Button size="sm" variant="outline" onClick={()=>startBarcodeScan('linkProduct')} title="Scan barcode with camera"><ScanLine className="h-4 w-4 mr-1"/>Scan</Button>
+                        <Button size="sm" onClick={linkProduct}>Link</Button>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={downloadCatalogueTemplate}><Download className="h-4 w-4 mr-1"/>Template</Button>
+                        <Button size="sm" variant="outline" onClick={()=>setShowCatalogue(true)}><Upload className="h-4 w-4 mr-1"/>Import Catalogue CSV</Button>
+                        {priceAlerts.length>0 && <Badge variant="warning" className="gap-1"><Bell className="h-3 w-3"/>{priceAlerts.length} price alerts (&gt;{priceThreshold}%)</Badge>}
                       </div>
                       {(detailData.detail.products ?? []).length===0 ? <p className="text-sm text-muted-foreground">No products linked. Link Paracetamol 500mg / Amoxicillin 500mg / ORS to test reorder → PO workflow.</p> :
                         <Table><TableHeader><TableRow><TableHead>Product</TableHead><TableHead>SKU</TableHead><TableHead>Supplier SKU</TableHead><TableHead>Last Price</TableHead><TableHead>Current</TableHead><TableHead>Lead</TableHead><TableHead>Preferred</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>
@@ -736,6 +879,13 @@ export default function SuppliersPage(){
 
                   {detailTab==="pricing" && (
                     <div className="space-y-3">
+                      <Card><CardContent className="p-3 flex flex-wrap gap-2 items-center">
+                        <span className="text-sm font-medium flex items-center gap-1"><Bell className="h-4 w-4"/>Price-Alert Threshold</span>
+                        <Input type="number" className="w-[90px]" value={priceThreshold} onChange={e=>setPriceThreshold(Number(e.target.value))}/>
+                        <span className="text-sm">% — alerts when change ≥ threshold (configurable; default 10%)</span>
+                        <Badge variant={priceAlerts.length? "destructive":"secondary"}>{priceAlerts.length} alerts</Badge>
+                        {priceAlerts.slice(0,3).map((a:any,i:number)=><Badge key={i} variant="warning" className="gap-1"><AlertTriangle className="h-3 w-3"/>{a.supplier_name}: {a.product_name} {a.prev} → {a.cur} ({a.pct}%)</Badge>)}
+                      </CardContent></Card>
                       {(detailData.detail.priceHistory ?? []).length===0 ? <p className="text-sm text-muted-foreground">No price history — each GRN preserves historical cost. Changing current price adds history row, never rewrites old PO.</p> :
                         <Table><TableHeader><TableRow><TableHead>Product</TableHead><TableHead>Price</TableHead><TableHead>Date</TableHead><TableHead>PO/GRN</TableHead></TableRow></TableHeader><TableBody>
                           {(detailData.detail.priceHistory ?? []).map((h:any)=>(
@@ -819,7 +969,46 @@ export default function SuppliersPage(){
         </DialogContent>
       </Dialog>
 
-      <p className="text-xs text-muted-foreground text-center">Suppliers are distinct from PO/GRN/Movement/Bill/Payment/Return — querying Supplier shows transaction history via authoritative linked modules, not collapsed stock totals. Branch isolation enforced server-side (RLS). Mobile: cards, bottom sheets, sticky actions, offline Pending Sync banners.</p>
+      {/* Barcode Scanner Dialog */}
+      <Dialog open={showBarcodeScan} onOpenChange={setShowBarcodeScan}>
+        <DialogContent className="max-w-md bg-card">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><ScanLine className="h-5 w-5"/>Scan Barcode</DialogTitle><DialogDescription>Point camera at SKU/barcode — uses BarcodeDetector where supported, otherwise enter manually. For warehouse/store staff speed.</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <video id="barcode-video" className="w-full rounded border bg-black aspect-video" muted playsInline />
+            <Input placeholder="Or type/ paste barcode (SKU)" onKeyDown={e=>{ if(e.key==='Enter'){ handleBarcodeDetected((e.target as HTMLInputElement).value.trim()); } }} />
+            <p className="text-xs text-muted-foreground">Offline: scan stores locally, sync validates product existence.</p>
+            <Button variant="outline" className="w-full" onClick={()=>{ const v=document.getElementById('barcode-video') as HTMLVideoElement|null; (v?.srcObject as MediaStream)?.getTracks().forEach(t=>t.stop()); setShowBarcodeScan(false); }}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Catalogue Import Dialog */}
+      <Dialog open={showCatalogue} onOpenChange={setShowCatalogue}>
+        <DialogContent className="max-w-2xl bg-card">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><Upload className="h-5 w-5"/>Import Supplier Catalogue</DialogTitle><DialogDescription>CSV: sku,barcode,supplier_sku,price,moq,lead_time_days,availability,pack_size → Product Matching → Price Comparison → PO. Product must exist (SKU/barcode).</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <Input type="file" accept=".csv" onChange={handleCatalogueFile}/>
+            <div className="flex gap-2"><Button variant="outline" size="sm" onClick={downloadCatalogueTemplate}>Download Template</Button><span className="text-xs text-muted-foreground">Enable via organization_settings supplier_catalogue_import_enabled</span></div>
+            {catalogueRows.length>0 && <div className="border rounded p-2 max-h-48 overflow-auto text-xs"><div>{catalogueRows.length} rows parsed — preview 3:</div>{catalogueRows.slice(0,3).map((r:any,i:number)=><div key={i} className="font-mono">{r.sku||r.barcode} → {r.supplier_sku} UGX {r.price} MOQ {r.moq} lead {r.lead_time_days}d {r.availability}</div>)}{catalogueErrors.length>0 && <div className="text-destructive">{catalogueErrors.length} errors</div>}</div>}
+            <Button onClick={submitCatalogue} disabled={catalogueRows.length===0} className="w-full">Import {catalogueRows.length} → product_suppliers + price_history</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Credit Approval Dialog */}
+      <Dialog open={showApproval} onOpenChange={setShowApproval}>
+        <DialogContent className="max-w-md bg-card">
+          <DialogHeader><DialogTitle>Request Credit Limit Change</DialogTitle><DialogDescription>Threshold configurable; &gt;20% or &gt;500k UGX → PENDING approval by manager (role suppliers.deactivate/approve). Offline queues, server validates.</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Requested Limit (UGX)</Label><Input type="number" value={approvalAmount} onChange={e=>setApprovalAmount(e.target.value)} placeholder="7000000"/></div>
+            <div><Label>Reason</Label><Textarea value={approvalReason} onChange={e=>setApprovalReason(e.target.value)} placeholder="Seasonal credit increase..." rows={2}/></div>
+            <Button onClick={requestCreditChange} className="w-full">Submit Request</Button>
+            <p className="text-xs text-muted-foreground">Existing approval architecture reused — audit log SUPPLIER_CREDIT_* captures user/timestamp/prev→new.</p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <p className="text-xs text-muted-foreground text-center">Suppliers are distinct from PO/GRN/Movement/Bill/Payment/Return — querying Supplier shows transaction history via authoritative linked modules, not collapsed stock totals. Branch isolation enforced server-side (RLS). Mobile: cards, bottom sheets, sticky actions, offline Pending Sync banners. Excel/PDF/Print reuse existing export engine. Barcode uses Browser BarcodeDetector + fallback. Catalogue import matches Product by SKU/barcode. Credit approvals enforce role-based validation server-side.</p>
     </div>
   );
 }

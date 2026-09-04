@@ -150,6 +150,19 @@ export async function getPendingCount(): Promise<number> {
   return db.syncQueue.where("status").equals("pending").count();
 }
 
+export async function queueReturnCreate(payload: Record<string, unknown>, type: "SALES"|"PURCHASE"): Promise<string>{
+  const op=crypto.randomUUID(); const id=crypto.randomUUID();
+  await db.syncQueue.add({ id:crypto.randomUUID(), operation_id:op, table_name:"returns", operation:"create", payload:{ ...payload, _offlineId:id, _operationId:op, _returnType:type }, status:"pending", created_at:new Date().toISOString(), retries:0, error:null });
+  try{
+    await db.cachedReturns.add({ id, return_type:type, sale_id:(payload as any).sale_id ?? null, purchase_order_id:(payload as any).purchase_order_id ?? null, supplier_id:(payload as any).supplier_id ?? null, branch_id:(payload as any).branch_id ?? "", status:"pending", total: Number((payload as any).total ?? 0), payload, sync_status:"pending", operation_id:op, created_at:new Date().toISOString() } as any);
+  }catch{}
+  return op;
+}
+
+export async function getReturnsPendingCount(): Promise<number>{
+  try{ const c=await db.cachedReturns.where("sync_status").equals("pending").count(); const q=await db.syncQueue.where("table_name").equals("returns").count(); return Math.max(c,q); }catch{ return 0; }
+}
+
 export async function getPurchasePendingCount(): Promise<number> {
   try{
     const c = await db.cachedPurchases.where("sync_status").equals("pending").count();
@@ -205,6 +218,17 @@ export async function processSyncQueue(): Promise<{
               if(c) await db.cachedPurchases.update(c.id, { sync_status: "synced" as any });
             }catch{}
           }
+        }
+      } else if (entry.table_name === "returns") {
+        const payload:any=entry.payload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const rType=payload._returnType ?? "SALES"; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId; delete clean._returnType;
+        if(rType==="PURCHASE"){
+          response = await fetch("/api/purchase-returns",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, operation_id: op }) });
+        } else {
+          response = await fetch("/api/returns",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, operation_id: op }) });
+        }
+        if(response.ok){
+          if(offId){ try{ await db.cachedReturns.update(offId,{ sync_status:"synced" as any }); }catch{} }
+          else if(op){ try{ const c=await db.cachedReturns.where("operation_id").equals(op).first(); if(c) await db.cachedReturns.update(c.id,{ sync_status:"synced" as any }); }catch{} }
         }
       } else if (entry.table_name === "suppliers") {
         const payload: any = entry.payload;
@@ -268,6 +292,8 @@ export async function processSyncQueue(): Promise<{
             if(c) await db.cachedPurchases.update(c.id, { sync_status: "failed" as any });
             const cs = await db.cachedSuppliers.where("operation_id").equals(op).first();
             if(cs) await db.cachedSuppliers.update(cs.id, { sync_status: "failed" as any });
+            const cr = await db.cachedReturns.where("operation_id").equals(op).first();
+            if(cr) await db.cachedReturns.update(cr.id, { sync_status: "failed" as any });
           }catch{}
         } else {
           await db.syncQueue.update(entry.id, {
