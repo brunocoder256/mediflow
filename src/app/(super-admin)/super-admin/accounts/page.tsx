@@ -52,7 +52,7 @@ type Registration = {
 };
 
 type Counts = Record<string, number>;
-type DialogKind = "approve" | "reject" | "suspend" | "activate" | "extend-trial" | "grant-full" | null;
+type DialogKind = "approve" | "reject" | "suspend" | "activate" | "extend-trial" | "grant-full" | "approve-full" | null;
 
 const STATUS_BADGE: Record<string, string> = {
   pending: "warning",
@@ -147,6 +147,8 @@ export default function SuperAdminAccountsPage() {
           description = `${json.trial_days ?? "(unknown)"} more days added. The owner can sign in immediately.`;
         } else if (kind === "grant-full") {
           description = `Permanent access granted. ${json.email ?? ""}`;
+        } else if (kind === "approve-full") {
+          description = "Payment confirmed — this account can access MediFlow fully (no more trial deadline).";
         }
         toast({ title: "Done", description, variant: "success" });
         setSelected(null);
@@ -251,6 +253,7 @@ export default function SuperAdminAccountsPage() {
                         <td className="p-3 text-xs text-muted-foreground">{new Date(r.created_at).toLocaleDateString()}</td>
                         <td className="p-3">
                           <Badge variant={STATUS_BADGE[displayStatus(r)] as any}>{STATUS_LABEL[displayStatus(r)]}</Badge>
+                          {r.organizations?.plan === "trial" && <Badge variant="warning" className="ml-1">Trial</Badge>}
                         </td>
                         <td className="p-3 text-right">
                           <Button variant="outline" size="sm" onClick={() => setSelected(r)}>
@@ -268,7 +271,10 @@ export default function SuperAdminAccountsPage() {
                   <div key={r.id} className="space-y-2 p-4">
                     <div className="flex items-center justify-between">
                       <span className="font-mono text-xs">{r.reference}</span>
-                      <Badge variant={STATUS_BADGE[displayStatus(r)] as any}>{STATUS_LABEL[displayStatus(r)]}</Badge>
+                      <span className="flex items-center gap-1">
+                        <Badge variant={STATUS_BADGE[displayStatus(r)] as any}>{STATUS_LABEL[displayStatus(r)]}</Badge>
+                        {r.organizations?.plan === "trial" && <Badge variant="warning">Trial</Badge>}
+                      </span>
                     </div>
                     <div className="text-sm font-medium">{r.business_name}</div>
                     <div className="text-xs text-muted-foreground">{r.owner_full_name} · {r.owner_phone}</div>
@@ -304,6 +310,7 @@ export default function SuperAdminAccountsPage() {
                 <SheetDescription>
                   {selected.reference} ·{" "}
                   <Badge variant={STATUS_BADGE[displayStatus(selected)] as any}>{STATUS_LABEL[displayStatus(selected)]}</Badge>
+                  {selected.organizations?.plan === "trial" && <Badge variant="warning" className="ml-1">3-day free trial</Badge>}
                 </SheetDescription>
               </SheetHeader>
               <div className="mt-6 space-y-4 text-sm">
@@ -353,9 +360,9 @@ export default function SuperAdminAccountsPage() {
                 )}
                 {displayStatus(selected) === "trial_expired" && (
                   <>
-                    <Button className="flex-1" onClick={() => setDialog("extend-trial")}>Extend Trial</Button>
-                    <Button className="flex-1" onClick={() => setDialog("grant-full")}>Grant Full Access</Button>
-                    <Button variant="destructive" className="flex-1" onClick={() => setDialog("suspend")}>Deactivate</Button>
+                    <Button className="flex-1" onClick={() => setDialog("approve-full")}>Approve</Button>
+                    <Button variant="outline" className="flex-1" onClick={() => setDialog("extend-trial")}>Extend Trial</Button>
+                    <Button variant="destructive" className="flex-1" onClick={() => setDialog("suspend")}>Suspend</Button>
                   </>
                 )}
               </div>
@@ -476,6 +483,33 @@ export default function SuperAdminAccountsPage() {
               <Button variant="outline" onClick={() => setDialog(null)} disabled={busy !== null}>Cancel</Button>
               <Button onClick={() => runAction("extend-trial", selected.id, { trial_days: extendDays })} disabled={busy !== null}>
                 {busy === "extend-trial" ? "Extending..." : "Extend Trial"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
+
+      <Dialog open={dialog === "approve-full"} onOpenChange={(o) => !o && setDialog(null)}>
+        {selected && (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Approve this account after its trial?</DialogTitle>
+              <DialogDescription>
+                Confirm payment and activate {selected.business_name} permanently — the trial deadline is removed.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1 text-sm">
+              <p><span className="text-muted-foreground">Business:</span> {selected.business_name} ({selected.reference})</p>
+              <p><span className="text-muted-foreground">Owner:</span> {selected.owner_full_name} ({selected.owner_email})</p>
+              <p><span className="text-muted-foreground">Contact:</span> {selected.owner_phone}</p>
+              <p className="pt-1 text-xs text-muted-foreground">
+                The owner is waiting on this approval — their screen reloads automatically the moment you click Approve.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialog(null)} disabled={busy !== null}>Cancel</Button>
+              <Button onClick={() => runAction("approve-full", selected.id)} disabled={busy !== null}>
+                {busy === "approve-full" ? "Approving..." : "Approve Account"}
               </Button>
             </DialogFooter>
           </DialogContent>

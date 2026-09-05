@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { registrationSchema, type RegistrationInput } from "@/lib/validations/auth";
+import { createBrowserClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,11 +13,20 @@ import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Toaster } from "@/components/ui/toast";
+import { Eye, EyeOff } from "lucide-react";
+
+type Created = {
+  reference: string;
+  trial_ends_at: string;
+  trial_days: number;
+};
 
 export default function SignupPage() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [reference, setReference] = useState<string | null>(null);
+  const [created, setCreated] = useState<Created | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const {
     register,
@@ -24,6 +34,7 @@ export default function SignupPage() {
     formState: { errors },
   } = useForm<RegistrationInput>({
     resolver: zodResolver(registrationSchema),
+    mode: "onBlur",
   });
 
   async function onSubmit(data: RegistrationInput) {
@@ -37,18 +48,27 @@ export default function SignupPage() {
       const j = await res.json();
       if (!res.ok) {
         toast({
-          title: "Application not submitted",
+          title: "Account not created",
           description: j.error || "An unexpected error occurred. Please try again.",
           variant: "error",
         });
         return;
       }
-      setReference(j.registration?.reference ?? null);
-      toast({
-        title: "Application submitted!",
-        description: "The MediFlow team will review your application.",
-        variant: "success",
+      const reg = j.registration;
+      setCreated({ reference: reg.reference, trial_ends_at: reg.trial_ends_at, trial_days: reg.trial_days ?? 3 });
+
+      // Sign the owner in immediately so they land straight on their dashboard.
+      const supabase = createBrowserClient();
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
+        email: data.owner_email,
+        password: data.password,
       });
+      if (!signInErr) {
+        toast({ title: "Welcome to MediFlow!", description: "Your 3-day free trial has started.", variant: "success" });
+        setTimeout(() => window.location.assign("/dashboard"), 1200);
+      } else {
+        toast({ title: "Account created!", description: "Sign in with your new password to continue.", variant: "success" });
+      }
     } catch {
       toast({
         title: "Something went wrong",
@@ -60,7 +80,7 @@ export default function SignupPage() {
     }
   }
 
-  if (reference) {
+  if (created) {
     return (
       <>
         <Toaster />
@@ -73,58 +93,27 @@ export default function SignupPage() {
                   <path d="m9 11 3 3L22 4" />
                 </svg>
               </div>
-              <CardTitle className="text-2xl">Registration received</CardTitle>
+              <CardTitle className="text-2xl">Your MediFlow account is ready</CardTitle>
               <CardDescription>
-                Your MediFlow account has been created successfully.
+                Your {created.trial_days}-day free trial has started — your dashboard is loading.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 text-center">
-              <div className="rounded-lg border bg-muted p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Your account reference</p>
-                <p className="mt-1 font-mono text-2xl font-bold text-[var(--primary)]">{reference}</p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Your account status</p>
-                <p className="mt-1 inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse-soft" />
-                  Pending Payment &amp; Approval
-                </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border bg-muted p-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Account reference</p>
+                  <p className="mt-1 font-mono text-lg font-bold text-[var(--primary)]">{created.reference}</p>
+                </div>
+                <div className="rounded-lg border bg-muted p-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Trial ends</p>
+                  <p className="mt-1 font-semibold">{new Date(created.trial_ends_at).toLocaleDateString()}</p>
+                </div>
               </div>
               <p className="text-sm text-muted-foreground">
-                Complete your UGX 20,000 monthly payment and submit your payment reference. A MediFlow
-                administrator will review your registration and activate your account.
+                After the free trial you&apos;ll complete your <span className="font-semibold">UGX 20,000</span> monthly payment
+                and a MediFlow administrator will activate your account permanently.
               </p>
-              <Button variant="outline" onClick={() => setReference(null)}>
-                Submit another application
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="text-center">
-              <CardTitle className="text-xl">MediFlow Monthly Access</CardTitle>
-              <CardDescription>
-                <span className="text-lg font-bold text-foreground">UGX 20,000</span>
-                <span className="text-muted-foreground"> / month</span>
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <p className="text-muted-foreground">
-                Pay securely via mobile money or bank, then call or message the MediFlow team with your payment
-                reference to complete activation.
-              </p>
-              <div className="rounded-lg border bg-muted/50 p-3 text-center">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Call to confirm payment</p>
-                <p className="mt-1 font-semibold">
-                  <a href="tel:0759327843" className="text-[var(--primary)] hover:underline">0759 327 843</a>
-                  {" · "}
-                  <a href="tel:0768082948" className="text-[var(--primary)] hover:underline">0768 082 948</a>
-                </p>
-              </div>
-              <p className="text-center text-xs text-muted-foreground">
-                Quote your account reference <span className="font-mono font-semibold">{reference}</span> when
-                you confirm your payment.
-              </p>
+              <Button onClick={() => window.location.assign("/dashboard")}>Go to Dashboard</Button>
             </CardContent>
           </Card>
         </div>
@@ -139,8 +128,7 @@ export default function SignupPage() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Create your MediFlow account</CardTitle>
           <CardDescription>
-            Get started with MediFlow for your pharmacy. Your account will be reviewed and activated
-            after payment confirmation.
+            Get started with a <span className="font-semibold">3-day free trial</span> — no payment needed today.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -186,34 +174,36 @@ export default function SignupPage() {
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="owner_email">Email</Label>
-              <Input
-                id="owner_email"
-                type="email"
-                placeholder="owner@example.com"
-                autoComplete="email"
-                disabled={isLoading}
-                {...register("owner_email")}
-              />
-              {errors.owner_email && (
-                <p className="text-sm text-[var(--destructive)]">{errors.owner_email.message}</p>
-              )}
-            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="owner_email">Email</Label>
+                <Input
+                  id="owner_email"
+                  type="email"
+                  placeholder="owner@example.com"
+                  autoComplete="email"
+                  disabled={isLoading}
+                  {...register("owner_email")}
+                />
+                {errors.owner_email && (
+                  <p className="text-sm text-[var(--destructive)]">{errors.owner_email.message}</p>
+                )}
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="owner_phone">Phone number</Label>
-              <Input
-                id="owner_phone"
-                type="tel"
-                placeholder="+256 700 000 000"
-                autoComplete="tel"
-                disabled={isLoading}
-                {...register("owner_phone")}
-              />
-              {errors.owner_phone && (
-                <p className="text-sm text-[var(--destructive)]">{errors.owner_phone.message}</p>
-              )}
+              <div className="space-y-2">
+                <Label htmlFor="owner_phone">Phone number</Label>
+                <Input
+                  id="owner_phone"
+                  type="tel"
+                  placeholder="+256 700 000 000"
+                  autoComplete="tel"
+                  disabled={isLoading}
+                  {...register("owner_phone")}
+                />
+                {errors.owner_phone && (
+                  <p className="text-sm text-[var(--destructive)]">{errors.owner_phone.message}</p>
+                )}
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -228,11 +218,65 @@ export default function SignupPage() {
               />
             </div>
 
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Min 8 chars, A-z, 0-9"
+                    autoComplete="new-password"
+                    disabled={isLoading}
+                    className="pr-10"
+                    {...register("password")}
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowPassword((s) => !s)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {errors.password && (
+                  <p className="text-sm text-[var(--destructive)]">{errors.password.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm password</Label>
+                <div className="relative">
+                  <Input
+                    id="confirmPassword"
+                    type={showConfirm ? "text" : "password"}
+                    placeholder="Re-type your password"
+                    autoComplete="new-password"
+                    disabled={isLoading}
+                    className="pr-10"
+                    {...register("confirmPassword")}
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowConfirm((s) => !s)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {errors.confirmPassword && (
+                  <p className="text-sm text-[var(--destructive)]">{errors.confirmPassword.message}</p>
+                )}
+              </div>
+            </div>
+
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? (
                 <>
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  Submitting...
+                  Creating your account...
                 </>
               ) : (
                 "Create Account"

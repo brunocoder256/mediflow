@@ -12,7 +12,7 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const gate = await getTrialGate();
-  if (gate?.status === "trial_expired") {
+  if (gate?.status === "trial_expired" || gate?.status === "suspended" || gate?.status === "inactive") {
     redirect("/trial-expired");
   }
   return (
