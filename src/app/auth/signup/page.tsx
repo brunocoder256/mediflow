@@ -64,28 +64,70 @@ export default function SignupPage() {
     return (
       <>
         <Toaster />
-        <Card>
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl">Waiting for approval</CardTitle>
-            <CardDescription>
-              Your application has been submitted to the MediFlow administrators.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 text-center">
-            <div className="rounded-lg border bg-muted p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Your reference</p>
-              <p className="mt-1 font-mono text-xl font-bold">{reference}</p>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              One of our administrators will contact you to complete your registration
-              (including your phone number). Once your account is approved, you will be able
-              to sign in to your pharmacy.
-            </p>
-            <Button variant="outline" onClick={() => setReference(null)}>
-              Submit another application
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
+                <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                  <path d="m9 11 3 3L22 4" />
+                </svg>
+              </div>
+              <CardTitle className="text-2xl">Registration received</CardTitle>
+              <CardDescription>
+                Your MediFlow account has been created successfully.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 text-center">
+              <div className="rounded-lg border bg-muted p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Your account reference</p>
+                <p className="mt-1 font-mono text-2xl font-bold text-[var(--primary)]">{reference}</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Your account status</p>
+                <p className="mt-1 inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse-soft" />
+                  Pending Payment &amp; Approval
+                </p>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Complete your UGX 20,000 monthly payment and submit your payment reference. A MediFlow
+                administrator will review your registration and activate your account.
+              </p>
+              <Button variant="outline" onClick={() => setReference(null)}>
+                Submit another application
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="text-center">
+              <CardTitle className="text-xl">MediFlow Monthly Access</CardTitle>
+              <CardDescription>
+                <span className="text-lg font-bold text-foreground">UGX 20,000</span>
+                <span className="text-muted-foreground"> / month</span>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <p className="text-muted-foreground">
+                Pay securely via mobile money or bank, then call or message the MediFlow team with your payment
+                reference to complete activation.
+              </p>
+              <div className="rounded-lg border bg-muted/50 p-3 text-center">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Call to confirm payment</p>
+                <p className="mt-1 font-semibold">
+                  <a href="tel:0759327843" className="text-[var(--primary)] hover:underline">0759 327 843</a>
+                  {" · "}
+                  <a href="tel:0768082948" className="text-[var(--primary)] hover:underline">0768 082 948</a>
+                </p>
+              </div>
+              <p className="text-center text-xs text-muted-foreground">
+                Quote your account reference <span className="font-mono font-semibold">{reference}</span> when
+                you confirm your payment.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
       </>
     );
   }
@@ -95,9 +137,10 @@ export default function SignupPage() {
       <Toaster />
       <Card>
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Create your pharmacy account</CardTitle>
+          <CardTitle className="text-2xl">Create your MediFlow account</CardTitle>
           <CardDescription>
-            Apply to start using MediFlow for your drug shop or pharmacy
+            Get started with MediFlow for your pharmacy. Your account will be reviewed and activated
+            after payment confirmation.
           </CardDescription>
         </CardHeader>
         <CardContent>

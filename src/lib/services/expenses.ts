@@ -72,7 +72,7 @@ export async function createExpense(input: CreateExpenseInput) {
   }
   if (!categoryText && !categoryId) throw new Error('Category is required');
   // multi-line validation
-  let lines = input.lines ?? [];
+  const lines = input.lines ?? [];
   const amount = Number(input.amount);
   const tax = Number(input.tax_amount ?? 0);
   if (amount <=0) throw new Error('Amount must be > 0');

@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const publicRoutes = ["/", "/auth/*", "/features", "/pricing", "/about", "/contact", "/manifest.json", "/sw.js", "/offline.html", "/offline/*", "/icon-*.png"];
+const publicRoutes = ["/", "/auth/*", "/features", "/pricing", "/about", "/contact", "/demo", "/terms", "/privacy", "/_next/*", "/manifest.json", "/sw.js", "/offline.html", "/offline/*", "/icon-*.png", "/mediflow-logo.png"];
 
 function isPublicRoute(pathname: string): boolean {
   return publicRoutes.some((route) => {

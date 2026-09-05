@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { navItems } from "./sidebar-items";
 import { NAV_PERMISSION_MAP } from "@/lib/permissions-catalog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { MediFlowMark } from "@/components/brand/mediflow-logo";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -86,12 +87,10 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
       <SheetContent side="left" className="w-[300px] p-0 flex flex-col overflow-hidden bg-card">
         <SheetHeader className="border-b bg-muted/30 p-4 shrink-0">
           <SheetTitle className="flex items-center gap-3 text-left">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm shadow-sm">
-              MF
-            </div>
+            <MediFlowMark size={36} />
             <div className="flex flex-col">
               <span className="text-base font-semibold leading-none">MediFlow</span>
-              <span className="text-xs font-normal text-muted-foreground">Drug Shop Management</span>
+              <span className="text-xs font-normal text-muted-foreground">Pharmacy Management</span>
             </div>
           </SheetTitle>
         </SheetHeader>
@@ -122,7 +121,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
           </ul>
         </nav>
         <div className="border-t p-3 shrink-0 bg-muted/20">
-          <p className="text-xs text-muted-foreground text-center">© 2024 MediFlow</p>
+          <p className="text-xs text-muted-foreground text-center">© {new Date().getFullYear()} MediFlow</p>
         </div>
       </SheetContent>
     </Sheet>

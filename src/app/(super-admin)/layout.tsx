@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { SuperAdminSignOut } from "@/components/layout/super-admin-signout";
+import { MediFlowMark } from "@/components/brand/mediflow-logo";
 
 export default async function SuperAdminLayout({ children }: { children: React.ReactNode }) {
   const sb: any = await createServerSupabaseClient();
@@ -31,9 +32,7 @@ export default async function SuperAdminLayout({ children }: { children: React.R
         <div className="flex h-14 items-center justify-between px-4 lg:px-6">
           <div className="flex items-center gap-4">
             <Link href="/super-admin/accounts" className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
-                MF
-              </div>
+              <MediFlowMark size={28} />
               <span className="font-semibold">MediFlow Administration</span>
             </Link>
           </div>

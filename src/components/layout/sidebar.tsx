@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { navItems } from "./sidebar-items";
 import { NAV_PERMISSION_MAP } from "@/lib/permissions-catalog";
 import { ChevronsLeft, ChevronsRight } from "lucide-react";
+import { MediFlowMark } from "@/components/brand/mediflow-logo";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -59,9 +60,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     >
       <div className="flex h-14 items-center border-b px-4">
         <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
-            MF
-          </div>
+          <MediFlowMark size={28} />
           {!collapsed && <span className="font-semibold text-lg">MediFlow</span>}
         </Link>
       </div>

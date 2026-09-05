@@ -5,6 +5,9 @@
   --foreground: #171717;
   --primary: #0f766e;
   --primary-foreground: #ffffff;
+  --primary-600: #0d9488;
+  --primary-700: #0f766e;
+  --primary-800: #115e59;
   --secondary: #f1f5f9;
   --secondary-foreground: #0f172a;
   --muted: #f1f5f9;
@@ -28,6 +31,9 @@
   --foreground: #ededed;
   --primary: #14b8a6;
   --primary-foreground: #0a0a0a;
+  --primary-600: #14b8a6;
+  --primary-700: #2dd4bf;
+  --primary-800: #5eead4;
   --secondary: #1e293b;
   --secondary-foreground: #f8fafc;
   --muted: #1e293b;
@@ -49,10 +55,19 @@
   border-color: var(--border);
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: "Inter", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background-color: rgba(13, 148, 136, 0.18);
 }
 
 @layer utilities {
@@ -87,5 +102,86 @@ body {
   
   .text-popover-foreground {
     color: var(--popover-foreground);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   MediFlow marketing/brand utilities
+   Live-sensing interactive affordances: every clickable control visibly
+   reacts to hover/focus so users know it is actionable.
+--------------------------------------------------------------------------- */
+
+@layer utilities {
+  /* Reveal-on-scroll helper (toggled by an IntersectionObserver in the site JS) */
+  .reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+  .reveal.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Button hover lift + active press "live" affordance */
+  .btn-lift {
+    transition: transform 0.15s ease, box-shadow 0.2s ease, background-color 0.2s ease,
+      border-color 0.2s ease, color 0.2s ease;
+  }
+  .btn-lift:hover {
+    transform: translateY(-2px);
+  }
+  .btn-lift:active {
+    transform: translateY(0) scale(0.98);
+  }
+
+  /* Cursor affordance for anything clickable */
+  a[href],
+  button,
+  [role="button"],
+  summary {
+    cursor: pointer;
+  }
+
+  /* Floating animation for dashboard preview cards */
+  @keyframes float-y {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+  }
+  .animate-float {
+    animation: float-y 5s ease-in-out infinite;
+  }
+  .animate-float-slow {
+    animation: float-y 7s ease-in-out infinite;
+  }
+
+  @keyframes pulse-soft {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+  .animate-pulse-soft {
+    animation: pulse-soft 2s ease-in-out infinite;
+  }
+}
+
+/* Respect users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .animate-float,
+  .animate-float-slow,
+  .animate-pulse-soft,
+  .animate-spin {
+    animation: none !important;
+  }
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
   }
 }

@@ -3,17 +3,46 @@ import "./globals.css";
 import { ToastProvider } from "@/hooks/use-toast";
 
 export const metadata: Metadata = {
-  title: "MediFlow - Drug Shop Management System",
+  title: {
+    default: "MediFlow — Pharmacy Management System",
+    template: "%s — MediFlow",
+  },
   description:
-    "Modern pharmacy and drug shop management, simplified. Manage inventory, POS, sales, and more.",
+    "MediFlow is a modern pharmacy management system for managing sales, inventory, purchasing, customers, suppliers, expenses and reports from one connected platform.",
   keywords: [
     "pharmacy",
     "drug shop",
+    "pharmacy management system",
     "inventory management",
     "POS",
     "point of sale",
+    "expiry tracking",
     "healthcare",
+    "Uganda",
+    "Africa",
   ],
+  applicationName: "MediFlow",
+  openGraph: {
+    title: "MediFlow — Pharmacy Management System",
+    description:
+      "One connected system for running your pharmacy. Manage sales, stock, purchases, customers, suppliers, expenses and reports.",
+    type: "website",
+    locale: "en_UG",
+    siteName: "MediFlow",
+    images: [{ url: "/mediflow-logo.png", width: 1254, height: 1254, alt: "MediFlow logo" }],
+  },
+  twitter: {
+    card: "summary",
+    title: "MediFlow — Pharmacy Management System",
+    description:
+      "One connected system for running your pharmacy. Manage sales, stock, purchases, customers, suppliers, expenses and reports.",
+    images: ["/mediflow-logo.png"],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true },
+  },
 };
 
 export default function RootLayout({
@@ -32,6 +61,9 @@ export default function RootLayout({
           content="default"
         />
         <link rel="apple-touch-icon" href="/icon-192.png" />
+        <link rel="icon" href="/icon-32.png" sizes="32x32" type="image/png" />
+        <link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png" />
+        <link rel="canonical" href="https://mediflow.vercel.app/" />
       </head>
       <body className="antialiased min-h-screen">
         <ToastProvider>{children}</ToastProvider>

@@ -10,10 +10,10 @@ export async function GET(req: Request) {
     const { data: prof } = await sb.from('profiles').select('id, organization_id').eq('auth_user_id', user.id).single();
     if (!prof) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     const search = new URL(req.url).searchParams.get('search') ?? '';
-    const module = new URL(req.url).searchParams.get('module') ?? '';
+    const permissionModule = new URL(req.url).searchParams.get('module') ?? '';
     let query = sb.from('permissions').select('id, code, name, description').order('code');
     if (search) query = query.ilike('code', `%${search}%`).or(`name.ilike.%${search}%`).or(`description.ilike.%${search}%`);
-    if (module && module !== 'all') {
+    if (permissionModule && permissionModule !== 'all') {
       const moduleMap: Record<string, string[]> = {
         dashboard: ['dashboard.view'],
         users: ['users.view', 'users.create', 'users.edit', 'users.deactivate', 'users.manage_roles', 'users.manage_permissions', 'users.manage'],
@@ -28,7 +28,7 @@ export async function GET(req: Request) {
         settings: ['settings.view', 'settings.edit', 'settings.manage_tax', 'settings.manage_branches'],
         audit: ['audit.view', 'audit.export'],
       };
-      const allowed = moduleMap[module] ?? [];
+      const allowed = moduleMap[permissionModule] ?? [];
       if (allowed.length) query = query.in('code', allowed);
     }
     const { data, error } = await query;

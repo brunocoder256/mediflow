@@ -460,7 +460,7 @@ export default function SuperAdminAccountsPage() {
             <DialogHeader>
               <DialogTitle>Extend trial period</DialogTitle>
               <DialogDescription>
-                Re-open {selected.business_name}'s full access for more days. They can sign in immediately.
+                Re-open {selected.business_name}&apos;s full access for more days. They can sign in immediately.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-1 text-sm">

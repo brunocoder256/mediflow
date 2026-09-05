@@ -1,7 +1,7 @@
 {
-  "name": "MediFlow - Drug Shop Management",
+  "name": "MediFlow - Pharmacy Management System",
   "short_name": "MediFlow",
-  "description": "Modern pharmacy and drug shop management, simplified.",
+  "description": "MediFlow is a modern pharmacy management system for sales, inventory, purchasing, customers, suppliers, expenses and reports.",
   "id": "/",
   "scope": "/",
   "start_url": "/dashboard",
