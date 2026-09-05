@@ -42,11 +42,11 @@ export async function getProductDetail(id: string) {
     const sb = await import('./supabase').then(m => m.getSB());
     const [product, batches, suppliers, movements, priceHistory, audit] = await Promise.all([
         sb.from('products').select('*, categories(name), units(name, abbreviation)').eq('id', id).single().then(r => { if (r.error) throw new Error(r.error.message); return r.data; }),
-        sb.from('product_batches').select('*, branches(name), suppliers(name)').eq('product_id', id).order('expiry_date'),
-        sb.from('product_suppliers').select('*, suppliers(id, name)').eq('product_id', id),
-        sb.from('stock_movements').select('*, branches(name), product_batches(batch_number)').eq('product_id', id).order('created_at', { ascending: false }).limit(50),
-        sb.from('price_history').select('*').eq('product_id', id).order('created_at', { ascending: false }).limit(20),
-        sb.from('audit_logs').select('*').eq('entity_type', 'products').eq('entity_id', id).order('created_at', { ascending: false }).limit(20),
+        sb.from('product_batches').select('*, branches(name), suppliers(name)').eq('product_id', id).order('expiry_date').then(r => (r.error ? [] : r.data ?? [])),
+        sb.from('product_suppliers').select('*, suppliers(id, name)').eq('product_id', id).then(r => (r.error ? [] : r.data ?? [])),
+        sb.from('stock_movements').select('*, branches(name), product_batches(batch_number)').eq('product_id', id).order('created_at', { ascending: false }).limit(50).then(r => (r.error ? [] : r.data ?? [])),
+        sb.from('price_history').select('*').eq('product_id', id).order('created_at', { ascending: false }).limit(20).then(r => (r.error ? [] : r.data ?? [])),
+        sb.from('audit_logs').select('*').eq('entity_type', 'products').eq('entity_id', id).order('created_at', { ascending: false }).limit(20).then(r => (r.error ? [] : r.data ?? [])),
     ]);
     // Compute stock by branch
     const stockByBranch: Record<string, number> = {};
@@ -98,6 +98,35 @@ export async function createProduct(input: ProductInput) {
     }
     if (parsed.default_purchase_cost != null) {
         await sb.from('price_history').insert({ organization_id: orgId, product_id: data.id, field_name: 'purchase_price', old_value: null, new_value: String(parsed.default_purchase_cost), changed_by: profileId, reason: 'Product created' });
+    }
+    // Opening stock (optional initial_stock) — creates a sellable FEFO batch + stock movement
+    // so the product is immediately available in POS instead of locked at 0 until a purchase is received.
+    const opening = (input as any).initial_stock;
+    if (opening && Number(opening.quantity) > 0) {
+        const qty = Math.floor(Number(opening.quantity));
+        const { data: branchesRes } = await sb.from('branches').select('id').eq('organization_id', orgId).eq('is_active', true).order('created_at', { ascending: true }).limit(1);
+        const branchId = opening.branch_id || branchesRes?.[0]?.id;
+        if (!branchId) throw new Error(`Created product but no active branch for opening stock`);
+        const today = new Date();
+        const openYmd = today.toISOString().slice(0, 10).replace(/-/g, '');
+        const batchNumber = (opening.batch_number || '').trim() || `OPEN-${openYmd}-${String(Math.floor(1000 + Math.random() * 9000))}`;
+        const expiryDate = opening.expiry_date ? new Date(opening.expiry_date) : new Date(today.getFullYear() + 2, today.getMonth(), today.getDate());
+        const purchasePrice = Number(opening.purchase_price ?? parsed.default_purchase_cost ?? 0);
+        const sellingPrice = Number(opening.selling_price ?? parsed.default_selling_price ?? 0);
+        const { data: batch, error: bErr } = await sb.from('product_batches').insert({
+            organization_id: orgId, branch_id: branchId, product_id: data.id, batch_number: batchNumber,
+            expiry_date: expiryDate.toISOString().slice(0, 10), purchase_price: purchasePrice, selling_price: sellingPrice,
+            quantity_received: qty, quantity_available: qty, received_at: today.toISOString().slice(0, 10),
+        }).select().single();
+        if (bErr) throw new Error(`Created product — opening stock failed: ${bErr.message}`);
+        const { error: mErr } = await sb.from('stock_movements').insert({
+            organization_id: orgId, branch_id: branchId, product_id: data.id, batch_id: batch.id,
+            movement_type: 'OPENING_BALANCE', quantity: qty, reference_type: 'PRODUCT', reference_id: data.id,
+            unit_cost: purchasePrice, notes: 'Opening balance — product created', created_by: profileId,
+        });
+        if (mErr) { await sb.from('product_batches').delete().eq('id', batch.id); throw new Error(`Opening stock movement failed: ${mErr.message}`); }
+        await createAuditLog('BATCH_CREATED', 'product_batches', batch.id, null, batch);
+        await createAuditLog('STOCK_OPENING', 'products', data.id, null, { quantity: qty, batch_number: batchNumber, expiry_date: expiryDate.toISOString().slice(0, 10), branch_id: branchId });
     }
     return data;
 }
