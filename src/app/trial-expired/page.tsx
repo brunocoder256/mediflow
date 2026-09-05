@@ -52,9 +52,14 @@ export default function TrialExpiredPage() {
 
   const signOut = async () => {
     setSigningOut(true);
-    const supabase = createBrowserClient();
-    await supabase.auth.signOut();
-    window.location.assign("/auth/login");
+    try {
+      const supabase = createBrowserClient();
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error("[trial-expired] signOut failed", err);
+    } finally {
+      window.location.assign("/auth/login");
+    }
   };
 
   const recheck = async () => {

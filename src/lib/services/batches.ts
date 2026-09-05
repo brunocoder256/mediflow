@@ -35,13 +35,11 @@ export async function createBatch(input: {
     quantity: number; supplier_id?: string; received_at?: string;
 }) {
     const sb = await getSB();
-    const profileId = await import('./supabase').then(m => m.getProfileId());
     const { data, error } = await sb.from('product_batches').insert({
         ...input,
         quantity_received: input.quantity,
         quantity_available: input.quantity,
         received_at: input.received_at ?? new Date().toISOString(),
-        created_by: profileId,
     }).select().single();
     if (error) throw new Error(`Failed to create batch: ${error.message}`);
     await createAuditLog('BATCH_CREATED', 'product_batches', data.id, null, data);

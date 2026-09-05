@@ -47,9 +47,14 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
   const currentBranch = branches.find((b) => b.id === currentBranchId) ?? null;
 
   const handleLogout = async () => {
-    const supabase = createBrowserClient();
-    await supabase.auth.signOut();
-    window.location.assign("/auth/login");
+    try {
+      const supabase = createBrowserClient();
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error("[logout] signOut failed", err);
+    } finally {
+      window.location.assign("/auth/login");
+    }
   };
 
   useEffect(() => {

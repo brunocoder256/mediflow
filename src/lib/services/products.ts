@@ -76,7 +76,7 @@ export async function createProduct(input: ProductInput) {
     const profileId = await getProfileId();
     const orgId = await getOrgId();
     // Clean empty UUID strings -> null
-    const clean: any = { ...parsed, organization_id: orgId, created_by: profileId };
+    const clean: any = { ...parsed, organization_id: orgId };
     if (!clean.category_id) clean.category_id = null;
     if (!clean.unit_id) clean.unit_id = null;
     if (!clean.preferred_supplier_id) clean.preferred_supplier_id = null;
@@ -92,12 +92,12 @@ export async function createProduct(input: ProductInput) {
     const { data, error } = await sb.from('products').insert(clean).select().single();
     if (error) throw new Error(`Failed to create product: ${error.message}`);
     await createAuditLog('PRODUCT_CREATED', 'products', data.id, null, data);
-    // Price history if pricing provided
+    // Price history if pricing provided (field_name CHECK allows 'purchase_price'/'selling_price' only)
     if (parsed.default_selling_price != null) {
-        await sb.from('price_history').insert({ organization_id: orgId, product_id: data.id, field_name: 'default_selling_price', old_value: null, new_value: String(parsed.default_selling_price), changed_by: profileId, reason: 'Product created' });
+        await sb.from('price_history').insert({ organization_id: orgId, product_id: data.id, field_name: 'selling_price', old_value: null, new_value: String(parsed.default_selling_price), changed_by: profileId, reason: 'Product created' });
     }
     if (parsed.default_purchase_cost != null) {
-        await sb.from('price_history').insert({ organization_id: orgId, product_id: data.id, field_name: 'default_purchase_cost', old_value: null, new_value: String(parsed.default_purchase_cost), changed_by: profileId, reason: 'Product created' });
+        await sb.from('price_history').insert({ organization_id: orgId, product_id: data.id, field_name: 'purchase_price', old_value: null, new_value: String(parsed.default_purchase_cost), changed_by: profileId, reason: 'Product created' });
     }
     return data;
 }
@@ -110,8 +110,8 @@ export async function updateProduct(id: string, input: ProductUpdateInput) {
     if (clean.category_id === '') clean.category_id = null;
     if (clean.unit_id === '') clean.unit_id = null;
     if (clean.preferred_supplier_id === '') clean.preferred_supplier_id = null;
-    // Track price changes
-    const priceFields = ['default_selling_price', 'default_purchase_cost', 'min_selling_price'] as const;
+    // Track price changes (min_selling_price is a policy floor — not recorded in price_history)
+    const priceFields = ['default_selling_price', 'default_purchase_cost'] as const;
     const orgId = await getOrgId();
     const profileId = await getProfileId();
     const { data, error } = await sb.from('products').update(clean).eq('id', id).select().single();
@@ -119,7 +119,7 @@ export async function updateProduct(id: string, input: ProductUpdateInput) {
     await createAuditLog('PRODUCT_UPDATED', 'products', id, existing as any, data);
     for (const f of priceFields) {
         if (clean[f] !== undefined && clean[f] !== (existing as any)?.[f]) {
-            await sb.from('price_history').insert({ organization_id: orgId, product_id: id, field_name: f, old_value: (existing as any)?.[f] != null ? String((existing as any)[f]) : null, new_value: clean[f] != null ? String(clean[f]) : null, changed_by: profileId, reason: 'Product updated' });
+            await sb.from('price_history').insert({ organization_id: orgId, product_id: id, field_name: f === 'default_selling_price' ? 'selling_price' : 'purchase_price', old_value: (existing as any)?.[f] != null ? String((existing as any)[f]) : null, new_value: clean[f] != null ? String(clean[f]) : null, changed_by: profileId, reason: 'Product updated' });
         }
     }
     return data;
