@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   ShoppingCart,
+  Banknote,
   Package,
   Warehouse,
   Truck,
@@ -32,6 +33,11 @@ export const navItems: NavItem[] = [
     title: "POS",
     href: "/pos",
     icon: ShoppingCart,
+  },
+  {
+    title: "Cash",
+    href: "/cash",
+    icon: Banknote,
   },
   {
     title: "Products",

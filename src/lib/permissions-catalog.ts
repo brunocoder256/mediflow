@@ -64,6 +64,7 @@ export const PERMISSION_CATALOG: Array<{ module: string; code: string; name: str
 export const NAV_PERMISSION_MAP: Record<string, string | null> = {
   '/dashboard': 'dashboard.view',
   '/pos': 'sales.create',
+  '/cash': 'sales.create',
   '/products': 'products.view',
   '/inventory': 'inventory.view',
   '/purchases': 'purchases.view',
