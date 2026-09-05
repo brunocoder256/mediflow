@@ -172,6 +172,40 @@ describe('POS — Sale/Receipt numbering (SQL generate_*_number mirrors)', ()=>{
   });
 });
 
+describe('POS — Sale number concurrency-safe (advisory-lock generator mirror)', ()=>{
+  // Mirrors 00053 generate_sale_number: numeric MAX of the day's '-XXXXXX' suffix + 1,
+  // with an advisory lock so concurrent same-day inserts never pick the same number.
+  function nextSeq(existing: string[], date: string){
+    const nums = existing
+      .filter(n => n.startsWith(date + '-'))
+      .map(n => { const m = n.match(/-([0-9]+)$/); return m ? parseInt(m[1], 10) : 0; })
+      .filter(n => Number.isFinite(n));
+    const max = nums.length ? Math.max(...nums) : 0;
+    return date + '-' + String(max + 1).padStart(6, '0');
+  }
+  it('first sale of the day starts at 000001', ()=>{
+    expect(nextSeq([], '20260905')).toBe('20260905-000001');
+  });
+  it('increments from the last sale of the day', ()=>{
+    expect(nextSeq(['20260905-000001'], '20260905')).toBe('20260905-000002');
+    expect(nextSeq(['20260905-000001','20260905-000009'], '20260905')).toBe('20260905-000010');
+  });
+  it('serialized concurrent inserts never collide (unique number each)', ()=>{
+    const existing = ['20260905-000001','20260905-000002'];
+    const a = nextSeq(existing, '20260905');
+    const b = nextSeq([...existing, a], '20260905');
+    const c = nextSeq([...existing, a, b], '20260905');
+    expect(new Set([a, b, c]).size).toBe(3);
+    expect(a).toBe('20260905-000003');
+    expect(b).toBe('20260905-000004');
+    expect(c).toBe('20260905-000005');
+  });
+  it('malformed suffix does not break the next number', ()=>{
+    const existing = ['20260905-abc','20260905-000002'];
+    expect(nextSeq(existing, '20260905')).toBe('20260905-000003');
+  });
+});
+
 describe('POS — Atomic transaction', ()=>{
   it('entire sale rolls back on batch failure (single transaction)', ()=>{
     // Simulate: two batches, second fails => no partial stock decrement in atomic function

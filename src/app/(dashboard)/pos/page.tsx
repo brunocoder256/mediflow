@@ -529,7 +529,7 @@ export default function PosPage(){
     <div className="flex h-full flex-col overflow-y-auto pb-16 md:pb-0">
       {/* POS HEADER */}
       <div className="border-b bg-card">
-        <div className="flex flex-wrap gap-2 items-center justify-between p-2 sm:p-3">
+        <div className="flex flex-wrap gap-2 items-center justify-between px-2 sm:px-3 py-1.5 sm:py-2">
           <div className="flex items-center gap-3">
             <h1 className="font-bold text-base sm:text-lg">MediFlow POS</h1>
             <span className="hidden sm:inline-flex items-center gap-1 text-sm text-muted-foreground"><MapPin className="h-4 w-4"/>{branches.find(b=>b.id===branchId)?.name ?? 'Select branch'}</span>
@@ -546,7 +546,7 @@ export default function PosPage(){
             {failedCount>0 && <a href="/sync" className="text-xs underline text-destructive">View in Sync Center →</a>}
           </div>
         </div>
-        <div className="flex gap-2 p-2 border-t bg-muted/20 items-center flex-wrap">
+        <div className="flex gap-2 px-2 py-1.5 border-t bg-muted/20 items-center flex-wrap">
           <Select aria-label="Branch" value={branchId} onChange={e=>setBranchId(e.target.value)} className="w-[200px] sm:w-[220px]">
             <option value="">Select branch</option>
             {branches.map((b:any)=><option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}
@@ -600,8 +600,8 @@ export default function PosPage(){
         </div>
 
         {/* Right: cart */}
-        <div className="w-full md:w-[380px] lg:w-[420px] flex flex-col bg-card border-t md:border-t-0 min-h-0">
-          <div className="p-3 sm:p-4 border-b flex items-center justify-between gap-2 shrink-0">
+        <div className="w-full md:w-[380px] lg:w-[420px] flex flex-col bg-card border-t md:border-t-0">
+          <div className="px-3 sm:px-4 py-2 border-b flex items-center justify-between gap-2 shrink-0">
             <h2 className="font-semibold flex items-center gap-2"><ShoppingCart className="h-5 w-5"/>Cart ({totalItems} items)</h2>
             <div className="flex gap-1">
               <Button variant="outline" size="sm" onClick={hold} disabled={!cart.length}> <Pause className="h-4 w-4 mr-1"/>Hold</Button>
@@ -611,7 +611,7 @@ export default function PosPage(){
           </div>
 
           {/* customer */}
-          <div className="px-3 sm:px-4 py-2 border-b flex items-center justify-between gap-2 shrink-0">
+          <div className="px-3 sm:px-4 py-1.5 border-b flex items-center justify-between gap-2 shrink-0">
             <button onClick={()=>setShowCustomer(true)} className="flex items-center gap-2 text-sm hover:bg-accent rounded px-2 py-1 w-full text-left">
               <User className="h-4 w-4 text-muted-foreground"/>
               <span className="truncate">{selectedCustomer ? `${selectedCustomer.name} ${selectedCustomer.phone ? '· '+selectedCustomer.phone : ''}` : 'Walk-in Customer'}</span>
@@ -620,7 +620,7 @@ export default function PosPage(){
             {selectedCustomer && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>setSelectedCustomer(null)}><X className="h-4 w-4"/></Button>}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-3 sm:p-4 min-h-0">
+          <div className="p-2 sm:p-3">
             {cart.length===0 ? <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-8"><ShoppingCart className="h-12 w-12 mb-3 opacity-20"/><p>Cart empty</p><p className="text-sm">Scan barcode or tap product</p></div>
             : <div className="space-y-3">
                 {cart.map(it=>{
@@ -662,7 +662,7 @@ export default function PosPage(){
           </div>
 
           {/* totals — fixed, never compressed or cut off */}
-          <div className="border-t p-3 sm:p-4 space-y-3 bg-muted/10 shrink-0">
+          <div className="border-t p-2 sm:p-3 space-y-2 bg-muted/10 shrink-0">
             <div className="space-y-1 text-sm">
               <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatUGX(subtotal)}</span></div>
               <div className="flex justify-between items-center gap-2">
