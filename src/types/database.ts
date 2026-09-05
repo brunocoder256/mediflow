@@ -133,11 +133,36 @@ export interface Profile {
   organization_id: string | null;
   full_name: string;
   phone: string | null;
+  email?: string | null;
+  username?: string | null;
   avatar_url: string | null;
   is_active: boolean;
+  status?: 'invited' | 'active' | 'inactive' | 'suspended' | 'locked' | 'pending_invitation';
+  default_branch_id?: string | null;
+  failed_login_attempts?: number;
+  locked_until?: string | null;
+  invitation_sent_at?: string | null;
+  invitation_accepted_at?: string | null;
+  invited_by?: string | null;
+  suspended_reason?: string | null;
+  deactivated_reason?: string | null;
   last_login_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface UserBranch {
+  user_id: string;
+  branch_id: string;
+  is_default: boolean;
+  created_at: string;
+}
+
+export interface UserPermissionOverride {
+  user_id: string;
+  permission_id: string;
+  effect: 'grant' | 'deny';
+  created_at: string;
 }
 
 /**
@@ -149,7 +174,9 @@ export interface Role {
   name: string;
   description: string | null;
   is_system_role: boolean;
+  is_active?: boolean;
   created_at: string;
+  updated_at?: string;
 }
 
 /**

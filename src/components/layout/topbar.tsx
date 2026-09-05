@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "./theme-toggle";
 import { useOnlineStatus } from "@/hooks/use-online-status";
+import { useBranch } from "@/hooks/branch-context";
 import {
   Menu,
   Bell,
@@ -23,6 +24,7 @@ import {
   LogOut,
   CheckCircle2,
   AlertCircle,
+  ChevronsUpDown,
 } from "lucide-react";
 
 interface TopbarProps {
@@ -38,8 +40,17 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
     avatar: "",
   });
   const { isOnline } = useOnlineStatus();
+  const { branches, currentBranchId, defaultBranchId, setCurrentBranch } = useBranch();
   // Notifications: will be implemented in a later phase
   const notificationCount = 0;
+
+  const currentBranch = branches.find((b) => b.id === currentBranchId) ?? null;
+
+  const handleLogout = async () => {
+    const supabase = createBrowserClient();
+    await supabase.auth.signOut();
+    window.location.assign("/auth/login");
+  };
 
   useEffect(() => {
     const supabase = createBrowserClient();
@@ -73,11 +84,37 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        {/* Branch Selector Placeholder */}
-        <div className="hidden sm:flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm">
-          <span className="text-muted-foreground">Branch:</span>
-          <span className="font-medium">Main Store</span>
-        </div>
+        {/* Branch Selector — only authorized branches */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              className="hidden sm:flex items-center gap-2 h-9"
+              title="Switch branch"
+            >
+              <span className="text-muted-foreground text-sm">Branch:</span>
+              <span className="font-medium text-sm">
+                {currentBranch ? currentBranch.name : defaultBranchId ? "Select branch" : "—"}
+              </span>
+              <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-56" align="start">
+            <DropdownMenuLabel>Authorized branches</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {branches.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-muted-foreground">No branch access</div>
+            ) : (
+              branches.map((b) => (
+                <DropdownMenuItem key={b.id} onClick={() => setCurrentBranch(b.id)}>
+                  <span className="flex-1">{b.name}</span>
+                  <span className="text-xs text-muted-foreground">{b.code}</span>
+                  {b.id === currentBranchId && <CheckCircle2 className="ml-2 h-4 w-4 text-green-600" />}
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         {/* Online/Offline Status */}
         <div className="flex items-center gap-2">
@@ -132,12 +169,12 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
               <User className="mr-2 h-4 w-4" />
               <span>Profile</span>
             </DropdownMenuItem>
-            <DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => window.location.assign("/settings")}>
               <Settings className="mr-2 h-4 w-4" />
               <span>Settings</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-red-600">
+            <DropdownMenuItem className="text-red-600" onSelect={handleLogout}>
               <LogOut className="mr-2 h-4 w-4" />
               <span>Log out</span>
             </DropdownMenuItem>

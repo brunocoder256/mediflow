@@ -1,11 +1,24 @@
 import { NextResponse } from 'next/server';
 import { getSB } from '@/lib/services/supabase';
+import { hasPermission } from '@/lib/auth';
+
+async function getActor(sb: any) {
+  const {
+    data: { user },
+  } = await sb.auth.getUser();
+  if (!user) return null;
+  const { data: profile } = await sb.from('profiles').select('id, organization_id').eq('auth_user_id', user.id).single();
+  if (!profile) return null;
+  return { user, profile };
+}
 
 export async function GET() {
   try {
     const sb: any = await getSB();
-    const { data: { user } } = await sb.auth.getUser();
+    const { user } = (await sb.auth.getUser()).data;
+    if (!user) return NextResponse.json({ error: 'Unauthenticated' }, { status: 401 });
     const { data: prof } = await sb.from('profiles').select('organization_id').eq('auth_user_id', user.id).single();
+    if (!prof) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     const orgId = prof.organization_id;
     const { data: org } = await sb.from('organizations').select('*').eq('id', orgId).single();
     const { data: orgSettings } = await sb.from('organization_settings').select('*').eq('organization_id', orgId).maybeSingle();
@@ -26,9 +39,17 @@ export async function PATCH(req: Request) {
   try {
     const body = await req.json();
     const sb: any = await getSB();
-    const { data: { user } } = await sb.auth.getUser();
-    const { data: prof } = await sb.from('profiles').select('organization_id').eq('auth_user_id', user.id).single();
-    const orgId = prof.organization_id;
+    const actor = await getActor(sb);
+    if (!actor) return NextResponse.json({ error: 'Unauthenticated' }, { status: 401 });
+
+    const canEdit =
+      (await hasPermission(sb, actor.profile.id, actor.profile.organization_id, 'settings.edit')) ||
+      (await hasPermission(sb, actor.profile.id, actor.profile.organization_id, 'settings.manage'));
+    if (!canEdit) {
+      return NextResponse.json({ error: 'Forbidden: settings.edit required' }, { status: 403 });
+    }
+
+    const orgId = actor.profile.organization_id;
 
     if (body.organization) {
       const allowed = ['name', 'registration_number', 'phone', 'email', 'address', 'currency', 'timezone'];

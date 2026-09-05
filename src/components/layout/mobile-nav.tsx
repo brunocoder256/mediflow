@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { navItems } from "./sidebar-items";
+import { NAV_PERMISSION_MAP } from "@/lib/permissions-catalog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   LayoutDashboard,
@@ -46,6 +47,39 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 
 export function MobileNav({ open, onOpenChange }: MobileNavProps) {
   const pathname = usePathname();
+  const [permissions, setPermissions] = React.useState<string[] | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/me");
+        if (!res.ok) {
+          if (!cancelled) setPermissions([]);
+          return;
+        }
+        const data = await res.json();
+        if (!cancelled) setPermissions(data.permissions ?? []);
+      } catch {
+        if (!cancelled) setPermissions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const visible = navItems.filter((item) => {
+    if (permissions === null) return true;
+    const required = NAV_PERMISSION_MAP[item.href];
+    if (!required) return true;
+    if (permissions.includes(required)) return true;
+    if (required.startsWith("users.") && permissions.includes("users.manage")) return true;
+    if (required.startsWith("settings.") && permissions.includes("settings.manage")) return true;
+    if (required.startsWith("customers.") && permissions.includes("customers.manage")) return true;
+    return false;
+  });
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -63,7 +97,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
         </SheetHeader>
         <nav className="flex-1 overflow-y-auto py-3">
           <ul className="space-y-1 px-3">
-            {navItems.map((item) => {
+            {visible.map((item) => {
               const isActive =
                 pathname === item.href || pathname?.startsWith(item.href + "/");
               const Icon = iconMap[item.href] || item.icon;

@@ -49,12 +49,25 @@ function LoginForm() {
       });
 
       if (error) {
+        // Record the failed attempt for account lockout (best-effort; never breaks login)
+        try {
+          await (supabase as any).rpc("record_failed_login", { p_email: data.email });
+        } catch {
+          /* non-blocking */
+        }
         toast({
           title: "Sign in failed",
           description: error.message,
           variant: "error",
         });
         return;
+      }
+
+      // Clear any prior failed-attempt/lock state on a successful login
+      try {
+        await (supabase as any).rpc("clear_failed_login", { p_email: data.email });
+      } catch {
+        /* non-blocking */
       }
 
       // Verify session was actually persisted (cookie via @supabase/ssr)
