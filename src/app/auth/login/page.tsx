@@ -78,7 +78,7 @@ function LoginForm() {
       if (!session && !signInData.session) {
         toast({
           title: "Sign in failed",
-          description: "No session created. Check Supabase confirmation email or project URL/key.",
+          description: "No session was created. Check your credentials or project URL/key and try again.",
           variant: "error",
         });
         return;

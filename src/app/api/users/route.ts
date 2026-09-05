@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { randomBytes } from 'node:crypto';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import {
@@ -8,6 +9,10 @@ import {
   writeAudit,
   getEffectivePermissions,
 } from '@/lib/auth';
+
+function tempPassword(): string {
+  return 'MF@' + randomBytes(5).toString('hex');
+}
 
 async function getActor(sb: any) {
   const {
@@ -196,15 +201,19 @@ export async function POST(req: Request) {
 
     let authUserId: string;
     let invitationSent = false;
+    let provisionalPassword: string | null = null;
 
     if (!inviteErr && invited?.user) {
       authUserId = invited.user.id;
       invitationSent = true;
     } else {
-      // Fallback: create user without invite email if invite fails (e.g. SMTP not configured)
+      // Fallback: auto-confirm with a one-time provisional password so the user can
+      // sign in immediately (no mandatory email confirmation) when the invite fails.
+      provisionalPassword = tempPassword();
       const { data: created, error: createErr } = await admin.auth.admin.createUser({
         email,
-        email_confirm: false,
+        password: provisionalPassword,
+        email_confirm: true,
         user_metadata: {
           full_name: fullName,
           organization_id: actor.profile.organization_id,
@@ -290,7 +299,12 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json(
-      { ...newProfile, invitation_sent: invitationSent, roles: roleId ? [roleId] : [] },
+      {
+        ...newProfile,
+        invitation_sent: invitationSent,
+        provisional_password: provisionalPassword,
+        roles: roleId ? [roleId] : [],
+      },
       { status: 201 },
     );
   } catch (e: any) {

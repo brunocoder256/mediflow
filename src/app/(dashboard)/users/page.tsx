@@ -134,7 +134,11 @@ export default function UsersPage() {
       if (!res.ok) throw new Error(j.error || "Unable to create user");
       toast({
         title: "Success",
-        description: j.invitation_sent ? "Invitation sent — user will set their password via email" : "User created",
+        description: j.invitation_sent
+          ? "Invitation sent — user will set their password via email"
+          : j.provisional_password
+            ? `User created — temporary password: ${j.provisional_password} (share it with the user)`
+            : "User created",
         variant: "success",
       });
       setShowAdd(false);
