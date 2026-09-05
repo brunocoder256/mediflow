@@ -3,7 +3,7 @@ import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { isSuperAdmin, superAdminProfileId, platformAudit } from '@/lib/super-admin';
 
-/** Grant full (paid) access to a client organization: permanent, no trial deadline and no renewal cycle. */
+/** Grant full (paid) access to a client organization: no trial deadline anymore. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -20,9 +20,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const { data: org, error: orgErr } = await admin
       .from('organizations')
-      .update({ plan: 'full', status: 'active', trial_ends_at: null, paid_until: null, updated_at: new Date().toISOString() })
+      .update({ plan: 'full', status: 'active', trial_ends_at: null, updated_at: new Date().toISOString() })
       .eq('id', reg.organization_id)
-      .select('id, plan, status, trial_ends_at, paid_until')
+      .select('id, plan, status, trial_ends_at')
       .single();
     if (orgErr || !org) return NextResponse.json({ error: orgErr?.message || 'Failed to grant access' }, { status: 500 });
 
@@ -32,11 +32,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         entityType: 'registrations',
         entityId: id,
         oldValues: { plan: org.plan, status: org.status },
-        newValues: { plan: 'full', status: 'active', paid_until: null },
+        newValues: { plan: 'full', status: 'active' },
       });
     }
 
-    return NextResponse.json({ ok: true, plan: 'full', status: 'active', trial_ends_at: null, paid_until: null });
+    return NextResponse.json({ ok: true, plan: 'full', status: 'active', trial_ends_at: null });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || 'Failed to grant access' }, { status: 500 });
   }

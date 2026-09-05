@@ -199,122 +199,6 @@ export async function getCustomerPendingCount(): Promise<number>{
   try{ const c=await db.cachedCustomers.where("sync_status").equals("pending").count(); const q=await db.syncQueue.where("table_name").equals("customers").count(); return Math.max(c,q);}catch{return 0;}
 }
 
-export async function queueProductCreate(payload: Record<string, unknown>): Promise<{ operation_id: string; local_id: string }> {
-  const op = crypto.randomUUID();
-  const id = crypto.randomUUID();
-  await db.syncQueue.add({
-    id: crypto.randomUUID(),
-    operation_id: op,
-    table_name: "products",
-    operation: "create",
-    payload: { ...payload, _offlineId: id, _operationId: op },
-    status: "pending",
-    created_at: new Date().toISOString(),
-    retries: 0,
-    error: null,
-  });
-  try {
-    await db.products.add({
-      id,
-      name: String((payload as any).name ?? "New product"),
-      generic_name: (payload as any).generic_name ?? null,
-      brand_name: (payload as any).brand_name ?? null,
-      sku: (payload as any).sku ?? null,
-      barcode: (payload as any).barcode ?? null,
-      category_id: (payload as any).category_id ?? null,
-      product_type: (payload as any).product_type ?? null,
-      unit: (payload as any).unit ?? null,
-      is_active: true,
-      sync_status: "pending",
-      operation_id: op,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as any);
-  } catch { /* cache best-effort */ }
-  return { operation_id: op, local_id: id };
-}
-
-export async function queueProductUpdate(id: string, patch: Record<string, unknown>): Promise<string> {
-  const op = crypto.randomUUID();
-  await db.syncQueue.add({
-    id: crypto.randomUUID(),
-    operation_id: op,
-    table_name: "products",
-    operation: "update",
-    payload: { id, ...patch, _operationId: op },
-    status: "pending",
-    created_at: new Date().toISOString(),
-    retries: 0,
-    error: null,
-  });
-  try {
-    await db.products.update(id, { ...patch, sync_status: "pending", operation_id: op } as any);
-  } catch { /* not cached yet */ }
-  return op;
-}
-
-export async function queueProductDeactivate(id: string): Promise<string> {
-  const op = crypto.randomUUID();
-  await db.syncQueue.add({
-    id: crypto.randomUUID(),
-    operation_id: op,
-    table_name: "products",
-    operation: "update",
-    payload: { id, action: "deactivate", _operationId: op },
-    status: "pending",
-    created_at: new Date().toISOString(),
-    retries: 0,
-    error: null,
-  });
-  try {
-    await db.products.update(id, { is_active: false, sync_status: "pending", operation_id: op } as any);
-  } catch { /* not cached yet */ }
-  return op;
-}
-
-export async function getProductPendingCount(): Promise<number> {
-  try { return await db.products.where("sync_status").equals("pending").count(); } catch { return 0; }
-}
-
-async function resolveValueIds<T>(value: T, depth = 0): Promise<T> {
-  if (depth > 6 || value == null) return value;
-  if (Array.isArray(value)) {
-    const out: unknown[] = [];
-    for (const it of value) out.push(await resolveValueIds(it, depth + 1));
-    return out as unknown as T;
-  }
-  if (typeof value === "object") {
-    const out: Record<string, unknown> = { ...(value as Record<string, unknown>) };
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (k === "product_id" && typeof v === "string") {
-        const m = await db.idMap.where("local_id").equals(v).first().catch(() => undefined);
-        if (m) out[k] = m.server_id;
-      } else if (v && typeof v === "object") {
-        out[k] = await resolveValueIds(v, depth + 1);
-      }
-    }
-    return out as unknown as T;
-  }
-  return value;
-}
-
-/**
- * Rewrites any product_id referencing a locally-created product draft into its
- * server id (recorded in idMap when the draft synced), so queued sales,
- * purchases and returns replay against the real product.
- */
-export async function resolveLocalIds(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-  try {
-    return (await resolveValueIds(payload ?? {})) as Record<string, unknown>;
-  } catch {
-    return payload;
-  }
-}
-
-export async function getCatalogSyncedDraftsCount(): Promise<number> {
-  try { return await db.idMap.count(); } catch { return 0; }
-}
-
 export async function processSyncQueue(): Promise<{
   processed: number;
   failed: number;
@@ -329,20 +213,15 @@ export async function processSyncQueue(): Promise<{
     try {
       await db.syncQueue.update(entry.id, { status: "processing", last_attempt_at: new Date().toISOString() });
 
-      // Rewrite locally-created draft product_ids to their server ids before
-      // replaying (drafts created offline get their server id at sync time;
-      // anything referencing them queued later must point at the real id).
-      const resolvedPayload: any = await resolveLocalIds(entry.payload ?? {});
-
       let response: Response;
       if (entry.table_name === "sales") {
         response = await fetch("/api/sales", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(resolvedPayload),
+          body: JSON.stringify(entry.payload),
         });
       } else if (entry.table_name === "purchases") {
-        const payload: any = resolvedPayload;
+        const payload: any = entry.payload;
         if (entry.operation === "create" && !payload.action) {
           response = await fetch("/api/purchases", {
             method: "POST",
@@ -369,7 +248,7 @@ export async function processSyncQueue(): Promise<{
           }
         }
       } else if (entry.table_name === "returns") {
-        const payload:any=resolvedPayload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const rType=payload._returnType ?? "SALES"; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId; delete clean._returnType;
+        const payload:any=entry.payload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const rType=payload._returnType ?? "SALES"; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId; delete clean._returnType;
         if(rType==="PURCHASE"){
           response = await fetch("/api/purchase-returns",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, operation_id: op }) });
         } else {
@@ -380,14 +259,14 @@ export async function processSyncQueue(): Promise<{
           else if(op){ try{ const c=await db.cachedReturns.where("operation_id").equals(op).first(); if(c) await db.cachedReturns.update(c.id,{ sync_status:"synced" as any }); }catch{} }
         }
       } else if (entry.table_name === "expenses") {
-        const payload:any=resolvedPayload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId; // keep idempotency_key
+        const payload:any=entry.payload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId; // keep idempotency_key
         response = await fetch("/api/expenses",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, idempotency_key: op }) });
         if(response.ok){
           if(offId){ try{ await db.cachedExpenses.update(offId,{ sync_status:"synced" as any }); }catch{} }
           else if(op){ try{ const c=await db.cachedExpenses.where("operation_id").equals(op).first(); if(c) await db.cachedExpenses.update(c.id,{ sync_status:"synced" as any }); }catch{} }
         }
       } else if (entry.table_name === "customers") {
-        const payload:any=resolvedPayload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId;
+        const payload:any=entry.payload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId;
         if(entry.operation==="create"){
           response = await fetch("/api/customers",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, continue_anyway: false }) });
         } else {
@@ -407,7 +286,7 @@ export async function processSyncQueue(): Promise<{
           }
         }
       } else if (entry.table_name === "suppliers") {
-        const payload: any = resolvedPayload;
+        const payload: any = entry.payload;
         const offId = payload._offlineId;
         const op = payload._operationId ?? entry.operation_id;
         // filter internal keys
@@ -437,48 +316,6 @@ export async function processSyncQueue(): Promise<{
             if(c) await db.cachedSuppliers.update(c.id, { sync_status: "synced" as any });
           }catch{}
         }
-      } else if (entry.table_name === "products") {
-        const payload: any = resolvedPayload;
-        const offId = payload._offlineId;
-        const clean: any = { ...payload };
-        delete clean._offlineId; delete clean._operationId;
-        if (entry.operation === "create") {
-          response = await fetch("/api/products", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(clean),
-          });
-        } else if (clean.action === "deactivate" || clean.action === "reactivate") {
-          const cid = clean.id;
-          response = await fetch("/api/products", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: cid, action: clean.action }),
-          });
-        } else {
-          const cid = clean.id;
-          delete clean.id;
-          response = await fetch("/api/products", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: cid, ...clean }),
-          });
-        }
-        if (response.ok) {
-          const j2 = await response.json().catch(() => ({}));
-          const sid = j2?.id ?? j2?.data?.id ?? j2?.data?.[0]?.id;
-          if (entry.operation === "create" && offId && sid) {
-            if (sid !== offId) {
-              await db.idMap.put({ local_id: offId, server_id: sid, table_name: "products", updated_at: new Date().toISOString() } as any).catch(() => {});
-              await db.products.delete(offId).catch(() => {});
-              await db.products.put({ ...clean, id: sid, sync_status: "synced", operation_id: null } as any).catch(() => {});
-            } else {
-              await db.products.update(offId, { sync_status: "synced", operation_id: null } as any).catch(() => {});
-            }
-          } else if (offId) {
-            await db.products.update(offId, { sync_status: "synced", operation_id: null } as any).catch(() => {});
-          }
-        }
       } else {
         response = await fetch("/api/sync", {
           method: "POST",
@@ -487,7 +324,7 @@ export async function processSyncQueue(): Promise<{
             operation_id: entry.operation_id,
             table_name: entry.table_name,
             operation: entry.operation,
-            payload: resolvedPayload,
+            payload: entry.payload,
           }),
         });
       }
@@ -505,7 +342,7 @@ export async function processSyncQueue(): Promise<{
             error: msg,
           } as any);
           try{
-            const op = (resolvedPayload as any)?._operationId ?? entry.operation_id;
+            const op = (entry.payload as any)._operationId ?? entry.operation_id;
             const c = await db.cachedPurchases.where("operation_id").equals(op).first();
             if(c) await db.cachedPurchases.update(c.id, { sync_status: "failed" as any });
             const cs = await db.cachedSuppliers.where("operation_id").equals(op).first();
@@ -516,8 +353,6 @@ export async function processSyncQueue(): Promise<{
             if(ce) await db.cachedExpenses.update(ce.id, { sync_status: "failed" as any });
             const cc = await db.cachedCustomers.where("operation_id").equals(op).first();
             if(cc) await db.cachedCustomers.update(cc.id, { sync_status: "failed" as any });
-            const offId = (resolvedPayload as any)?._offlineId;
-            if (offId) await db.products.update(offId, { sync_status: "failed" as any }).catch(() => {});
           }catch{}
         } else {
           await db.syncQueue.update(entry.id, {
@@ -529,16 +364,6 @@ export async function processSyncQueue(): Promise<{
         failed++;
         continue;
       }
-
-      // Record draft→server id mapping so later queued operations referencing a
-      // locally-created record (product/supplier/etc.) replay against the real id.
-      try {
-        const offId = (resolvedPayload as any)?._offlineId;
-        const sid = json?.id ?? json?.data?.id ?? json?.data?.[0]?.id;
-        if (offId && sid && sid !== offId) {
-          await db.idMap.put({ local_id: offId, server_id: sid, table_name: entry.table_name, updated_at: new Date().toISOString() } as any).catch(() => {});
-        }
-      } catch { /* best-effort */ }
 
       await db.syncQueue.delete(entry.id);
       processed++;

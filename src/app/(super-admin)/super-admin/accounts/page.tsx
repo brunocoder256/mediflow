@@ -48,7 +48,6 @@ type Registration = {
     plan: string | null;
     status: string | null;
     trial_ends_at: string | null;
-    paid_until: string | null;
   } | null;
 };
 
@@ -61,7 +60,6 @@ const STATUS_BADGE: Record<string, string> = {
   suspended: "destructive",
   rejected: "secondary",
   trial_expired: "destructive",
-  cycle_expired: "destructive",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -70,15 +68,11 @@ const STATUS_LABEL: Record<string, string> = {
   suspended: "Suspended",
   rejected: "Rejected",
   trial_expired: "Trial Expired",
-  cycle_expired: "Cycle Expired",
 };
 
 function displayStatus(r: Registration): string {
-  // Trial/paid-cycle expiry is tracked on the organization, not the registration row.
-  if (r.organizations?.status === "trial_expired") {
-    return r.organizations.plan === "full" ? "cycle_expired" : "trial_expired";
-  }
-  return r.status;
+  // Trial expiry is tracked on the organization, not the registration row.
+  return r.organizations?.status === "trial_expired" ? "trial_expired" : r.status;
 }
 
 function fmtDate(s: string | null | undefined): string {
@@ -331,9 +325,7 @@ export default function SuperAdminAccountsPage() {
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Location</dt><dd>{selected.location || "—"}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Registered</dt><dd>{new Date(selected.created_at).toLocaleString()}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Plan</dt><dd>{selected.organizations?.plan === "trial" ? "Trial" : selected.organizations?.plan === "full" ? "Full" : "—"}</dd></div>
-                    {selected.organizations?.plan === "trial"
-                      ? <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Trial ends</dt><dd>{fmtDate(selected.organizations?.trial_ends_at)}</dd></div>
-                      : <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Paid cycle ends</dt><dd>{fmtDate(selected.organizations?.paid_until)}</dd></div>}
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Trial ends</dt><dd>{fmtDate(selected.organizations?.trial_ends_at)}</dd></div>
                   </dl>
                 </div>
                 {selected.status === "rejected" && selected.rejection_reason && (
@@ -366,7 +358,7 @@ export default function SuperAdminAccountsPage() {
                 {selected.status === "suspended" && (
                   <Button className="flex-1" onClick={() => setDialog("activate")}>Activate Account</Button>
                 )}
-                {(displayStatus(selected) === "trial_expired" || displayStatus(selected) === "cycle_expired") && (
+                {displayStatus(selected) === "trial_expired" && (
                   <>
                     <Button className="flex-1" onClick={() => setDialog("approve-full")}>Approve</Button>
                     <Button variant="outline" className="flex-1" onClick={() => setDialog("extend-trial")}>Extend Trial</Button>
@@ -501,10 +493,9 @@ export default function SuperAdminAccountsPage() {
         {selected && (
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Approve this account for a new cycle?</DialogTitle>
+              <DialogTitle>Approve this account after its trial?</DialogTitle>
               <DialogDescription>
-                Confirm payment and activate {selected.business_name} for the next monthly billing cycle — access lapses
-                again when the cycle ends.
+                Confirm payment and activate {selected.business_name} permanently — the trial deadline is removed.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-1 text-sm">

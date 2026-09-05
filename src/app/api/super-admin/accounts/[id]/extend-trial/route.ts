@@ -38,7 +38,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const { data: updated, error } = await admin
       .from('organizations')
-      .update({ plan: 'trial', status: 'active', trial_ends_at: trialEndsAt, paid_until: null, updated_at: new Date().toISOString() })
+      .update({ plan: 'trial', status: 'active', trial_ends_at: trialEndsAt, updated_at: new Date().toISOString() })
       .eq('id', org.id)
       .select('id, plan, status, trial_ends_at')
       .single();

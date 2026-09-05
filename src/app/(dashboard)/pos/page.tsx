@@ -13,7 +13,6 @@ import { Receipt, printReceipt } from "@/components/receipt";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { db } from "@/lib/offline/db";
 import { processSyncQueue, setupAutoSync, queuePosSale } from "@/lib/offline/sync";
-import { readPosCatalog, readCachedBranches, readCachedCategories, readCachedSettings } from "@/lib/offline/catalog";
 
 type Product = {
   id: string;
@@ -130,16 +129,6 @@ export default function PosPage(){
   const fetchProducts = React.useCallback(async (bId:string)=>{
     if(!bId) return;
     setLoading(true);
-    // Cache-first: offline (or when the server is unreachable) the POS runs on
-    // the IndexedDB catalog snapshot hydrated earlier.
-    if(!isOnline){
-      try{
-        const mapped = await readPosCatalog(bId, expiryWarningDays);
-        setProducts(mapped);
-      }catch{ setProducts([]); }
-      setLoading(false);
-      return;
-    }
     try{
       const [prodRes, invRes] = await Promise.all([fetch("/api/products").then(r=>r.json()), fetch("/api/inventory").then(r=>r.json())]);
       const list:Array<any> = Array.isArray(prodRes) ? prodRes : prodRes.data ?? prodRes ?? [];
@@ -193,42 +182,19 @@ export default function PosPage(){
         };
       });
       setProducts(mapped);
-      // keep the offline catalog fresh in the background
-      try{
-        await db.products.bulkPut(list.filter((p:any)=>!p.sync_status || p.sync_status!=="pending").map((p:any)=>({...p, sync_status:"synced" as const, is_active: p.is_active ?? true})) as any);
-        await db.batches.bulkPut(stockRows.map((b:any)=>({id:b.id, product_id:b.product_id, branch_id:b.branch_id, batch_number:b.batch_number ?? null, quantity_available:Number(b.quantity_available??0), quantity:Number(b.quantity_available??0), expiry_date:b.expiry_date ?? null, cost_price:Number(b.cost_price ?? b.purchase_price ?? 0), purchase_price:Number(b.purchase_price ?? 0), selling_price:Number(b.selling_price ?? 0)})) as any);
-      }catch{}
-    }catch{
-      // server is unreachable but browser thinks we're online — fall back to cache
-      try{
-        const mapped = await readPosCatalog(bId, expiryWarningDays);
-        setProducts(mapped);
-      }catch{ setProducts([]); }
-    }
+    }catch{ setProducts([]); }
     setLoading(false);
-  },[expiryWarningDays, isOnline]);
+  },[expiryWarningDays]);
 
-  // initial load: branches + org + categories (cache-first for offline)
+  // initial load: branches + org + categories
   React.useEffect(()=>{
-    if(!isOnline){
-      (async()=>{
-        const [b, c, s] = await Promise.all([readCachedBranches(), readCachedCategories(), readCachedSettings()]);
-        if(b?.length){ setBranches(b); if(!branchId) setBranchId(b[0].id); }
-        const orgS = (s as any)?.organization_settings;
-        if(orgS){ setOrgSettings(orgS); setExpiryWarningDays(orgS.expiry_warning_days ?? 90); }
-        if(c?.length) setCategories(c);
-      })().catch(()=>{});
-      return;
-    }
     fetch("/api/settings").then(r=>r.json()).then(j=>{
       if(j.branches?.length){ setBranches(j.branches); if(!branchId) setBranchId(j.branches[0].id); }
       if(j.organization_settings){ setOrgSettings(j.organization_settings); setExpiryWarningDays(j.organization_settings.expiry_warning_days ?? 90); }
-      // cache branches + settings for offline
-      try{ db.branches.bulkPut((j.branches ?? []).map((b:any)=>({...b, sync_status:"synced"}))); db.orgSettings.put({ id:"org", payload:j, updated_at:new Date().toISOString() }); }catch{}
     }).catch(()=>{});
-    fetch("/api/categories").then(r=>r.json()).then(j=>{ if(Array.isArray(j)){ setCategories(j); try{ db.categories.bulkPut(j.map((c:any)=>({...c, sync_status:"synced"}))); }catch{} } }).catch(()=>{});
+    fetch("/api/categories").then(r=>r.json()).then(j=>{ if(Array.isArray(j)) setCategories(j); }).catch(()=>{});
     fetch("/api/me").then(r=>r.json()).then(j=>{ if(j?.full_name) setCashierName(j.full_name); }).catch(()=>{});
-  },[isOnline]);
+  },[]);
 
   // when branch changes refresh products + cash session + held sales
   React.useEffect(()=>{

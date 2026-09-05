@@ -8,8 +8,6 @@ import { RefreshCw, Clock, Cloud, CloudOff, Wifi, WifiOff, AlertTriangle, CheckC
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { db } from "@/lib/offline/db";
 import { processSyncQueue } from "@/lib/offline/sync";
-import { getCatalogMeta, getCatalogDirtyCount } from "@/lib/offline/catalog";
-import { Download, Upload } from "lucide-react";
 
 function formatPayload(p:any){
   try{
@@ -25,15 +23,6 @@ export default function SyncPage(){
   const [syncing,setSyncing]=React.useState(false);
   const [lastSync,setLastSync]=React.useState<string | null>(null);
   const [detail,setDetail]=React.useState<any|null>(null);
-  const [catalogInfo,setCatalogInfo]=React.useState<{hydratedAt:string|null; products:number; dirty:number}|null>(null);
-
-  React.useEffect(()=>{
-    (async()=>{
-      const meta=await getCatalogMeta().catch(()=>null);
-      const dirty=await getCatalogDirtyCount().catch(()=>0);
-      setCatalogInfo({ hydratedAt: meta?.hydrated_at ?? null, products: meta?.productCount ?? 0, dirty });
-    })();
-  },[]);
 
   const load=React.useCallback(async()=>{
     const all=await db.syncQueue.toArray();
@@ -58,53 +47,6 @@ export default function SyncPage(){
     load();
   };
 
-  const handleExportBackup=async()=>{
-    try{
-      const tables = ["syncQueue","pendingSales","cachedPurchases","cachedSuppliers","cachedCustomers","cachedReturns","cachedExpenses","idMap"];
-      const data: Record<string, any[]> = {};
-      for(const t of tables){
-        data[t] = await (db as any)[t]?.toArray() ?? [];
-      }
-      const drafts = (await db.products.where("sync_status").equals("pending").toArray().catch(()=>[])) as any[];
-      if(drafts.length) data.products_drafts = drafts;
-      const blob = new Blob([JSON.stringify({ exported_at: new Date().toISOString(), version: 1, data }, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `mediflow-offline-backup-${new Date().toISOString().slice(0,10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }catch(e:any){ alert("Backup failed: " + e.message); }
-  };
-
-  const handleImportBackup=async(file: File)=>{
-    try{
-      const j = JSON.parse(await file.text());
-      const payload = j?.data ?? j;
-      let imported = 0;
-      if(Array.isArray(payload.syncQueue)){
-        for(const entry of payload.syncQueue){
-          try{
-            await db.syncQueue.add({ ...entry, id: undefined, status: "pending", retries: 0, error: null, last_attempt_at: null } as any);
-            imported++;
-          }catch{}
-        }
-      }
-      if(Array.isArray(payload.products_drafts)){
-        for(const p of payload.products_drafts){
-          try{ await db.products.put({ ...p, sync_status: "pending" } as any); }catch{}
-        }
-      }
-      if(Array.isArray(payload.idMap)){
-        for(const m of payload.idMap){ try{ await db.idMap.put(m as any); }catch{} }
-      }
-      alert(`Backup imported — ${imported} operations restarted as pending. Hit Sync Now to push.`);
-      load();
-    }catch(e:any){ alert("Import failed: " + e.message); }
-  };
-
-  const fileRef=React.useRef<HTMLInputElement>(null);
-
   const pending=queue.filter(q=>q.status==="pending").length;
   const processing=queue.filter(q=>q.status==="processing").length;
   const failed=queue.filter(q=>q.status==="failed").length;
@@ -114,13 +56,7 @@ export default function SyncPage(){
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div><h1 className="text-2xl font-bold">Sync Center</h1><p className="text-muted-foreground">ONLINE / OFFLINE / SYNCING / SYNC_ERROR — queue survives offline POS</p></div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={load}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
-          <Button variant="outline" onClick={handleExportBackup}><Download className="h-4 w-4 mr-2"/>Export Backup</Button>
-          <Button variant="outline" onClick={()=>fileRef.current?.click()}><Upload className="h-4 w-4 mr-2"/>Import Backup</Button>
-          <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e)=>{ const f=e.target.files?.[0]; if(f) handleImportBackup(f); e.target.value=""; }} />
-          <Button onClick={handleSync} disabled={syncing || !isOnline}>{syncing ? "Syncing..." : "Sync Now"}</Button>
-        </div>
+        <div className="flex gap-2"><Button variant="outline" onClick={load}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button><Button onClick={handleSync} disabled={syncing || !isOnline}>{syncing ? "Syncing..." : "Sync Now"}</Button></div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
@@ -129,13 +65,6 @@ export default function SyncPage(){
         <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Syncing</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{processing}</div><p className="text-xs text-muted-foreground">In-flight, locked batches</p></CardContent></Card>
         <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Failed</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-destructive">{failed}</div><p className="text-xs text-muted-foreground">Conflicts require review</p></CardContent></Card>
       </div>
-
-      {catalogInfo && (
-        <Card className="border-emerald-200 bg-emerald-50"><CardHeader><CardTitle className="flex items-center gap-2 text-emerald-800"><Cloud className="h-5 w-5"/> Offline Catalog</CardTitle><CardDescription className="text-emerald-700">Products + stock cached on this device — POS, Products and Purchases work fully offline.</CardDescription></CardHeader><CardContent className="text-sm text-emerald-900">
-          <p><strong>{catalogInfo.products}</strong> products cached · Last hydrated: {catalogInfo.hydratedAt ? new Date(catalogInfo.hydratedAt).toLocaleString() : "never — open POS/Products while online"}</p>
-          {catalogInfo.dirty>0 && <p className="text-amber-700">{catalogInfo.dirty} locally-created product draft(s) awaiting sync.</p>}
-        </CardContent></Card>
-      )}
 
       {failed>0 && (
         <Card className="border-amber-200 bg-amber-50">

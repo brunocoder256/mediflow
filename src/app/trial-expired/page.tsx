@@ -10,12 +10,9 @@ type Gate = {
   organization_id: string | null;
   organization_name: string | null;
   status: string;
-  expired_reason: "trial" | "paid" | null;
   plan: string;
   trial_ends_at: string | null;
-  paid_until: string | null;
   trial_days: number;
-  cycle_days: number;
   contact_phone_1: string;
   contact_phone_2: string;
 };
@@ -76,7 +73,6 @@ export default function TrialExpiredPage() {
   };
 
   const awaitingApproval = gate?.status === "trial_expired";
-  const paidCycleExpired = awaitingApproval && gate?.expired_reason === "paid";
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -85,20 +81,9 @@ export default function TrialExpiredPage() {
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-700">
             <Hourglass className="h-7 w-7" />
           </div>
-          <h1 className="mt-4 text-2xl font-bold">
-            {awaitingApproval ? (paidCycleExpired ? "Paid cycle ended" : "Free trial ended") : "Access paused"}
-          </h1>
+          <h1 className="mt-4 text-2xl font-bold">{awaitingApproval ? "Free trial ended" : "Access paused"}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {paidCycleExpired ? (
-              <>
-                {gate?.organization_name ?? "This account"}&apos;s monthly paid cycle has ended
-                {gate?.paid_until ? ` on ${new Date(gate.paid_until).toLocaleDateString()}` : ""}.
-              </>
-            ) : (
-              <>
-                {gate?.organization_name ?? "This account"}&apos;s {gate?.trial_days ?? 3}-day free trial has ended.
-              </>
-            )}
+            {gate?.organization_name ?? "This account"}&apos;s 3-day free trial has ended.
           </p>
 
           <div className="mt-5 rounded-md border bg-muted/20 p-4 text-left text-sm">
@@ -113,9 +98,7 @@ export default function TrialExpiredPage() {
               {awaitingApproval ? (
                 <>
                   To keep using MediFlow, finish your monthly payment with MediFlow and the MediFlow
-                  administrators will activate your{" "}
-                  {paidCycleExpired ? "next " : ""}
-                  {gate?.cycle_days ? `${gate.cycle_days}-day billing cycle` : "account"}. Your dashboard will{" "}
+                  administrators will activate your account. Your dashboard will{" "}
                   <span className="font-medium text-foreground">reload automatically</span> as soon as your
                   account is approved.
                 </>

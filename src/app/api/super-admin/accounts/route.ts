@@ -37,7 +37,7 @@ export async function GET(req: Request) {
 
     let rowsQ: any = admin
       .from('registrations')
-      .select('*, organizations(id, name, plan, status, trial_ends_at, paid_until)');
+      .select('*, organizations(id, name, plan, status, trial_ends_at)');
     if (status !== 'all' && VALID_STATUS.includes(status)) {
       if (status === 'trial_expired') rowsQ = rowsQ.eq('organizations.status', 'trial_expired');
       else rowsQ = rowsQ.eq('status', status);
