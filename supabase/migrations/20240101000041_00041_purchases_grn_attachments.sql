@@ -76,7 +76,7 @@ BEGIN
   WHERE grn_number LIKE 'GRN-' || v_date || '-%'
   ORDER BY grn_number DESC LIMIT 1;
   IF v_last IS NULL THEN v_seq := 1;
-  ELSE v_seq := substring(v_last from 12 for 6)::integer + 1;
+  ELSE v_seq := substring(v_last from 14 for 6)::integer + 1;
   END IF;
   NEW.grn_number := 'GRN-' || v_date || '-' || lpad(v_seq::text, 6, '0');
   RETURN NEW;

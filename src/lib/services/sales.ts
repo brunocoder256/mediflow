@@ -183,7 +183,9 @@ export async function voidSale(id: string, reason: string) {
     const branchId = existing.branch_id;
     const orgId = existing.organization_id;
 
-    for (const item of (saleItems.data ?? [])) {
+    // HELD sales never decremented stock — do not reverse it, or stock would be inflated
+    if (existing.status !== 'HELD') {
+      for (const item of (saleItems.data ?? [])) {
         await sb.from('stock_movements').insert({
             organization_id: orgId,
             branch_id: branchId,
@@ -198,6 +200,7 @@ export async function voidSale(id: string, reason: string) {
             created_by: profileId,
         });
         await increaseBatchQty(item.batch_id, item.quantity);
+    }
     }
 
     await createAuditLog('SALE_VOIDED', 'sales', id, existing as any, { ...data, reason });

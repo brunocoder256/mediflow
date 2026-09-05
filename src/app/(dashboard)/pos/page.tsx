@@ -112,6 +112,8 @@ export default function PosPage(){
   const [customerSearch,setCustomerSearch]=React.useState("");
   const [expiryWarningDays,setExpiryWarningDays]=React.useState(90);
   const [showPay,setShowPay]=React.useState(false);
+  const [showMobilePay,setShowMobilePay]=React.useState(false);
+  const [cashierName,setCashierName]=React.useState("Cashier");
   const [showHeld,setShowHeld]=React.useState(false);
   const [showCustomer,setShowCustomer]=React.useState(false);
   const [showClear,setShowClear]=React.useState(false);
@@ -191,6 +193,7 @@ export default function PosPage(){
       if(j.organization_settings){ setOrgSettings(j.organization_settings); setExpiryWarningDays(j.organization_settings.expiry_warning_days ?? 90); }
     }).catch(()=>{});
     fetch("/api/categories").then(r=>r.json()).then(j=>{ if(Array.isArray(j)) setCategories(j); }).catch(()=>{});
+    fetch("/api/me").then(r=>r.json()).then(j=>{ if(j?.full_name) setCashierName(j.full_name); }).catch(()=>{});
   },[]);
 
   // when branch changes refresh products + cash session + held sales
@@ -231,7 +234,7 @@ export default function PosPage(){
   React.useEffect(()=>{
     const handler=(e:KeyboardEvent)=>{
       if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='k'){ e.preventDefault(); searchRef.current?.focus(); }
-      if(e.key==='Escape'){ setShowPay(false); setShowHeld(false); setShowCustomer(false); setShowClear(false); setShowBatch(null); }
+      if(e.key==='Escape'){ setShowPay(false); setShowMobilePay(false); setShowHeld(false); setShowCustomer(false); setShowClear(false); setShowBatch(null); }
     };
     window.addEventListener('keydown', handler);
     return ()=> window.removeEventListener('keydown',handler);
@@ -389,6 +392,11 @@ export default function PosPage(){
     try{ await processSyncQueue(); const c=await db.syncQueue.where("status").equals("pending").count(); setPendingCount(c); } finally{ setSyncing(false); }
   };
 
+  const openPay=()=>{
+    if(typeof window!=='undefined' && window.matchMedia('(min-width: 768px)').matches) setShowPay(true);
+    else setShowMobilePay(true);
+  };
+
   const checkout=async()=>{
     if(!cart.length || !branchId) return;
     setBusy(true);
@@ -426,7 +434,7 @@ export default function PosPage(){
       try{
         await queuePosSale(payload as any, op);
         setPendingCount(await db.syncQueue.where("status").equals("pending").count());
-        setCart([]); setSaleDiscount(0); setShowPay(false); setAmountReceived(""); setPaymentRef(""); setSplitPayments([]); setSplitMode(false);
+        setCart([]); setSaleDiscount(0); setShowPay(false); setShowMobilePay(false); setAmountReceived(""); setPaymentRef(""); setSplitPayments([]); setSplitMode(false);
         alert('OFFLINE — sale queued with operation_id ' + op + '. Will sync when online. Server validates stock & prevents duplicates.');
       }catch(e:any){ alert('Queue failed: '+e.message); }
       setBusy(false);
@@ -447,7 +455,7 @@ export default function PosPage(){
       const saleItems = j.items ?? cart.map(c=>({ ...c, batch_id: null }));
       const paySummary = splitMode && splitPayments.length ? splitPayments.map(p=>`${p.method}:${formatUGX(Number(p.amount))}${p.reference?`(${p.reference})`:''}`).join(' + ') : paymentMethod;
       setReceiptData({ sale: j.sale, items: saleItems, total: j.saleTotal ?? totalAfterSaleDisc, subtotal: j.saleSubtotal ?? subtotal, branchId, paymentMethod: paySummary, change, customer: selectedCustomer?.name });
-      setCart([]); setSaleDiscount(0); setShowPay(false); setAmountReceived(""); setPaymentRef(""); setSplitPayments([]); setSplitMode(false);
+      setCart([]); setSaleDiscount(0); setShowPay(false); setShowMobilePay(false); setAmountReceived(""); setPaymentRef(""); setSplitPayments([]); setSplitMode(false);
       // refresh products (stock)
       fetchProducts(branchId);
       const c=await db.syncQueue.where("status").equals("pending").count(); setPendingCount(c);
@@ -488,7 +496,7 @@ export default function PosPage(){
           branch={{name: branches.find(b=>b.id===receiptData.branchId)?.name ?? "Main Branch"}}
           receipt_number={receiptData.sale.sale_number}
           sold_at={receiptData.sale.sold_at ?? new Date().toISOString()}
-          cashier="Cashier"
+          cashier={cashierName}
           customer={receiptData.customer}
           items={receiptData.items.map((it:any)=>({ name: it.name ?? products.find(p=>p.id===it.product_id)?.name ?? it.product_id.slice(0,8), quantity: it.quantity ?? it.qty, unit_price: it.unit_price, discount: it.discount ?? 0, tax: it.tax ?? 0, subtotal: it.subtotal ?? Math.round((it.quantity??it.qty)*it.unit_price - (it.discount??0)) }))}
           subtotal={receiptData.subtotal}
@@ -518,7 +526,7 @@ export default function PosPage(){
   const totalItems = cart.reduce((s,x)=>s+x.quantity,0);
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
+    <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden pb-16 md:pb-0">
       {/* POS HEADER */}
       <div className="border-b bg-card">
         <div className="flex flex-wrap gap-2 items-center justify-between p-2 sm:p-3">
@@ -676,8 +684,8 @@ export default function PosPage(){
               <Input placeholder="Transaction reference" value={paymentRef} onChange={e=>setPaymentRef(e.target.value)} className="h-10" aria-label="Reference"/>
             )}
             <div className="flex gap-2">
-              <Button className="flex-1" size="lg" disabled={!canPay} onClick={()=>setShowPay(true)}>{busy?"Processing...":`Pay ${formatUGX(totalAfterSaleDisc)}`}</Button>
-              <Button variant="outline" size="lg" onClick={()=>setShowPay(true)} disabled={!cart.length}>View</Button>
+              <Button className="flex-1" size="lg" disabled={!canPay} onClick={openPay}>{busy?"Processing...":`Pay ${formatUGX(totalAfterSaleDisc)}`}</Button>
+              <Button variant="outline" size="lg" onClick={openPay} disabled={!cart.length}>View</Button>
             </div>
             <p className="text-xs text-muted-foreground text-center">Enter validates • Esc closes dialogs • FEFO auto • Server price authoritative</p>
           </div>
@@ -687,7 +695,7 @@ export default function PosPage(){
       {/* Mobile cart sheet trigger - fixed bottom */}
       <div className="md:hidden fixed bottom-0 inset-x-0 bg-card border-t p-3 flex items-center gap-3">
         <div className="flex-1"><p className="text-sm font-medium">{totalItems} items</p><p className="font-bold">{formatUGX(totalAfterSaleDisc)}</p></div>
-        <Sheet open={showPay} onOpenChange={setShowPay}><Button className="flex-1" size="lg" disabled={!cart.length} onClick={()=>setShowPay(true)}><ShoppingCart className="h-5 w-5 mr-2"/>Pay {formatUGX(totalAfterSaleDisc)}</Button>
+        <Sheet open={showMobilePay} onOpenChange={setShowMobilePay}><Button className="flex-1" size="lg" disabled={!cart.length} onClick={()=>setShowMobilePay(true)}><ShoppingCart className="h-5 w-5 mr-2"/>Pay {formatUGX(totalAfterSaleDisc)}</Button>
           <SheetContent side="bottom" className="h-[85vh] overflow-y-auto">
             <SheetHeader><SheetTitle>Complete Sale — {formatUGX(totalAfterSaleDisc)}</SheetTitle></SheetHeader>
             <div className="mt-4 space-y-4">

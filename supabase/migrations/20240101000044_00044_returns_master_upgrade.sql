@@ -105,7 +105,7 @@ begin
   if new.return_number is not null and length(trim(new.return_number))>0 then return new; end if;
   v_date := to_char(coalesce(new.created_at, now()), 'YYYYMMDD');
   select return_number into v_last from returns where return_number like 'RET-'||v_date||'-%' order by return_number desc limit 1;
-  if v_last is null then v_seq:=1; else v_seq:= substring(v_last from 13 for 6)::int + 1; end if;
+  if v_last is null then v_seq:=1; else v_seq:= substring(v_last from 14 for 6)::int + 1; end if;
   new.return_number := 'RET-'||v_date||'-'||lpad(v_seq::text,6,'0');
   return new;
 end; $$ language plpgsql;
@@ -119,7 +119,7 @@ begin
   if new.return_number is not null and length(trim(new.return_number))>0 then return new; end if;
   v_date := to_char(coalesce(new.created_at, now()), 'YYYYMMDD');
   select return_number into v_last from purchase_returns where return_number like 'PR-'||v_date||'-%' order by return_number desc limit 1;
-  if v_last is null then v_seq:=1; else v_seq:= substring(v_last from 12 for 6)::int + 1; end if;
+  if v_last is null then v_seq:=1; else v_seq:= substring(v_last from 13 for 6)::int + 1; end if;
   new.return_number := 'PR-'||v_date||'-'||lpad(v_seq::text,6,'0');
   return new;
 end; $$ language plpgsql;

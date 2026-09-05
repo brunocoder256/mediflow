@@ -26,7 +26,7 @@ BEGIN
     IF v_last_sale IS NULL THEN
         v_seq := 1;
     ELSE
-        v_seq := substring(v_last_sale from 9 for 6)::integer + 1;
+        v_seq := substring(v_last_sale from 10 for 6)::integer + 1;
     END IF;
 
     NEW.sale_number := v_date || '-' || lpad(v_seq::text, 6, '0');
@@ -51,7 +51,7 @@ BEGIN
     IF v_last_po IS NULL THEN
         v_seq := 1;
     ELSE
-        v_seq := substring(v_last_po from 9 for 6)::integer + 1;
+        v_seq := substring(v_last_po from 10 for 6)::integer + 1;
     END IF;
 
     NEW.purchase_number := v_date || '-' || lpad(v_seq::text, 6, '0');
@@ -76,7 +76,7 @@ BEGIN
     IF v_last_return IS NULL THEN
         v_seq := 1;
     ELSE
-        v_seq := substring(v_last_return from 9 for 6)::integer + 1;
+        v_seq := substring(v_last_return from 10 for 6)::integer + 1;
     END IF;
 
     NEW.return_number := v_date || '-' || lpad(v_seq::text, 6, '0');
@@ -101,7 +101,7 @@ BEGIN
     IF v_last_refund IS NULL THEN
         v_seq := 1;
     ELSE
-        v_seq := substring(v_last_refund from 9 for 6)::integer + 1;
+        v_seq := substring(v_last_refund from 10 for 6)::integer + 1;
     END IF;
 
     NEW.refund_number := v_date || '-' || lpad(v_seq::text, 6, '0');
@@ -126,7 +126,7 @@ BEGIN
     IF v_last_adj IS NULL THEN
         v_seq := 1;
     ELSE
-        v_seq := substring(v_last_adj from 9 for 6)::integer + 1;
+        v_seq := substring(v_last_adj from 10 for 6)::integer + 1;
     END IF;
 
     NEW.adjustment_number := v_date || '-' || lpad(v_seq::text, 6, '0');
@@ -151,7 +151,7 @@ BEGIN
     IF v_last_transfer IS NULL THEN
         v_seq := 1;
     ELSE
-        v_seq := substring(v_last_transfer from 9 for 6)::integer + 1;
+        v_seq := substring(v_last_transfer from 10 for 6)::integer + 1;
     END IF;
 
     NEW.transfer_number := v_date || '-' || lpad(v_seq::text, 6, '0');
@@ -176,7 +176,7 @@ BEGIN
     IF v_last_pr IS NULL THEN
         v_seq := 1;
     ELSE
-        v_seq := substring(v_last_pr from 9 for 6)::integer + 1;
+        v_seq := substring(v_last_pr from 10 for 6)::integer + 1;
     END IF;
 
     NEW.return_number := v_date || '-' || lpad(v_seq::text, 6, '0');

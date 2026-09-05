@@ -145,6 +145,33 @@ describe('POS — Category filtering', ()=>{
   });
 });
 
+describe('POS — Sale/Receipt numbering (SQL generate_*_number mirrors)', ()=>{
+  // Mirrors substring(v_last from N for 6)::int in supabase triggers.
+  // Formats: sales/purchase 'YYYYMMDD-XXXXXX', GRN 'GRN-YYYYMMDD-XXXXXX', RET 'RET-...', PR 'PR-...'
+  function nextSeq(last: string, digitsStart1Based: number, dateLen: number){
+    const seg = last.slice(digitsStart1Based-1, digitsStart1Based-1+6);
+    return parseInt(seg, 10) + 1;
+  }
+  it('daily increment: sale 20260905-000001 -> next 000002', ()=>{
+    expect(nextSeq('20260905-000001', 10, 8)).toBe(2);
+    const formed = '20260905-' + String(nextSeq('20260905-000001', 10, 8)).padStart(6,'0');
+    expect(formed).toBe('20260905-000002');
+  });
+  it('old buggy offsets no longer produce the next number', ()=>{
+    expect(nextSeq('20260905-000001', 9, 8)).not.toBe(2);
+    expect(nextSeq('GRN-20260905-000001', 12, 8)).not.toBe(2);
+    expect(nextSeq('RET-20260905-000001', 13, 8)).not.toBe(2);
+    expect(nextSeq('PR-20260905-000001', 12, 8)).not.toBe(2);
+  });
+  it('GRN digits start at index 14 (after GRN- + 8-digit date + dash)', ()=>{
+    expect(nextSeq('GRN-20260905-000001', 14, 8)).toBe(2);
+  });
+  it('RET digits start at index 14, PR at index 13', ()=>{
+    expect(nextSeq('RET-20260905-000001', 14, 8)).toBe(2);
+    expect(nextSeq('PR-20260905-000001', 13, 8)).toBe(2);
+  });
+});
+
 describe('POS — Atomic transaction', ()=>{
   it('entire sale rolls back on batch failure (single transaction)', ()=>{
     // Simulate: two batches, second fails => no partial stock decrement in atomic function
