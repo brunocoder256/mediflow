@@ -15,7 +15,7 @@ import { useOnlineStatus } from "@/hooks/use-online-status";
 import { queuePurchaseCreate, queuePurchaseReceive, getPurchasePendingCount } from "@/lib/offline/sync";
 
 type Purchase = { id:string; purchase_number:string; supplier_id:string; branch_id:string; status:string; total:number; subtotal?:number; discount?:number; tax?:number; created_at:string; ordered_at?:string; received_at?:string; suppliers?:{name:string}; branches?:{name:string}; purchase_items?:any[] };
-type Line = { product_id:string; product_name?:string; quantity_ordered:number; unit_cost:number; discount:number; tax:number };
+type Line = { product_id:string; product_name?:string; quantity_ordered:number; unit_cost:number; discount:number; tax:number; search_query?:string };
 
 export default function PurchasesPage(){
   const { isOnline } = useOnlineStatus();
@@ -40,12 +40,13 @@ export default function PurchasesPage(){
   const [detailTab,setDetailTab]=React.useState("overview");
   const [showReceive,setShowReceive]=React.useState<Purchase|null>(null);
   const [receiveDetail,setReceiveDetail]=React.useState<any>(null);
-  const [form,setForm]=React.useState<{supplier_id:string; branch_id:string; expected_delivery_date:string; currency:string; payment_terms:string; notes:string; lines:Line[]}>({supplier_id:"", branch_id:"", expected_delivery_date:"", currency:"UGX", payment_terms:"", notes:"", lines:[{product_id:"", quantity_ordered:1, unit_cost:0, discount:0, tax:0}]});
+  const [form,setForm]=React.useState<{supplier_id:string; branch_id:string; expected_delivery_date:string; currency:string; payment_terms:string; notes:string; lines:Line[]}>({supplier_id:"", branch_id:"", expected_delivery_date:"", currency:"UGX", payment_terms:"", notes:"", lines:[{product_id:"", quantity_ordered:1, unit_cost:0, discount:0, tax:0, search_query:""}]});
   const [receiveGroups,setReceiveGroups]=React.useState<any[]>([]);
   const [pendingCount,setPendingCount]=React.useState(0);
   const [paymentForm,setPaymentForm]=React.useState({amount:"", method:"CASH", reference:""});
   const [returnForm,setReturnForm]=React.useState<{items:any[]; reason:string}>({items:[], reason:""});
   const [attachForm,setAttachForm]=React.useState({document_type:"SUPPLIER_INVOICE", file_name:"", file_url:""});
+  const [searchOpen,setSearchOpen]=React.useState<number|null>(null);
   const perPage=20;
 
   React.useEffect(()=>{ const id=setTimeout(()=>setDebouncedQ(q),300); return ()=>clearTimeout(id); },[q]);
@@ -89,6 +90,7 @@ export default function PurchasesPage(){
   const addLine=()=> setForm({...form, lines:[...form.lines, {product_id:"", quantity_ordered:1, unit_cost:0, discount:0, tax:0}]});
   const updateLine=(i:number, patch:Partial<Line>)=> setForm({...form, lines: form.lines.map((l,idx)=> idx===i ? {...l, ...patch}: l)});
   const removeLine=(i:number)=> setForm({...form, lines: form.lines.filter((_,idx)=>idx!==i)});
+  const productMatches=(q:string)=>{ const t=(q||"").trim().toLowerCase(); if(!t) return []; return (products||[]).filter((p:any)=>(p.name||"").toLowerCase().includes(t)||(p.sku||"").toLowerCase().includes(t)||(p.barcode||"").toLowerCase().includes(t)||(p.generic_name||"").toLowerCase().includes(t)).slice(0,8); };
 
   const submitCreate=async()=>{
     if(!form.supplier_id || !form.branch_id) return alert("Select supplier & branch");
@@ -98,13 +100,13 @@ export default function PurchasesPage(){
       await queuePurchaseCreate(payload as any);
       alert("Offline — purchase queued locally. Will sync when online. Status: Pending Sync");
       setShowCreate(false);
-      setForm({supplier_id: suppliers[0]?.id ?? "", branch_id: branches[0]?.id ?? form.branch_id, expected_delivery_date:"", currency:"UGX", payment_terms:"", notes:"", lines:[{product_id:"", quantity_ordered:1, unit_cost:0, discount:0, tax:0}]});
+      setForm({supplier_id: suppliers[0]?.id ?? "", branch_id: branches[0]?.id ?? form.branch_id, expected_delivery_date:"", currency:"UGX", payment_terms:"", notes:"", lines:[{product_id:"", quantity_ordered:1, unit_cost:0, discount:0, tax:0, search_query:""}]});
       setPendingCount(c=>c+1);
       return;
     }
     const r=await fetch("/api/purchases",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
     const j=await r.json();
-    if(!r.ok) alert(j.error); else { setShowCreate(false); setForm({supplier_id: suppliers[0]?.id ?? "", branch_id: branches[0]?.id ?? form.branch_id, expected_delivery_date:"", currency:"UGX", payment_terms:"", notes:"", lines:[{product_id:"", quantity_ordered:1, unit_cost:0, discount:0, tax:0}]}); fetchAll(); }
+    if(!r.ok) alert(j.error); else { setShowCreate(false); setForm({supplier_id: suppliers[0]?.id ?? "", branch_id: branches[0]?.id ?? form.branch_id, expected_delivery_date:"", currency:"UGX", payment_terms:"", notes:"", lines:[{product_id:"", quantity_ordered:1, unit_cost:0, discount:0, tax:0, search_query:""}]}); fetchAll(); }
   };
 
   const openDetail=async(p:Purchase)=>{
@@ -336,20 +338,47 @@ export default function PurchasesPage(){
               <div className="flex items-center justify-between"><h4 className="font-medium flex items-center gap-2"><Package className="h-4 w-4"/>Products</h4><Button variant="outline" size="sm" onClick={addLine}>Add Line</Button></div>
               {!isOnline && <p className="text-xs text-amber-600">Offline — using cached products/suppliers. PO will queue.</p>}
               {form.lines.map((l,i)=>(
-                <div key={i} className="grid gap-2 md:grid-cols-12 items-end border rounded p-3">
-                  <div className="md:col-span-5"><Label className="text-xs">Product *</Label><Select value={l.product_id} onChange={e=>{
-                    const pid=e.target.value;
-                    const prod=products.find((p:any)=>p.id===pid);
-                    updateLine(i,{product_id:pid, product_name: prod?.name, unit_cost: prod?.default_purchase_cost ?? prod?.cost_price ?? l.unit_cost });
-                  }}><option value="">Search product (name/SKU/barcode)...</option>{products.map((p:any)=><option key={p.id} value={p.id}>{p.name} {p.sku?`(${p.sku})`:""} {p.generic_name?`- ${p.generic_name}`:""} • Stock: {p.reorder_level ?? "?"}</option>)}</Select>
-                  {l.product_id && <p className="text-[10px] text-muted-foreground">Pack: {products.find((p:any)=>p.id===l.product_id)?.pack_size ?? 1} • {products.find((p:any)=>p.id===l.product_id)?.units_per_pack ?? 1} units/pack • Last cost UGX {Number(products.find((p:any)=>p.id===l.product_id)?.default_purchase_cost ?? 0).toLocaleString()}</p>}
+                <div key={i} className="space-y-3 border rounded p-3">
+                  <div>
+                    <Label className="text-sm">Product *</Label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/>
+                      <Input
+                        value={l.search_query ?? ""}
+                        placeholder="Type product name / SKU / barcode — select from list"
+                        className="pl-9 h-10"
+                        onChange={e=>{ updateLine(i,{ search_query: e.target.value, product_id:"" }); setSearchOpen(i); }}
+                        onFocus={()=>setSearchOpen(i)}
+                        onBlur={()=>setTimeout(()=>setSearchOpen(null),150)}
+                      />
+                      {searchOpen===i && productMatches(l.search_query ?? "").length>0 && (
+                        <ul className="absolute z-20 mt-1 w-full rounded-md border bg-popover shadow-md max-h-56 overflow-y-auto">
+                          {productMatches(l.search_query ?? "").map(p=>(
+                            <li key={p.id}
+                              onMouseDown={e=>e.preventDefault()}
+                              onClick={()=>{ updateLine(i,{ product_id:p.id, product_name:p.name, search_query:p.name, unit_cost: p.default_purchase_cost ?? p.cost_price ?? l.unit_cost }); setSearchOpen(null); }}
+                              className="px-3 py-2 text-sm hover:bg-accent cursor-pointer border-b last:border-0"
+                            >
+                              <p className="font-medium">{p.name}</p>
+                              <p className="text-xs text-muted-foreground">{(p.sku?`SKU ${p.sku}`:"")}{p.generic_name?` · ${p.generic_name}`:""}{p.barcode?` · ${p.barcode}`:""}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {searchOpen===i && (l.search_query ?? "").trim() && productMatches(l.search_query ?? "").length===0 && <p className="absolute z-20 mt-1 w-full rounded-md border bg-popover px-3 py-2 text-sm text-muted-foreground">No matching product — manage products in the Products page</p>}
+                    </div>
+                    {l.product_id && (()=>{ const sel=products.find((p:any)=>p.id===l.product_id); if(!sel) return null; return <p className="text-xs text-muted-foreground mt-1">Selected: {sel.name}{sel.sku?` (${sel.sku})`:""} • Pack {sel.pack_size ?? 1} • Last cost UGX {Number(sel.default_purchase_cost ?? 0).toLocaleString()}</p>; })()}
                   </div>
-                  <div><Label className="text-xs">Qty</Label><Input type="number" min={1} value={l.quantity_ordered} onChange={e=>updateLine(i,{quantity_ordered: Number(e.target.value)})}/></div>
-                  <div><Label className="text-xs">Unit Cost</Label><Input type="number" value={l.unit_cost} onChange={e=>updateLine(i,{unit_cost: Number(e.target.value)})}/></div>
-                  <div><Label className="text-xs">Discount</Label><Input type="number" value={l.discount} onChange={e=>updateLine(i,{discount: Number(e.target.value)})}/></div>
-                  <div><Label className="text-xs">Tax</Label><Input type="number" value={l.tax} onChange={e=>updateLine(i,{tax: Number(e.target.value)})}/></div>
-                  <div><Button variant="ghost" size="icon" onClick={()=>removeLine(i)}><Trash2 className="h-4 w-4"/></Button></div>
-                  <div className="md:col-span-12 text-xs text-muted-foreground flex justify-between"><span>Subtotal: UGX {(l.quantity_ordered * l.unit_cost - l.discount + l.tax).toLocaleString()} </span><span className="text-[10px]">Server will recalc — historical cost preserved</span></div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div><Label className="text-sm">Qty</Label><Input type="number" min={1} value={l.quantity_ordered} onChange={e=>updateLine(i,{quantity_ordered: Number(e.target.value)})} className="h-10 text-base"/></div>
+                    <div><Label className="text-sm">Unit Cost (UGX)</Label><Input type="number" min={0} value={l.unit_cost} onChange={e=>updateLine(i,{unit_cost: Number(e.target.value)})} className="h-10 text-base"/></div>
+                    <div><Label className="text-sm">Discount (UGX)</Label><Input type="number" min={0} value={l.discount} onChange={e=>updateLine(i,{discount: Number(e.target.value)})} className="h-10 text-base"/></div>
+                    <div><Label className="text-sm">Tax (UGX)</Label><Input type="number" min={0} value={l.tax} onChange={e=>updateLine(i,{tax: Number(e.target.value)})} className="h-10 text-base"/></div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-muted-foreground">Subtotal: UGX {(l.quantity_ordered * l.unit_cost - l.discount + l.tax).toLocaleString()} • Server recalculates on receive — historical cost preserved</span>
+                    <Button variant="ghost" size="sm" onClick={()=>removeLine(i)} className="text-destructive shrink-0"><Trash2 className="h-4 w-4 mr-1"/>Remove</Button>
+                  </div>
                 </div>
               ))}
             </div>
