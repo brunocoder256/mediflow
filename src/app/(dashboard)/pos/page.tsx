@@ -526,7 +526,7 @@ export default function PosPage(){
   const totalItems = cart.reduce((s,x)=>s+x.quantity,0);
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden pb-16 md:pb-0">
+    <div className="flex h-full flex-col overflow-y-auto md:overflow-hidden pb-16 md:pb-0">
       {/* POS HEADER */}
       <div className="border-b bg-card">
         <div className="flex flex-wrap gap-2 items-center justify-between p-2 sm:p-3">
@@ -579,7 +579,7 @@ export default function PosPage(){
       {/* MAIN LAYOUT: desktop two panes, mobile stacked */}
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
         {/* Left: search + products */}
-        <div className="flex-1 flex flex-col border-r min-h-0">
+        <div className="md:flex-1 flex flex-col md:border-r min-h-0">
           <div className="p-3 sm:p-4 border-b space-y-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/>
@@ -683,17 +683,16 @@ export default function PosPage(){
             ) : (
               <Input placeholder="Transaction reference" value={paymentRef} onChange={e=>setPaymentRef(e.target.value)} className="h-10" aria-label="Reference"/>
             )}
-            <div className="flex gap-2">
-              <Button className="flex-1" size="lg" disabled={!cart.length || busy} onClick={openPay}>{busy?"Processing...":`Complete Sale — ${formatUGX(totalAfterSaleDisc)}`}</Button>
-              <Button variant="outline" size="lg" onClick={openPay} disabled={!cart.length}>View</Button>
-            </div>
+<div className="flex gap-2">
+                  <Button className="flex-1 h-12 text-base" size="lg" disabled={!cart.length || busy} onClick={openPay}>{busy?"Processing...":`Complete Sale — ${formatUGX(totalAfterSaleDisc)}`}</Button>
+                </div>
             <p className="text-xs text-muted-foreground text-center">Enter validates • Esc closes dialogs • FEFO auto • Server price authoritative</p>
           </div>
         </div>
       </div>
 
       {/* Mobile cart sheet trigger - fixed bottom */}
-      <div className="md:hidden fixed bottom-0 inset-x-0 bg-card border-t p-3 flex items-center gap-3">
+      <div className="md:hidden fixed bottom-0 inset-x-0 z-20 bg-card border-t px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-3">
         <div className="flex-1"><p className="text-sm font-medium">{totalItems} items</p><p className="font-bold">{formatUGX(totalAfterSaleDisc)}</p></div>
         <Sheet open={showMobilePay} onOpenChange={setShowMobilePay}><Button className="flex-1" size="lg" disabled={!cart.length} onClick={()=>setShowMobilePay(true)}><ShoppingCart className="h-5 w-5 mr-2"/>Complete Sale</Button>
           <SheetContent side="bottom" className="h-[85vh] overflow-y-auto">
