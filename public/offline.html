@@ -1,1 +1,37 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Offline — MediFlow</title></head><body style="font-family:system-ui;padding:2rem;text-align:center"><h1>MediFlow Offline</h1><p>You are offline. POS sales will queue locally and sync when online.</p><p><a href="/pos">Go to POS</a> · <a href="/sync">Sync Center</a></p></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Offline — MediFlow</title>
+  <meta name="theme-color" content="#0f172a" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f1f5f9; color: #0f172a; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; max-width: 420px; width: 100%; padding: 32px; text-align: center; box-shadow: 0 10px 30px rgba(15,23,42,.08); }
+    .logo { font-size: 28px; }
+    h1 { font-size: 22px; margin: 12px 0 8px; }
+    p { color: #475569; font-size: 14px; line-height: 1.6; }
+    .actions { margin-top: 20px; display: flex; flex-direction: column; gap: 10px; }
+    button { border-radius: 10px; border: none; font-size: 14px; font-weight: 600; padding: 12px 16px; cursor: pointer; }
+    .primary { background: #16a34a; color: #fff; }
+    .outline { background: #fff; color: #0f172a; border: 1px solid #cbd5e1; }
+    .hint { margin-top: 16px; font-size: 12px; color: #94a3b8; }
+    .hint a { color: #16a34a; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">🏥</div>
+    <h1>You&apos;re offline</h1>
+    <p>MediFlow keeps working without an internet connection. Your sales, purchases and product edits are saved on this device and will sync automatically when you&apos;re back online.</p>
+    <div class="actions">
+      <button class="primary" onclick="location.reload()">Try again</button>
+      <button class="outline" onclick="location.assign('/pos')">Open POS (cached)</button>
+      <button class="outline" onclick="location.assign('/products')">Products (cached)</button>
+      <button class="outline" onclick="location.assign('/sync')">Sync Center</button>
+    </div>
+    <p class="hint">Open <a href="/pos">MediFlow POS</a> while online first to download the catalog for offline days. Check <a href="/sync">Sync Center</a> for pending changes.</p>
+  </div>
+</body>
+</html>

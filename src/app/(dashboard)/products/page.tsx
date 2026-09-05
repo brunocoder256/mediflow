@@ -13,6 +13,11 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Search, Eye, Edit, Trash2, Upload, Download, Barcode, Package, AlertTriangle, Clock, Shield, FileText, TrendingUp, Layers, ShoppingCart, Truck, History, Users, Filter, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { productTypes, dosageForms, strengthUnits, routes, classifications } from "@/lib/validations/products";
+import { useOnlineStatus } from "@/hooks/use-online-status";
+import { db } from "@/lib/offline/db";
+import { queueProductCreate, queueProductUpdate, queueProductDeactivate, getProductPendingCount } from "@/lib/offline/sync";
+import { readCachedCategories, readCachedProducts, readCachedStock } from "@/lib/offline/catalog";
+import { WifiOff } from "lucide-react";
 
 function localDateStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -74,6 +79,12 @@ export default function ProductsPage(){
   const [importErrors,setImportErrors]=React.useState<any[]>([]);
   const [canViewCost,setCanViewCost]=React.useState(true);
   const [editingId,setEditingId]=React.useState<string|null>(null);
+  const {isOnline}=useOnlineStatus();
+  const [pendingProducts,setPendingProducts]=React.useState(0);
+  React.useEffect(()=>{
+    const up=async()=>{ setPendingProducts(await getProductPendingCount()); };
+    up(); const i=setInterval(up, 3000); return ()=>clearInterval(i);
+  },[]);
 
   const [form,setForm]=React.useState({
     name:"", generic_name:"", brand_name:"", sku:"", barcode:"", product_type:"Human Medicine", category_id:"", unit_id:"", description:"", alternative_names:"",
@@ -113,6 +124,14 @@ export default function ProductsPage(){
   // Load reference data
   React.useEffect(()=>{
     (async()=>{
+      if(!isOnline){
+        try{
+          const [cats, sups] = await Promise.all([readCachedCategories(), db.cachedSuppliers.toArray().catch(()=>[])]);
+          if(cats?.length) setCategories(cats);
+          if(sups?.length) setSuppliers(sups.map((s:any)=>({id:s.id, name:s.name})));
+        }catch{}
+        return;
+      }
       try{
         const {createBrowserClient}=await import("@/lib/supabase/client");
         const sb=createBrowserClient();
@@ -126,7 +145,7 @@ export default function ProductsPage(){
         if(sups) setSuppliers(sups);
       }catch{}
     })();
-  },[]);
+  },[isOnline]);
 
   // debounce search
   React.useEffect(()=>{
@@ -135,10 +154,46 @@ export default function ProductsPage(){
   },[searchQuery]);
   React.useEffect(()=>{ setPage(1); },[debouncedSearch, categoryFilter, typeFilter, statusFilter, supplierFilter, lowStockOnly, expiringOnly]);
 
-  // fetch products with stock enrichment
+  // fetch products with stock enrichment (cache-first offline)
   const fetchProducts=React.useCallback(async ()=>{
     setLoading(true);
     try{
+      if(!isOnline){
+        const [rows, stockRows] = await Promise.all([readCachedProducts(), readCachedStock()]);
+        const now=new Date();
+        const map:Record<string,{total:number, expiring:number, batches:any[]}> = {};
+        for(const b of stockRows){
+          const pid=b.product_id;
+          if(!map[pid]) map[pid]={total:0, expiring:0, batches:[]};
+          map[pid].total+=Number(b.quantity_available??0);
+          map[pid].batches.push(b);
+          if(b.expiry_date){
+            const days=Math.ceil((new Date(b.expiry_date).getTime()-now.getTime())/86400000);
+            if(days>=0 && days<=30) map[pid].expiring+=Number(b.quantity_available??0);
+          }
+        }
+        const q=debouncedSearch.toLowerCase().trim();
+        const filtered=rows.filter((p:any)=>{
+          if(categoryFilter!=="all" && p.category_id!==categoryFilter) return false;
+          if(typeFilter!=="all" && p.product_type!==typeFilter) return false;
+          if(statusFilter!=="all" && String(p.is_active!==false)!==String(statusFilter==="active")) return false;
+          if(q){ const hay=`${p.name} ${p.generic_name??""} ${p.sku??""} ${p.barcode??""} ${p.brand_name??""}`.toLowerCase(); if(!hay.includes(q)) return false; }
+          return true;
+        });
+        let enriched:ProductRow[] = filtered.map((p:any)=>({
+          ...p,
+          is_active: p.is_active!==false,
+          reorder_level: p.reorder_level ?? 10,
+          totalStock: map[p.id]?.total ?? 0,
+          expiringQty: map[p.id]?.expiring ?? 0,
+          batches: map[p.id]?.batches ?? [],
+        }));
+        if(lowStockOnly) enriched = enriched.filter(p=> (p.totalStock ?? 0) <= (p.reorder_level ?? 10));
+        if(expiringOnly) enriched = enriched.filter(p=> (p as any).expiringQty>0);
+        setProducts(enriched); setTotalCount(enriched.length);
+        setLoading(false);
+        return;
+      }
       const params=new URLSearchParams();
       if(debouncedSearch) params.set("search", debouncedSearch);
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(categoryFilter);
@@ -187,8 +242,14 @@ export default function ProductsPage(){
       if(expiringOnly) filtered=filtered.filter(p=> (p as any).expiringQty>0);
       setProducts(filtered);
       setTotalCount(count);
+
+      // keep the offline catalog fresh
+      try{
+        await db.products.bulkPut(list.filter((p:any)=>!p.sync_status || p.sync_status!=="pending").map((p:any)=>({...p, is_active: p.is_active ?? true, sync_status:"synced" as const})) as any);
+        await db.batches.bulkPut(stockRows.map((b:any)=>({id:b.id, product_id:b.product_id, branch_id:b.branch_id, batch_number:b.batch_number ?? null, quantity_available:Number(b.quantity_available??0), quantity:Number(b.quantity_available??0), expiry_date:b.expiry_date ?? null, cost_price:Number(b.cost_price ?? b.purchase_price ?? 0), purchase_price:Number(b.purchase_price ?? 0), selling_price:Number(b.selling_price ?? 0)})) as any);
+      }catch{}
     }catch(e){ setProducts([]); } finally{ setLoading(false); }
-  },[debouncedSearch, categoryFilter, typeFilter, statusFilter, supplierFilter, lowStockOnly, expiringOnly, page]);
+  },[debouncedSearch, categoryFilter, typeFilter, statusFilter, supplierFilter, lowStockOnly, expiringOnly, page, isOnline]);
 
   React.useEffect(()=>{ fetchProducts(); },[fetchProducts]);
 
@@ -230,6 +291,15 @@ export default function ProductsPage(){
       }
       const method = editingId ? "PATCH" : "POST";
       const body = editingId ? { id: editingId, ...payload } : payload;
+      if(!isOnline){
+        const op = editingId ? await queueProductUpdate(editingId, payload) : (await queueProductCreate(payload)).operation_id;
+        setShowAdd(false); setAddStep(1); setEditingId(null);
+        setForm({ name:"", generic_name:"", brand_name:"", sku:"", barcode:"", product_type:"Human Medicine", category_id:"", unit_id:"", description:"", alternative_names:"", strength:"", strength_unit:"", dosage_form:"", route:"", pack_size:"", units_per_pack:"", manufacturer:"", country_of_origin:"", registration_number:"", classification:"OTC", reorder_level:10, min_stock:0, max_stock:"", reorder_quantity:"", storage_location:"", shelf:"", rack:"", bin:"", track_batch:true, track_expiry:true, fefo_enabled:true, allow_negative_stock:false, default_purchase_cost:"", default_selling_price:"", min_selling_price:"", tax_category:"standard", tax_inclusive:false, preferred_supplier_id:"", supplier_product_code:"", opening_enabled:true, opening_quantity:"", opening_batch_number:"", opening_expiry_date:twoYearsFromNow });
+        fetchProducts();
+        setSaving(false);
+        alert("OFFLINE — product saved locally and queued for sync (operation "+op.slice(0,8)+"). It will appear on the server automatically when online.");
+        return;
+      }
       const res=await fetch("/api/products", { method, headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
       const j=await res.json();
       if(!res.ok) throw new Error(j.error || "Failed");
@@ -245,10 +315,25 @@ export default function ProductsPage(){
     try{
       const res=await fetch(`/api/products?id=${id}`).then(r=>r.json());
       setDetail(res && res.product ? res : null);
-    }catch{ setDetail(null); }
+    }catch{
+      // offline: minimal detail from the catalog cache
+      try{
+        const p=(await readCachedProducts()).find((x:any)=>x.id===id);
+        const stockRows=(await readCachedStock()).filter((b:any)=>b.product_id===id);
+        const total=stockRows.reduce((s:number,b:any)=>s+Number(b.quantity_available??0),0);
+        const expiring=stockRows.filter((b:any)=>b.expiry_date && Math.ceil((new Date(b.expiry_date).getTime()-Date.now())/86400000)<=30).reduce((s:number,b:any)=>s+Number(b.quantity_available??0),0);
+        setDetail(p ? { product: p, batches: stockRows, totalStock: total, stockByBranch: {}, lowStock: total <= (p.reorder_level ?? 10), expiringQty: expiring, suppliers: [], priceHistory: [], movements: [], audit: [] } : null);
+      }catch{ setDetail(null); }
+    }
   }
   async function handleDeactivate(id:string, active:boolean){
     if(!confirm(active ? "Deactivate product? Historical transactions remain intact." : "Reactivate product?")) return;
+    if(!isOnline){
+      if(active) await queueProductDeactivate(id); else await queueProductUpdate(id, {action:"reactivate"});
+      fetchProducts();
+      alert("OFFLINE — change queued for sync.");
+      return;
+    }
     const action= active ? "deactivate" : "reactivate";
     const res=await fetch("/api/products", {method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id, action})});
     const j=await res.json();
@@ -344,6 +429,8 @@ export default function ProductsPage(){
           <p className="text-muted-foreground">Pharmacy Product Master & Catalog — single source of truth for POS, Inventory, Purchases, Reports</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {!isOnline && <Badge variant="warning"><WifiOff className="h-3 w-3 mr-1"/>OFFLINE — changes queue locally</Badge>}
+          {pendingProducts>0 && <Badge variant="warning">{pendingProducts} pending sync</Badge>}
           <Button variant="outline" onClick={()=>setShowImport(true)}><Upload className="h-4 w-4 mr-2"/>Import</Button>
           <Button variant="outline" onClick={downloadTemplate}><Download className="h-4 w-4 mr-2"/>Template</Button>
           <Button onClick={()=>{ setEditingId(null); setAddStep(1); setShowAdd(true); }}><Plus className="h-4 w-4 mr-2"/>Add Product</Button>

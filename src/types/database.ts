@@ -107,6 +107,7 @@ export interface Organization {
   status: string;
   plan: string;
   trial_ends_at: string | null;
+  paid_until: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -761,11 +762,12 @@ export interface OrganizationSetting {
 }
 
 /**
- * Single-row platform configuration (id = 1): trial defaults + contact phones.
+ * Single-row platform configuration (id = 1): trial defaults, cycle length + contact phones.
  */
 export interface PlatformSetting {
   id: number;
   trial_days: number;
+  cycle_days: number;
   contact_phone_1: string;
   contact_phone_2: string;
   created_at: string;

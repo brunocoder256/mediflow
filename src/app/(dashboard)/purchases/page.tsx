@@ -13,6 +13,8 @@ import { Label } from "@/components/ui/label";
 import { Search, Plus, Eye, Truck, Trash2, Wifi, WifiOff, RefreshCw, Download, CreditCard, Undo2, Layers, TrendingUp, Package, Building2, Users, FileText, History } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { queuePurchaseCreate, queuePurchaseReceive, getPurchasePendingCount } from "@/lib/offline/sync";
+import { db } from "@/lib/offline/db";
+import { readCachedProducts, readCachedBranches } from "@/lib/offline/catalog";
 
 type Purchase = { id:string; purchase_number:string; supplier_id:string; branch_id:string; status:string; total:number; subtotal?:number; discount?:number; tax?:number; created_at:string; ordered_at?:string; received_at?:string; suppliers?:{name:string}; branches?:{name:string}; purchase_items?:any[] };
 type Line = { product_id:string; product_name?:string; quantity_ordered:number; unit_cost:number; discount:number; tax:number; search_query?:string };
@@ -58,6 +60,37 @@ export default function PurchasesPage(){
 
   const fetchAll=React.useCallback(async()=>{
     setLoading(true);
+    // Offline: build the screen from the catalog cache + queued purchase drafts.
+    if(!isOnline){
+      try{
+        const [cs, cpp, cb] = await Promise.all([
+          db.cachedSuppliers.toArray().catch(()=>[]),
+          readCachedProducts(),
+          readCachedBranches(),
+        ]);
+        setSuppliers(cs.map((s:any)=>({id:s.id, name:s.name})));
+        setProducts(cpp);
+        setBranches(cb);
+        const drafts = await db.cachedPurchases.toArray().catch(()=>[]);
+        setData(drafts.map((d:any)=>({
+          id: d.id,
+          purchase_number: d.purchase_number ?? `DRAFT-${d.id.slice(0,8).toUpperCase()}`,
+          supplier_id: d.supplier_id,
+          branch_id: d.branch_id,
+          status: d.sync_status === "pending" ? "PENDING_SYNC" : "DRAFT",
+          total: d.total ?? 0,
+          created_at: d.created_at,
+          suppliers: { name: cs.find((s:any)=>s.id===d.supplier_id)?.name ?? "—" },
+          branches: { name: cb.find((b:any)=>b.id===d.branch_id)?.name ?? "—" },
+        })));
+        setCount(drafts.length);
+        setKpi(null);
+        if(!form.branch_id && cb[0]) setForm(f=>({...f, branch_id: cb[0].id}));
+        if(!form.supplier_id && cs[0]) setForm(f=>({...f, supplier_id: (cs[0] as any).id}));
+      }catch{}
+      setLoading(false);
+      return;
+    }
     const params=new URLSearchParams();
     if(tab!=="all") params.set("status", tab.toUpperCase());
     if(supplierFilter!=="all") params.set("supplier_id", supplierFilter);
@@ -84,7 +117,7 @@ export default function PurchasesPage(){
     if(!form.branch_id && br.branches?.[0]) setForm(f=>({...f, branch_id: br.branches[0].id}));
     if(!form.supplier_id && sr[0]) setForm(f=>({...f, supplier_id: sr[0].id}));
     setLoading(false);
-  },[tab, supplierFilter, branchFilter, debouncedQ, dateFrom, dateTo, page]);
+  },[tab, supplierFilter, branchFilter, debouncedQ, dateFrom, dateTo, page, isOnline]);
   React.useEffect(()=>{ fetchAll(); },[fetchAll]);
 
   const addLine=()=> setForm({...form, lines:[...form.lines, {product_id:"", quantity_ordered:1, unit_cost:0, discount:0, tax:0}]});
