@@ -90,6 +90,28 @@ function LoginForm() {
         variant: "success",
       });
 
+      // Super Admin accounts go straight to the administration panel
+      const { data: isAdmin } = await (supabase as any).rpc("is_super_admin");
+      if (isAdmin === true) {
+        window.location.assign("/super-admin/accounts");
+        return;
+      }
+
+      // Client accounts are gated by organization status
+      const { data: orgStatus } = await (supabase as any).rpc("get_my_org_status");
+      if (orgStatus && orgStatus !== "active") {
+        await supabase.auth.signOut();
+        toast({
+          title: "Account not accessible",
+          description:
+            orgStatus === "none"
+              ? "This account has no organization. Contact MediFlow administration."
+              : `Your organization's account is ${orgStatus}. Contact MediFlow administration.`,
+          variant: "error",
+        });
+        return;
+      }
+
       // Use hard navigation so middleware (edge) sees the fresh sb-* cookies
       // on a full request. router.push + refresh is flaky with @supabase/ssr.
       window.location.assign(redirectTo);

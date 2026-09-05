@@ -4,11 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { createBrowserClient } from "@/lib/supabase/client";
-import { signupSchema, type SignupInput } from "@/lib/validations/auth";
+import { registrationSchema, type RegistrationInput } from "@/lib/validations/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Toaster } from "@/components/ui/toast";
@@ -16,43 +16,37 @@ import { Toaster } from "@/components/ui/toast";
 export default function SignupPage() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
+  const [reference, setReference] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<SignupInput>({
-    resolver: zodResolver(signupSchema),
+  } = useForm<RegistrationInput>({
+    resolver: zodResolver(registrationSchema),
   });
 
-  async function onSubmit(data: SignupInput) {
+  async function onSubmit(data: RegistrationInput) {
     setIsLoading(true);
     try {
-      const supabase = createBrowserClient();
-      const { error } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
-        options: {
-          data: {
-            full_name: data.full_name,
-          },
-        },
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
       });
-
-      if (error) {
+      const j = await res.json();
+      if (!res.ok) {
         toast({
-          title: "Signup failed",
-          description: error.message,
+          title: "Application not submitted",
+          description: j.error || "An unexpected error occurred. Please try again.",
           variant: "error",
         });
         return;
       }
-
-      setShowSuccess(true);
+      setReference(j.registration?.reference ?? null);
       toast({
-        title: "Account created!",
-        description: "Please check your email to confirm your account.",
+        title: "Application submitted!",
+        description: "The MediFlow team will review your application.",
         variant: "success",
       });
     } catch {
@@ -66,25 +60,30 @@ export default function SignupPage() {
     }
   }
 
-  if (showSuccess) {
+  if (reference) {
     return (
       <>
         <Toaster />
         <Card>
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl">Check your email</CardTitle>
+            <CardTitle className="text-2xl">Waiting for approval</CardTitle>
             <CardDescription>
-              We&apos;ve sent a confirmation link to your email address.
-              Please click the link to verify your account.
+              Your application has been submitted to the MediFlow administrators.
             </CardDescription>
           </CardHeader>
-          <CardContent className="text-center">
-            <Link
-              href="/auth/login"
-              className="text-sm font-medium text-[var(--primary)] hover:underline"
-            >
-              Back to sign in
-            </Link>
+          <CardContent className="space-y-4 text-center">
+            <div className="rounded-lg border bg-muted p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Your reference</p>
+              <p className="mt-1 font-mono text-xl font-bold">{reference}</p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              One of our administrators will contact you to complete your registration
+              (including your phone number). Once your account is approved, you will be able
+              to sign in to your pharmacy.
+            </p>
+            <Button variant="outline" onClick={() => setReference(null)}>
+              Submit another application
+            </Button>
           </CardContent>
         </Card>
       </>
@@ -96,86 +95,101 @@ export default function SignupPage() {
       <Toaster />
       <Card>
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Create your account</CardTitle>
+          <CardTitle className="text-2xl">Create your pharmacy account</CardTitle>
           <CardDescription>
-            Get started with MediFlow today
+            Apply to start using MediFlow for your drug shop or pharmacy
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="full_name">Full Name</Label>
+              <Label htmlFor="business_name">Pharmacy / Business name</Label>
               <Input
-                id="full_name"
+                id="business_name"
+                type="text"
+                placeholder="ABC Pharmacy"
+                autoComplete="organization"
+                disabled={isLoading}
+                {...register("business_name")}
+              />
+              {errors.business_name && (
+                <p className="text-sm text-[var(--destructive)]">{errors.business_name.message}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="business_type">Business type</Label>
+              <Select id="business_type" disabled={isLoading} defaultValue="pharmacy" {...register("business_type")}>
+                <option value="pharmacy">Pharmacy</option>
+                <option value="drug_shop">Drug Shop</option>
+                <option value="clinic">Clinic Pharmacy</option>
+                <option value="wholesale">Wholesale / Distributor</option>
+                <option value="">Other</option>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="owner_full_name">Owner / Administrator name</Label>
+              <Input
+                id="owner_full_name"
                 type="text"
                 placeholder="John Doe"
                 autoComplete="name"
                 disabled={isLoading}
-                {...register("full_name")}
+                {...register("owner_full_name")}
               />
-              {errors.full_name && (
-                <p className="text-sm text-[var(--destructive)]">
-                  {errors.full_name.message}
-                </p>
+              {errors.owner_full_name && (
+                <p className="text-sm text-[var(--destructive)]">{errors.owner_full_name.message}</p>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="owner_email">Email</Label>
               <Input
-                id="email"
+                id="owner_email"
                 type="email"
-                placeholder="name@example.com"
+                placeholder="owner@example.com"
                 autoComplete="email"
                 disabled={isLoading}
-                {...register("email")}
+                {...register("owner_email")}
               />
-              {errors.email && (
-                <p className="text-sm text-[var(--destructive)]">
-                  {errors.email.message}
-                </p>
+              {errors.owner_email && (
+                <p className="text-sm text-[var(--destructive)]">{errors.owner_email.message}</p>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="owner_phone">Phone number</Label>
               <Input
-                id="password"
-                type="password"
-                placeholder="At least 8 characters"
-                autoComplete="new-password"
+                id="owner_phone"
+                type="tel"
+                placeholder="+256 700 000 000"
+                autoComplete="tel"
                 disabled={isLoading}
-                {...register("password")}
+                {...register("owner_phone")}
               />
-              {errors.password && (
-                <p className="text-sm text-[var(--destructive)]">
-                  {errors.password.message}
-                </p>
+              {errors.owner_phone && (
+                <p className="text-sm text-[var(--destructive)]">{errors.owner_phone.message}</p>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Label htmlFor="location">Location / Address</Label>
               <Input
-                id="confirmPassword"
-                type="password"
-                placeholder="Re-enter your password"
-                autoComplete="new-password"
+                id="location"
+                type="text"
+                placeholder="Plot 123, Kampala Road"
+                autoComplete="street-address"
                 disabled={isLoading}
-                {...register("confirmPassword")}
+                {...register("location")}
               />
-              {errors.confirmPassword && (
-                <p className="text-sm text-[var(--destructive)]">
-                  {errors.confirmPassword.message}
-                </p>
-              )}
             </div>
 
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? (
                 <>
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  Creating account...
+                  Submitting...
                 </>
               ) : (
                 "Create Account"

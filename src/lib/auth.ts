@@ -28,6 +28,13 @@ export async function requireAuth(sb?: any): Promise<{ sb: Awaited<ReturnType<ty
   if (profile.is_active === false || profile.status === 'inactive' || profile.status === 'suspended' || profile.status === 'locked') {
     throw new Error('Account deactivated');
   }
+  if (!profile.organization_id) throw new Error('No organization');
+  const { data: org } = await client
+    .from('organizations')
+    .select('status')
+    .eq('id', profile.organization_id)
+    .maybeSingle();
+  if (!org || org.status !== 'active') throw new Error('Organization account deactivated');
   return {
     sb: client,
     ctx: {

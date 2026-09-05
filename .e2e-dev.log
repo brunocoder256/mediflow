@@ -1,0 +1,100 @@
+   ▲ Next.js 15.5.24
+   - Local:        http://localhost:3333
+   - Network:      http://192.168.88.24:3333
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 14.2s
+ ○ Compiling /middleware ...
+ ✓ Compiled /middleware in 6.7s (173 modules)
+ ○ Compiling /auth/login ...
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (108kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (259kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+ ✓ Compiled /auth/login in 16.7s (947 modules)
+ GET /auth/login 200 in 3651ms
+ ○ Compiling /api/register ...
+ ✓ Compiled /api/register in 2.8s (1035 modules)
+ POST /api/register 201 in 4380ms
+ POST /api/register 409 in 382ms
+ POST /api/register 400 in 388ms
+ ○ Compiling /api/super-admin/accounts ...
+ ✓ Compiled /api/super-admin/accounts in 658ms (1025 modules)
+ GET /api/super-admin/accounts?status=pending 200 in 3865ms
+ GET /api/super-admin/accounts 200 in 1978ms
+ ○ Compiling /api/super-admin/accounts/[id]/approve ...
+ ✓ Compiled /api/super-admin/accounts/[id]/approve in 587ms (1028 modules)
+ POST /api/super-admin/accounts/d585c974-8805-4339-851a-050d57b40ead/approve 200 in 9765ms
+ GET /api/super-admin/accounts 200 in 1804ms
+ ○ Compiling /api/super-admin/accounts/[id]/suspend ...
+ ✓ Compiled /api/super-admin/accounts/[id]/suspend in 644ms (1030 modules)
+ POST /api/super-admin/accounts/d585c974-8805-4339-851a-050d57b40ead/suspend 200 in 5204ms
+ ○ Compiling /api/super-admin/accounts/[id]/activate ...
+ ✓ Compiled /api/super-admin/accounts/[id]/activate in 674ms (1032 modules)
+ POST /api/super-admin/accounts/d585c974-8805-4339-851a-050d57b40ead/activate 200 in 4908ms
+ POST /api/register 201 in 366ms
+ ○ Compiling /api/super-admin/accounts/[id]/reject ...
+ ✓ Compiled /api/super-admin/accounts/[id]/reject in 727ms (580 modules)
+ POST /api/super-admin/accounts/fb25bf14-0f3e-4d33-bd50-c1a2b45a2e9f/reject 200 in 5252ms
+ ✓ Compiled in 5.8s (410 modules)
+ GET /api/super-admin/accounts 200 in 2268ms
+ GET /api/super-admin/accounts 200 in 1679ms
+ ✓ Compiled in 1076ms (410 modules)
+ ✓ Compiled in 738ms (410 modules)
+ ✓ Compiled in 993ms (410 modules)
+ ✓ Compiled in 653ms (410 modules)
+ ✓ Compiled in 903ms (410 modules)
+ ✓ Compiled in 926ms (410 modules)
+ ✓ Compiled in 699ms (410 modules)
+ ✓ Compiled in 593ms (410 modules)
+ ✓ Compiled in 594ms (410 modules)
+ ✓ Compiled in 495ms (410 modules)
+ ✓ Compiled in 526ms (410 modules)
+ ✓ Compiled in 574ms (410 modules)
+ ✓ Compiled in 450ms (410 modules)
+ ○ Compiling /auth/login ...
+ ✓ Compiled /auth/login in 760ms (538 modules)
+ GET /auth/login 200 in 2281ms
+ ○ Compiling /api/register ...
+ ✓ Compiled /api/register in 564ms (621 modules)
+ POST /api/register 201 in 2828ms
+ POST /api/register 409 in 427ms
+ POST /api/register 400 in 403ms
+ ✓ Compiled /api/super-admin/accounts in 268ms (625 modules)
+ GET /api/super-admin/accounts?status=pending 200 in 3269ms
+ GET /api/super-admin/accounts 403 in 83ms
+ ✓ Compiled /api/super-admin/accounts/[id]/approve in 394ms (628 modules)
+ POST /api/super-admin/accounts/6f3703f6-52f4-4629-9666-d8e0e7cf886f/approve 200 in 7844ms
+ GET /api/super-admin/accounts 403 in 780ms
+ ✓ Compiled /api/super-admin/accounts/[id]/suspend in 427ms (630 modules)
+ POST /api/super-admin/accounts/6f3703f6-52f4-4629-9666-d8e0e7cf886f/suspend 200 in 3602ms
+ ○ Compiling /api/super-admin/accounts/[id]/activate ...
+ ✓ Compiled /api/super-admin/accounts/[id]/activate in 591ms (632 modules)
+ POST /api/super-admin/accounts/6f3703f6-52f4-4629-9666-d8e0e7cf886f/activate 200 in 3600ms
+ POST /api/register 201 in 757ms
+ ✓ Compiled /api/super-admin/accounts/[id]/reject in 394ms (634 modules)
+ POST /api/super-admin/accounts/15a4b3ab-2bb2-4b7c-a191-01087546c57f/reject 200 in 2965ms
+ GET /api/super-admin/accounts 200 in 2137ms
+ GET /api/super-admin/accounts 403 in 62ms
+ ✓ Compiled in 1677ms (590 modules)
+ ✓ Compiled in 673ms (410 modules)
+ ✓ Compiled in 651ms (410 modules)
+ ✓ Compiled in 589ms (410 modules)
+ ○ Compiling /auth/login ...
+ ✓ Compiled /auth/login in 693ms (631 modules)
+ GET /auth/login 200 in 2282ms
+ POST /api/register 201 in 1049ms
+ POST /api/register 409 in 443ms
+ POST /api/register 400 in 396ms
+ GET /api/super-admin/accounts?status=pending 200 in 2240ms
+ GET /api/super-admin/accounts 403 in 64ms
+ ✓ Compiled /api/super-admin/accounts/[id]/approve in 514ms (628 modules)
+ POST /api/super-admin/accounts/57f0ef8c-a9f1-4a69-bfa1-8c73665d7b30/approve 200 in 7533ms
+ GET /api/super-admin/accounts 403 in 716ms
+ ✓ Compiled /api/super-admin/accounts/[id]/suspend in 359ms (630 modules)
+ POST /api/super-admin/accounts/57f0ef8c-a9f1-4a69-bfa1-8c73665d7b30/suspend 200 in 3534ms
+ ✓ Compiled /api/super-admin/accounts/[id]/activate in 274ms (632 modules)
+ POST /api/super-admin/accounts/57f0ef8c-a9f1-4a69-bfa1-8c73665d7b30/activate 200 in 3097ms
+ POST /api/register 201 in 444ms
+ ✓ Compiled /api/super-admin/accounts/[id]/reject in 305ms (634 modules)
+ POST /api/super-admin/accounts/884a8a68-62ac-4e4f-b28c-04b7867ab999/reject 200 in 2852ms
+ ✓ Compiled in 838ms (410 modules)
