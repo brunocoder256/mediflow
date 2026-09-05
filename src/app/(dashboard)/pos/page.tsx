@@ -526,7 +526,7 @@ export default function PosPage(){
   const totalItems = cart.reduce((s,x)=>s+x.quantity,0);
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto md:overflow-hidden pb-16 md:pb-0">
+    <div className="flex h-full flex-col overflow-y-auto pb-16 md:pb-0">
       {/* POS HEADER */}
       <div className="border-b bg-card">
         <div className="flex flex-wrap gap-2 items-center justify-between p-2 sm:p-3">
@@ -601,7 +601,7 @@ export default function PosPage(){
 
         {/* Right: cart */}
         <div className="w-full md:w-[380px] lg:w-[420px] flex flex-col bg-card border-t md:border-t-0 min-h-0">
-          <div className="p-3 sm:p-4 border-b flex items-center justify-between gap-2">
+          <div className="p-3 sm:p-4 border-b flex items-center justify-between gap-2 shrink-0">
             <h2 className="font-semibold flex items-center gap-2"><ShoppingCart className="h-5 w-5"/>Cart ({totalItems} items)</h2>
             <div className="flex gap-1">
               <Button variant="outline" size="sm" onClick={hold} disabled={!cart.length}> <Pause className="h-4 w-4 mr-1"/>Hold</Button>
@@ -611,7 +611,7 @@ export default function PosPage(){
           </div>
 
           {/* customer */}
-          <div className="px-3 sm:px-4 py-2 border-b flex items-center justify-between gap-2">
+          <div className="px-3 sm:px-4 py-2 border-b flex items-center justify-between gap-2 shrink-0">
             <button onClick={()=>setShowCustomer(true)} className="flex items-center gap-2 text-sm hover:bg-accent rounded px-2 py-1 w-full text-left">
               <User className="h-4 w-4 text-muted-foreground"/>
               <span className="truncate">{selectedCustomer ? `${selectedCustomer.name} ${selectedCustomer.phone ? '· '+selectedCustomer.phone : ''}` : 'Walk-in Customer'}</span>
@@ -620,7 +620,7 @@ export default function PosPage(){
             {selectedCustomer && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>setSelectedCustomer(null)}><X className="h-4 w-4"/></Button>}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-3 sm:p-4 min-h-[200px]">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-4 min-h-0">
             {cart.length===0 ? <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-8"><ShoppingCart className="h-12 w-12 mb-3 opacity-20"/><p>Cart empty</p><p className="text-sm">Scan barcode or tap product</p></div>
             : <div className="space-y-3">
                 {cart.map(it=>{
@@ -661,8 +661,8 @@ export default function PosPage(){
               </div>}
           </div>
 
-          {/* totals */}
-          <div className="border-t p-3 sm:p-4 space-y-3 bg-muted/10">
+          {/* totals — fixed, never compressed or cut off */}
+          <div className="border-t p-3 sm:p-4 space-y-3 bg-muted/10 shrink-0">
             <div className="space-y-1 text-sm">
               <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatUGX(subtotal)}</span></div>
               <div className="flex justify-between items-center gap-2">
