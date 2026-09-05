@@ -379,6 +379,9 @@ export async function processSyncQueue(): Promise<{
     }
   }
 
+  if (processed > 0 && typeof window !== "undefined") {
+    try { localStorage.setItem("mediflow_last_sync", new Date().toISOString()); } catch { /* ignore */ }
+  }
   const remaining = await db.syncQueue.where("status").equals("pending").count();
   return { processed, failed, pending: remaining };
 }

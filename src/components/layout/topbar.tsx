@@ -14,16 +14,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "./theme-toggle";
+import { NotificationsMenu } from "./notifications-menu";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { useBranch } from "@/hooks/branch-context";
 import {
   Menu,
-  Bell,
   User,
   Settings,
   LogOut,
   CheckCircle2,
   AlertCircle,
+  Wifi,
+  WifiOff,
   ChevronsUpDown,
 } from "lucide-react";
 
@@ -39,10 +41,8 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
     email: "",
     avatar: "",
   });
-  const { isOnline } = useOnlineStatus();
+  const { isOnline, wasOffline } = useOnlineStatus();
   const { branches, currentBranchId, defaultBranchId, setCurrentBranch } = useBranch();
-  // Notifications: will be implemented in a later phase
-  const notificationCount = 0;
 
   const currentBranch = branches.find((b) => b.id === currentBranchId) ?? null;
 
@@ -116,33 +116,27 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Online/Offline Status */}
-        <div className="flex items-center gap-2">
+        {/* Online/Offline Status — real server-reachability based */}
+        <div className="flex items-center gap-2" title={isOnline ? "Server reachable — online" : "Server unreachable — offline"}>
           {isOnline ? (
             <div className="flex items-center gap-1 text-green-600">
-              <CheckCircle2 className="h-4 w-4" />
-              <span className="text-xs hidden sm:inline">Online</span>
+              <Wifi className="h-4 w-4" />
+              <span className="text-xs hidden sm:inline">{wasOffline ? "Back online" : "Online"}</span>
             </div>
           ) : (
             <div className="flex items-center gap-1 text-red-600">
-              <AlertCircle className="h-4 w-4" />
+              <WifiOff className="h-4 w-4" />
               <span className="text-xs hidden sm:inline">Offline</span>
+              <AlertCircle className="h-3.5 w-3.5 text-red-500" />
             </div>
+          )}
+          {wasOffline && isOnline && (
+            <span className="text-xs text-green-700 animate-pulse sm:hidden" aria-hidden>Reconnected</span>
           )}
         </div>
 
-        {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-          {notificationCount > 0 && (
-            <Badge
-              variant="destructive"
-              className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
-            >
-              {notificationCount}
-            </Badge>
-          )}
-        </Button>
+        {/* Notifications — real, live from the database */}
+        <NotificationsMenu />
 
         {/* Theme Toggle */}
         <ThemeToggle />
@@ -165,9 +159,9 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => window.location.assign("/users")}>
               <User className="mr-2 h-4 w-4" />
-              <span>Profile</span>
+              <span>My account & team</span>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => window.location.assign("/settings")}>
               <Settings className="mr-2 h-4 w-4" />

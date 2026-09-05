@@ -67,8 +67,7 @@ export default function ReportsPage() {
     try {
       const t = localStorage.getItem("mediflow_last_sync");
       if (t) setSyncTime(t);
-      else { const now = new Date().toISOString(); localStorage.setItem("mediflow_last_sync", now); setSyncTime(now); }
-    } catch { setSyncTime(new Date().toISOString()); }
+    } catch { /* ignore */ }
   }, []);
 
   const setPreset = (p: string) => {
@@ -114,12 +113,36 @@ export default function ReportsPage() {
       if (compare) params.set("compare", "1");
       params.set("page", String(page));
       params.set("perPage", String(perPage));
+
+      // Combined tabs fetch two report types in parallel
+      if (tab === "slow") {
+        const slow = new URLSearchParams(params);
+        const dead = new URLSearchParams(params); dead.set("type", "dead-stock");
+        const [r1, r2] = await Promise.all([fetch(`/api/reports?${slow.toString()}`), fetch(`/api/reports?${dead.toString()}`)]);
+        const [j1, j2] = await Promise.all([r1.json(), r2.json()]);
+        if (!r1.ok) throw new Error(j1.error ?? "Failed to load report");
+        setReportData({ type: "slow", data: j1.data ?? [], count: j1.count ?? 0, dead: j2.data ?? [], deadCount: j2.count ?? 0 });
+        setGeneratedAt(j1.generated_at ?? new Date().toISOString());
+        setLoading(false);
+        return;
+      }
+      if (tab === "ar") {
+        const ar = new URLSearchParams(params);
+        const ap = new URLSearchParams(params); ap.set("type", "ap");
+        const [r1, r2] = await Promise.all([fetch(`/api/reports?${ar.toString()}`), fetch(`/api/reports?${ap.toString()}`)]);
+        const [j1, j2] = await Promise.all([r1.json(), r2.json()]);
+        if (!r1.ok) throw new Error(j1.error ?? "Failed to load report");
+        setReportData({ type: "ar", ...j1, ap: j2 });
+        setGeneratedAt(j1.generated_at ?? new Date().toISOString());
+        setLoading(false);
+        return;
+      }
+
       const r = await fetch(`/api/reports?${params.toString()}`);
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? 'Failed to load report');
       setReportData(j);
       setGeneratedAt(j.generated_at ?? new Date().toISOString());
-      try { localStorage.setItem("mediflow_last_sync", new Date().toISOString()); setSyncTime(new Date().toISOString()); } catch {}
     } catch (e: any) { setErr(e.message); setReportData(null); }
     setLoading(false);
   }, [branchFilter, productFilter, categoryFilter, supplierFilter, customerFilter, paymentMethod, dateFrom, dateTo, granularity, expiryBucket, compare, page]);
@@ -155,14 +178,11 @@ export default function ReportsPage() {
     } else {
       csv += `Data\n${csvEscape(JSON.stringify(reportData).slice(0, 8000))}\n`;
     }
-    const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `mediflow_${activeTab}_${branchFilter}_${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(url);
+    const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `mediflow_${activeTab}_${branchFilter}_${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(url);
   };
-  const exportXlsx = () => {
-    if (!reportData) return;
-    let csv = `MediFlow Report,${activeTab}\nBranch,${branches.find(b => b.id === branchFilter)?.name ?? 'All'}\nDate From,${dateFrom}\nDate To,${dateTo}\nGenerated,${mounted ? new Date().toLocaleString() : ''}\n\n`;
-    csv += `Data\n${JSON.stringify(reportData).slice(0, 5000)}\n`;
-    const blob = new Blob([csv], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `mediflow_${activeTab}_${new Date().toISOString().slice(0, 10)}.xlsx`; a.click(); URL.revokeObjectURL(url);
-  };
+  // Excel export: the codebase has no XLSX writer, so we emit a UTF-8 CSV
+  // (opens natively in Excel) instead of a corrupt fake .xlsx.
+  const exportXlsx = () => exportCsv();
   const printReport = () => {
     const branchName = branches.find(b => b.id === branchFilter)?.name ?? 'All Branches';
     const html = `<html><head><title>MediFlow Report — ${activeTab}</title><style>body{font-family:Inter,sans-serif;padding:20px;color:#111} h1{margin:0;font-size:18px} h2{font-size:14px;color:#444} table{border-collapse:collapse;width:100%;margin-top:12px} th,td{border:1px solid #d1d5db;padding:6px;font-size:11px;text-align:left} th{background:#f3f4f6} .hdr{border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px} .meta{font-size:11px;color:#555} .kpi{display:flex;gap:10px;margin:12px 0} .kpi div{border:1px solid #ddd;padding:8px;border-radius:6px;flex:1;text-align:center;font-size:12px} .foot{margin-top:16px;font-size:10px;color:#666;border-top:1px solid #ddd;padding-top:6px} @media print{ @page{margin:12mm} }</style></head><body><div class="hdr"><h1>MediFlow Pharmacy — ${activeTab.toUpperCase()}</h1><div class="meta">Branch: ${branchName} • Period: ${dateFrom || '—'} to ${dateTo || '—'} • Generated: ${new Date().toLocaleString()} • By: Current User • Filters: ${[productFilter ? 'product' : '', categoryFilter !== 'all' ? 'category' : '', supplierFilter !== 'all' ? 'supplier' : ''].filter(Boolean).join(',') || 'none'} • Page 1</div></div><pre style="font-size:10px;white-space:pre-wrap;background:#f9fafb;padding:10px;border:1px solid #eee;border-radius:6px;max-height:600px;overflow:auto">${JSON.stringify(reportData, null, 2).slice(0, 7000)}</pre><div class="foot">MediFlow ERP • Confidential — Branch-scoped, server-authoritative • Reconciliation: sales vs payments vs inventory</div><script>window.print()</script></body></html>`;
@@ -191,7 +211,7 @@ export default function ReportsPage() {
           <h1 className="text-2xl font-bold flex items-center gap-2"><BarChart3 className="h-6 w-6" />Reports</h1>
           <p className="text-sm text-muted-foreground">Executive reporting & BI — branch-scoped, server-authoritative</p>
           <p className="text-xs text-muted-foreground mt-1" suppressHydrationWarning>
-            Last synchronized: {mounted && syncTime ? new Date(syncTime).toLocaleString() : '—'} {mounted && generatedAt ? <span>• Generated: {new Date(generatedAt).toLocaleString()}</span> : null} • Offline cached • Refresh when online
+            Last synchronized: {mounted && syncTime ? new Date(syncTime).toLocaleString() : 'Never'} {mounted && generatedAt ? <span>• Generated: {new Date(generatedAt).toLocaleString()}</span> : null}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -423,7 +443,7 @@ export default function ReportsPage() {
               </TableBody></Table></div></CardContent></Card>
               <Card><CardHeader><CardTitle className="text-sm">Dead Stock (no sales 60d)</CardTitle><CardDescription>Navigate to Product / Inventory / Supplier / Purchasing — never auto-delete</CardDescription></CardHeader><CardContent className="p-0"><div className="max-h-[300px] overflow-auto"><Table><TableHeader><TableRow><TableHead>Product</TableHead><TableHead className="text-right">Qty</TableHead><TableHead>Last Sale</TableHead><TableHead className="text-right">Value</TableHead></TableRow></TableHeader><TableBody>
                 {safeSlice(reportData.dead, 0, 20).map((r: any) => <TableRow key={r.product_id}><TableCell className="text-xs"><a href={`/products?search=${encodeURIComponent(r.product_name)}`} className="underline">{r.product_name}</a></TableCell><TableCell className="text-right">{r.quantity}</TableCell><TableCell className="text-xs" suppressHydrationWarning>{r.last_sale_date ? (mounted ? new Date(r.last_sale_date).toLocaleDateString() : r.last_sale_date) : 'Never'} ({r.days_since_sale ?? '—'}d)</TableCell><TableCell className="text-right">{formatUGX(r.value)}</TableCell></TableRow>)}
-                {!reportData.dead && <TableRow><TableCell colSpan={4} className="text-center py-4 text-muted-foreground">Load dead-stock via Dead tab separately or see combined slow view.</TableCell></TableRow>}
+                {safeSlice(reportData.dead, 0, 20).length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-4 text-muted-foreground">No dead stock — every product sold in the last 60 days</TableCell></TableRow>}
               </TableBody></Table></div></CardContent></Card>
             </div>
           ) : <Card><CardContent className="p-6 text-center">No slow/dead data</CardContent></Card>}
@@ -515,7 +535,13 @@ export default function ReportsPage() {
                   {safeSlice(reportData.data, 0, 20).length === 0 && <TableRow><TableCell colSpan={3} className="text-center py-4 text-muted-foreground">No receivables</TableCell></TableRow>}
                 </TableBody></Table></div>
               </CardContent></Card>
-              <Card><CardHeader><CardTitle className="text-sm">Accounts Payable — use /api/reports?type=ap for detail</CardTitle><CardDescription>Supplier balances, aging; POs not AP — only bills</CardDescription></CardHeader><CardContent className="text-xs text-muted-foreground">Switch to AP tab via API: <code>type=ap</code> or use branch filter. Outstanding payables reflect purchase_orders total vs supplier_payments. See Supplier balances tab for detailed payable aging.</CardContent></Card>
+              <Card><CardHeader><CardTitle className="text-sm">Accounts Payable — {formatUGX(reportData.ap?.totalOutstanding ?? 0)}</CardTitle><CardDescription>Aging: Current • 1–30 • 31–60 • 61–90 • 90+ days (paid = supplier_payments)</CardDescription></CardHeader><CardContent>
+                <div className="flex flex-wrap gap-2 mb-3">{Object.entries(reportData.ap?.buckets ?? {}).map(([k, v]: any) => <Badge key={String(k)} variant="outline">{String(k)}: {formatUGX(Number(v))}</Badge>)}</div>
+                <div className="max-h-[300px] overflow-auto"><Table><TableHeader><TableRow><TableHead>Supplier</TableHead><TableHead className="text-right">Purchased</TableHead><TableHead className="text-right">Paid</TableHead><TableHead className="text-right">Outstanding</TableHead><TableHead>Aging</TableHead></TableRow></TableHeader><TableBody>
+                  {safeSlice(reportData.ap?.data, 0, 20).map((r: any) => <TableRow key={r.supplier_id}><TableCell className="text-xs"><a href={`/suppliers?search=${encodeURIComponent(r.supplier_name)}`} className="underline">{r.supplier_name}</a></TableCell><TableCell className="text-right text-xs">{formatUGX(r.purchased)}</TableCell><TableCell className="text-right text-xs">{formatUGX(r.paid)}</TableCell><TableCell className="text-right text-xs font-medium">{formatUGX(r.outstanding)}</TableCell><TableCell><Badge variant="outline">{r.bucket} • {r.days_overdue}d</Badge></TableCell></TableRow>)}
+                  {safeSlice(reportData.ap?.data, 0, 20).length === 0 && <TableRow><TableCell colSpan={5} className="text-center py-4 text-muted-foreground">No payables — suppliers fully paid</TableCell></TableRow>}
+                </TableBody></Table></div>
+              </CardContent></Card>
             </div>
           ) : <Card><CardContent className="p-6 text-center">No AR/AP data</CardContent></Card>}
         </TabsContent>

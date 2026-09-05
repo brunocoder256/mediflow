@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getSB } from './supabase';
-import { calcCOGS, calcGrossProfit, calcNetProfit, calcInventoryValue, roundToCents } from '../calculations';
+import { calcGrossProfit, calcNetProfit, calcInventoryValue, roundToCents } from '../calculations';
 
 // ============================================================
 // Helpers — date presets & period comparison
@@ -122,7 +122,8 @@ export async function getSalesAggregates(params: ReportFilters) {
     const { data: rets } = await rq;
     retTotal = (rets ?? []).reduce((s: any, r: any) => s + Number(r.total), 0);
   } catch {}
-  const netSales = roundToCents(totalRevenue - retTotal);
+  // Net = gross revenue − discounts − refunds/returns (consistent with P&L)
+  const netSales = roundToCents(totalRevenue - totalDiscount - retTotal);
   return { totalRevenue: roundToCents(totalRevenue), totalDiscount: roundToCents(totalDiscount), totalTax: roundToCents(totalTax), count, avgOrder: roundToCents(avgOrder), retTotal: roundToCents(retTotal), netSales };
 }
 
