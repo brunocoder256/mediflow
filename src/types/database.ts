@@ -105,6 +105,8 @@ export interface Organization {
   currency: string;
   timezone: string | null;
   status: string;
+  plan: string;
+  trial_ends_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -758,6 +760,18 @@ export interface OrganizationSetting {
 }
 
 /**
+ * Single-row platform configuration (id = 1): trial defaults + contact phones.
+ */
+export interface PlatformSetting {
+  id: number;
+  trial_days: number;
+  contact_phone_1: string;
+  contact_phone_2: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * Branch-level settings that override organisation defaults.
  */
 export interface BranchSetting {
@@ -1202,6 +1216,11 @@ export interface Database {
         Update: Partial<
           Omit<OrganizationSetting, 'id' | 'created_at' | 'updated_at'>
         >;
+      };
+      platform_settings: {
+        Row: PlatformSetting;
+        Insert: Partial<PlatformSetting>;
+        Update: Partial<PlatformSetting>;
       };
       branch_settings: {
         Row: BranchSetting;

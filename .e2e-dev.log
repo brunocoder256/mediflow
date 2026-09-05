@@ -67,3 +67,402 @@
  POST /api/register 400 in 476ms
  ○ Compiling /api/super-admin/accounts ...
  ✓ Compiled /api/super-admin/accounts in 1711ms (1083 modules)
+ ✓ Compiled in 977ms (477 modules)
+ GET /api/super-admin/accounts?status=pending 200 in 5701ms
+ GET /api/super-admin/accounts 403 in 128ms
+ POST /api/super-admin/accounts/05c5122f-0c32-4ef5-9da4-6a1cab10c11f/approve 200 in 7299ms
+ GET /api/super-admin/accounts 403 in 796ms
+ ○ Compiling /api/super-admin/accounts/[id]/suspend ...
+ ✓ Compiled /api/super-admin/accounts/[id]/suspend in 750ms (646 modules)
+ POST /api/super-admin/accounts/05c5122f-0c32-4ef5-9da4-6a1cab10c11f/suspend 200 in 6081ms
+ ○ Compiling /api/super-admin/accounts/[id]/activate ...
+ ✓ Compiled /api/super-admin/accounts/[id]/activate in 554ms (648 modules)
+ POST /api/super-admin/accounts/05c5122f-0c32-4ef5-9da4-6a1cab10c11f/activate 200 in 5892ms
+ POST /api/register 201 in 558ms
+ ○ Compiling /api/super-admin/accounts/[id]/reject ...
+ ✓ Compiled /api/super-admin/accounts/[id]/reject in 677ms (650 modules)
+ POST /api/super-admin/accounts/185ff8f1-c9a1-47d7-8bff-23207eb55bf8/reject 200 in 5499ms
+
+E:\mediflow\mediflow> ✓ Compiled in 1968ms (477 modules)
+ ✓ Compiled in 572ms (477 modules)
+ ✓ Compiled in 1253ms (477 modules)
+ ✓ Compiled in 695ms (477 modules)
+ ✓ Compiled in 874ms (477 modules)
+ ✓ Compiled in 870ms (477 modules)
+ ✓ Compiled in 1863ms (650 modules)
+ ✓ Compiled in 889ms (477 modules)
+ ✓ Compiled in 721ms (477 modules)
+ ✓ Compiled in 1314ms (477 modules)
+ ✓ Compiled in 632ms (477 modules)
+ ✓ Compiled in 720ms (477 modules)
+ ✓ Compiled in 953ms (477 modules)
+ ✓ Compiled in 678ms (477 modules)
+ ✓ Compiled in 2.6s (477 modules)
+ ✓ Compiled in 1513ms (636 modules)
+ ⨯ ./src/app/(dashboard)/layout.tsx:3:1
+Module not found: Can't resolve '@/components/layout/trial-banner'
+  1 | import { Suspense } from "react";
+  2 | import { redirect } from "next/navigation";
+> 3 | import { TrialBanner } from "@/components/layout/trial-banner";
+    | ^
+  4 | import DashboardShell from "@/components/layout/dashboard-shell";
+  5 |
+  6 | export const dynamic = "force-dynamic";
+
+https://nextjs.org/docs/messages/module-not-found
+ ⨯ ./src/app/(dashboard)/layout.tsx:3:1
+Module not found: Can't resolve '@/components/layout/trial-banner'
+  1 | import { Suspense } from "react";
+  2 | import { redirect } from "next/navigation";
+> 3 | import { TrialBanner } from "@/components/layout/trial-banner";
+    | ^
+  4 | import DashboardShell from "@/components/layout/dashboard-shell";
+  5 |
+  6 | export const dynamic = "force-dynamic";
+
+https://nextjs.org/docs/messages/module-not-found
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx
+ ○ Compiling /auth/login ...
+ ✓ Compiled /auth/login in 2.4s (538 modules)
+ GET /auth/login 500 in 5822ms
+ GET /auth/login 500 in 3916ms
+ ○ Compiling /_error ...
+ ⨯ ./src/lib/supabase/server.ts
+Error:   [31mx[0m You're importing a component that needs "next/headers". That only works in a Server Component which is not supported in the pages/ directory. Read more: https://nextjs.org/docs/app/building-your-application/rendering/server-components
+  [31m|[0m
+
+   ,-[[36;1;4mE:\mediflow\mediflow\src\lib\supabase\server.ts[0m:2:1]
+ [2m1[0m | import { createServerClient } from '@supabase/ssr';
+ [2m2[0m | import { cookies } from 'next/headers';
+   : [35;1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+ [2m3[0m | import type { Database } from '@/types/database';
+ [2m4[0m | 
+ [2m5[0m | /**
+   `----
+
+Import trace for requested module:
+./src/lib/supabase/server.ts
+./src/lib/trial.ts
+./src/app/(dashboard)/layout.tsx

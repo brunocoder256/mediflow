@@ -42,16 +42,24 @@ type Registration = {
   approved_at: string | null;
   rejected_at: string | null;
   created_at: string;
+  organizations?: {
+    id: string;
+    name: string;
+    plan: string | null;
+    status: string | null;
+    trial_ends_at: string | null;
+  } | null;
 };
 
 type Counts = Record<string, number>;
-type DialogKind = "approve" | "reject" | "suspend" | "activate" | null;
+type DialogKind = "approve" | "reject" | "suspend" | "activate" | "extend-trial" | "grant-full" | null;
 
 const STATUS_BADGE: Record<string, string> = {
   pending: "warning",
   active: "success",
   suspended: "destructive",
   rejected: "secondary",
+  trial_expired: "destructive",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -59,7 +67,18 @@ const STATUS_LABEL: Record<string, string> = {
   active: "Active",
   suspended: "Suspended",
   rejected: "Rejected",
+  trial_expired: "Trial Expired",
 };
+
+function displayStatus(r: Registration): string {
+  // Trial expiry is tracked on the organization, not the registration row.
+  return r.organizations?.status === "trial_expired" ? "trial_expired" : r.status;
+}
+
+function fmtDate(s: string | null | undefined): string {
+  if (!s) return "—";
+  return new Date(s).toLocaleString();
+}
 
 async function api(url: string, method = "GET", body?: unknown) {
   const res = await fetch(url, {
@@ -86,6 +105,7 @@ export default function SuperAdminAccountsPage() {
   const [dialog, setDialog] = React.useState<DialogKind>(null);
   const [busy, setBusy] = React.useState<DialogKind>(null);
   const [rejectReason, setRejectReason] = React.useState("");
+  const [extendDays, setExtendDays] = React.useState(3);
 
   const load = React.useCallback(async (search = q, st = status, pg = page, showLoader = true) => {
     if (showLoader) setLoading(true);
@@ -122,12 +142,17 @@ export default function SuperAdminAccountsPage() {
         if (kind === "approve" && json.login?.provisionalPassword) {
           description = `Temporary password for ${json.login.email}: ${json.login.provisionalPassword} (share it with the owner).`;
         } else if (kind === "approve") {
-          description = `${json.login?.email ?? ""} can now sign in.`;
+          description = `${json.login?.email ?? ""} can now sign in (3-day free trial starts now).`;
+        } else if (kind === "extend-trial") {
+          description = `${json.trial_days ?? "(unknown)"} more days added. The owner can sign in immediately.`;
+        } else if (kind === "grant-full") {
+          description = `Permanent access granted. ${json.email ?? ""}`;
         }
         toast({ title: "Done", description, variant: "success" });
         setSelected(null);
         setDialog(null);
         setRejectReason("");
+        setExtendDays(3);
         load(q, status, page, true);
       } else {
         toast({ title: "Action failed", description: json.error || "Something went wrong.", variant: "error" });
@@ -146,16 +171,17 @@ export default function SuperAdminAccountsPage() {
         <p className="text-muted-foreground">Review MediFlow registrations and manage account access</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         {[
           { label: "Pending Applications", value: counts.pending, cls: "text-amber-600" },
           { label: "Active Accounts", value: counts.active, cls: "text-green-600" },
-          { label: "Suspended Accounts", value: counts.suspended, cls: "text-red-600" },
+          { label: "Trials Expired", value: counts.trial_expired, cls: "text-red-600" },
+          { label: "Suspended Accounts", value: counts.suspended, cls: "text-orange-600" },
           { label: "Rejected Applications", value: counts.rejected, cls: "text-muted-foreground" },
         ].map((c) => (
           <Card key={c.label}>
             <CardContent className="p-4">
-              <p className={`text-2xl font-bold ${c.cls}`}>{c.value}</p>
+              <p className={`text-2xl font-bold ${c.cls}`}>{c.value ?? 0}</p>
               <p className="text-xs text-muted-foreground">{c.label}</p>
             </CardContent>
           </Card>
@@ -173,6 +199,7 @@ export default function SuperAdminAccountsPage() {
               <option value="all">All Statuses</option>
               <option value="pending">Pending</option>
               <option value="active">Active</option>
+              <option value="trial_expired">Trial Expired</option>
               <option value="suspended">Suspended</option>
               <option value="rejected">Rejected</option>
             </Select>
@@ -223,7 +250,7 @@ export default function SuperAdminAccountsPage() {
                         <td className="p-3">{r.owner_phone}</td>
                         <td className="p-3 text-xs text-muted-foreground">{new Date(r.created_at).toLocaleDateString()}</td>
                         <td className="p-3">
-                          <Badge variant={STATUS_BADGE[r.status] as any}>{STATUS_LABEL[r.status]}</Badge>
+                          <Badge variant={STATUS_BADGE[displayStatus(r)] as any}>{STATUS_LABEL[displayStatus(r)]}</Badge>
                         </td>
                         <td className="p-3 text-right">
                           <Button variant="outline" size="sm" onClick={() => setSelected(r)}>
@@ -241,7 +268,7 @@ export default function SuperAdminAccountsPage() {
                   <div key={r.id} className="space-y-2 p-4">
                     <div className="flex items-center justify-between">
                       <span className="font-mono text-xs">{r.reference}</span>
-                      <Badge variant={STATUS_BADGE[r.status] as any}>{STATUS_LABEL[r.status]}</Badge>
+                      <Badge variant={STATUS_BADGE[displayStatus(r)] as any}>{STATUS_LABEL[displayStatus(r)]}</Badge>
                     </div>
                     <div className="text-sm font-medium">{r.business_name}</div>
                     <div className="text-xs text-muted-foreground">{r.owner_full_name} · {r.owner_phone}</div>
@@ -276,7 +303,7 @@ export default function SuperAdminAccountsPage() {
                 <SheetTitle>{selected.business_name}</SheetTitle>
                 <SheetDescription>
                   {selected.reference} ·{" "}
-                  <Badge variant={STATUS_BADGE[selected.status] as any}>{STATUS_LABEL[selected.status]}</Badge>
+                  <Badge variant={STATUS_BADGE[displayStatus(selected)] as any}>{STATUS_LABEL[displayStatus(selected)]}</Badge>
                 </SheetDescription>
               </SheetHeader>
               <div className="mt-6 space-y-4 text-sm">
@@ -290,6 +317,8 @@ export default function SuperAdminAccountsPage() {
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Phone</dt><dd>{selected.owner_phone}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Location</dt><dd>{selected.location || "—"}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Registered</dt><dd>{new Date(selected.created_at).toLocaleString()}</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Plan</dt><dd>{selected.organizations?.plan === "trial" ? "Trial" : selected.organizations?.plan === "full" ? "Full" : "—"}</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Trial ends</dt><dd>{fmtDate(selected.organizations?.trial_ends_at)}</dd></div>
                   </dl>
                 </div>
                 {selected.status === "rejected" && selected.rejection_reason && (
@@ -321,6 +350,13 @@ export default function SuperAdminAccountsPage() {
                 )}
                 {selected.status === "suspended" && (
                   <Button className="flex-1" onClick={() => setDialog("activate")}>Activate Account</Button>
+                )}
+                {displayStatus(selected) === "trial_expired" && (
+                  <>
+                    <Button className="flex-1" onClick={() => setDialog("extend-trial")}>Extend Trial</Button>
+                    <Button className="flex-1" onClick={() => setDialog("grant-full")}>Grant Full Access</Button>
+                    <Button variant="destructive" className="flex-1" onClick={() => setDialog("suspend")}>Deactivate</Button>
+                  </>
                 )}
               </div>
             </>
@@ -412,6 +448,57 @@ export default function SuperAdminAccountsPage() {
               <Button variant="outline" onClick={() => setDialog(null)} disabled={busy !== null}>Cancel</Button>
               <Button onClick={() => runAction("activate", selected.id)} disabled={busy !== null}>
                 {busy === "activate" ? "Activating..." : "Activate Account"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
+
+      <Dialog open={dialog === "extend-trial"} onOpenChange={(o) => !o && setDialog(null)}>
+        {selected && (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Extend trial period</DialogTitle>
+              <DialogDescription>
+                Re-open {selected.business_name}'s full access for more days. They can sign in immediately.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1 text-sm">
+              <p><span className="text-muted-foreground">Business:</span> {selected.business_name} ({selected.reference})</p>
+              <p><span className="text-muted-foreground">Owner:</span> {selected.owner_full_name} ({selected.owner_email})</p>
+              <p><span className="text-muted-foreground">Contact:</span> {selected.owner_phone}</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="extend-days">Extra days</Label>
+              <Input id="extend-days" type="number" min={1} max={90} value={extendDays} onChange={(e) => setExtendDays(Math.max(1, Math.min(90, Number(e.target.value) || 3)))} />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialog(null)} disabled={busy !== null}>Cancel</Button>
+              <Button onClick={() => runAction("extend-trial", selected.id, { trial_days: extendDays })} disabled={busy !== null}>
+                {busy === "extend-trial" ? "Extending..." : "Extend Trial"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
+
+      <Dialog open={dialog === "grant-full"} onOpenChange={(o) => !o && setDialog(null)}>
+        {selected && (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Grant full access?</DialogTitle>
+              <DialogDescription>
+                {selected.business_name} will have permanent access — the trial deadline is removed until you deactivate the account.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1 text-sm">
+              <p><span className="text-muted-foreground">Business:</span> {selected.business_name} ({selected.reference})</p>
+              <p><span className="text-muted-foreground">Owner:</span> {selected.owner_full_name} ({selected.owner_email})</p>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialog(null)} disabled={busy !== null}>Cancel</Button>
+              <Button onClick={() => runAction("grant-full", selected.id)} disabled={busy !== null}>
+                {busy === "grant-full" ? "Granting..." : "Grant Full Access"}
               </Button>
             </DialogFooter>
           </DialogContent>

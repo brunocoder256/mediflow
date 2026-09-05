@@ -65,6 +65,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       throw new Error(msg);
     };
 
+    // Trial defaults from platform settings (new accounts get a free trial).
+    let trialDays = 3;
+    try {
+      const { data: ps } = await admin.from('platform_settings').select('trial_days').eq('id', 1).maybeSingle();
+      if (ps?.trial_days) trialDays = ps.trial_days;
+    } catch {
+      /* keep default */
+    }
+    const trialEndsAt = new Date(Date.now() + trialDays * 86_400_000).toISOString();
+
     // 1) Organization (the client account)
     const { data: org, error: orgErr } = await admin
       .from('organizations')
@@ -76,6 +86,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         email: reg.owner_email,
         address: reg.location,
         status: 'active',
+        plan: 'trial',
+        trial_ends_at: trialEndsAt,
       })
       .select()
       .single();
@@ -166,7 +178,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     return NextResponse.json({
       ok: true,
-      account: { reference: reg.reference, organization_id: org.id, status: 'active' },
+      account: { reference: reg.reference, organization_id: org.id, status: 'active', plan: 'trial', trial_ends_at: trialEndsAt },
       login,
     });
   } catch (e: any) {

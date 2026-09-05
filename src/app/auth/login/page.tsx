@@ -97,16 +97,22 @@ function LoginForm() {
         return;
       }
 
-      // Client accounts are gated by organization status
-      const { data: orgStatus } = await (supabase as any).rpc("get_my_org_status");
-      if (orgStatus && orgStatus !== "active") {
+      // Client accounts are gated by organization status.
+      // Trial-expired owners stay signed in so they land on the block screen
+      // (with MediFlow contact info) instead of being logged out.
+      const { data: trial } = await (supabase as any).rpc("get_my_trial_status");
+      if (trial && trial.status !== "active") {
+        if (trial.status === "trial_expired") {
+          window.location.assign("/trial-expired");
+          return;
+        }
         await supabase.auth.signOut();
         toast({
           title: "Account not accessible",
           description:
-            orgStatus === "none"
+            trial.status === "none"
               ? "This account has no organization. Contact MediFlow administration."
-              : `Your organization's account is ${orgStatus}. Contact MediFlow administration.`,
+              : `Your organization's account is ${trial.status}. Contact MediFlow administration.`,
           variant: "error",
         });
         return;
