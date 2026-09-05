@@ -684,7 +684,7 @@ export default function PosPage(){
               <Input placeholder="Transaction reference" value={paymentRef} onChange={e=>setPaymentRef(e.target.value)} className="h-10" aria-label="Reference"/>
             )}
             <div className="flex gap-2">
-              <Button className="flex-1" size="lg" disabled={!canPay} onClick={openPay}>{busy?"Processing...":`Pay ${formatUGX(totalAfterSaleDisc)}`}</Button>
+              <Button className="flex-1" size="lg" disabled={!cart.length || busy} onClick={openPay}>{busy?"Processing...":`Complete Sale — ${formatUGX(totalAfterSaleDisc)}`}</Button>
               <Button variant="outline" size="lg" onClick={openPay} disabled={!cart.length}>View</Button>
             </div>
             <p className="text-xs text-muted-foreground text-center">Enter validates • Esc closes dialogs • FEFO auto • Server price authoritative</p>
@@ -695,7 +695,7 @@ export default function PosPage(){
       {/* Mobile cart sheet trigger - fixed bottom */}
       <div className="md:hidden fixed bottom-0 inset-x-0 bg-card border-t p-3 flex items-center gap-3">
         <div className="flex-1"><p className="text-sm font-medium">{totalItems} items</p><p className="font-bold">{formatUGX(totalAfterSaleDisc)}</p></div>
-        <Sheet open={showMobilePay} onOpenChange={setShowMobilePay}><Button className="flex-1" size="lg" disabled={!cart.length} onClick={()=>setShowMobilePay(true)}><ShoppingCart className="h-5 w-5 mr-2"/>Pay {formatUGX(totalAfterSaleDisc)}</Button>
+        <Sheet open={showMobilePay} onOpenChange={setShowMobilePay}><Button className="flex-1" size="lg" disabled={!cart.length} onClick={()=>setShowMobilePay(true)}><ShoppingCart className="h-5 w-5 mr-2"/>Complete Sale</Button>
           <SheetContent side="bottom" className="h-[85vh] overflow-y-auto">
             <SheetHeader><SheetTitle>Complete Sale — {formatUGX(totalAfterSaleDisc)}</SheetTitle></SheetHeader>
             <div className="mt-4 space-y-4">
