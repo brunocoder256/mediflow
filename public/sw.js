@@ -1,6 +1,7 @@
 // MediFlow Service Worker — offline shell, do not cache private data indiscriminately
-const CACHE_NAME = "mediflow-v1";
-const SHELL = ["/", "/dashboard", "/pos", "/sync", "/offline", "/offline.html", "/manifest.json"];
+const CACHE_NAME = "mediflow-v2";
+const SHELL = ["/", "/offline", "/offline.html", "/manifest.json"];
+const OFFLINE_URL = "/offline";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -13,20 +14,36 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   // Never cache API or supabase auth
   if (req.url.includes("/api/") || req.url.includes("supabase") || req.url.includes("/auth/")) return;
+  // Navigations: network-first so users always get the latest HTML when online,
+  // and the cached copy never shadows a new deployment.
+  if (req.mode === "navigate") {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res && res.status === 200 && res.type === "basic") {
+            const clone = res.clone();
+            caches.open(CACHE_NAME).then((c) => c.put(req, clone));
+          }
+          return res;
+        })
+        .catch(() => caches.match(req).then((cached) => cached || caches.match(OFFLINE_URL)))
+    );
+    return;
+  }
+  // Other GETs (hashed static assets, etc.): cache-first for speed
   event.respondWith(
     caches.match(req).then((cached) => {
       return (
         cached ||
         fetch(req)
           .then((res) => {
-            // Cache shell only
-            if (SHELL.some((s) => req.url.endsWith(s))) {
+            if (res && res.status === 200 && res.type === "basic") {
               const clone = res.clone();
               caches.open(CACHE_NAME).then((c) => c.put(req, clone));
             }
             return res;
           })
-          .catch(() => caches.match("/offline") || cached)
+          .catch(() => caches.match(OFFLINE_URL) || cached)
       );
     })
   );
