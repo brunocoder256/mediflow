@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createBrowserClient } from "@/lib/supabase/client";
+import { performLogout } from "@/lib/logout";
 import { loginSchema, type LoginInput } from "@/lib/validations/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -107,7 +108,7 @@ function LoginForm() {
           window.location.assign("/dashboard");
           return;
         }
-        await supabase.auth.signOut();
+        await performLogout();
         toast({
           title: "Account not accessible",
           description:

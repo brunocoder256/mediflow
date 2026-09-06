@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { createBrowserClient } from "@/lib/supabase/client";
+import { performLogout } from "@/lib/logout";
 import { Button } from "@/components/ui/button";
 import { Phone, Hourglass, X, LogOut, Loader2, Ban } from "lucide-react";
 import type { TrialGate } from "@/lib/trial-utils";
@@ -63,8 +63,7 @@ export function SubscriptionGatePopup({ gate }: { gate: TrialGate | null }) {
   const signOut = async () => {
     setSigningOut(true);
     try {
-      const supabase = createBrowserClient();
-      await supabase.auth.signOut();
+      await performLogout();
     } catch {
       /* noop */
     } finally {

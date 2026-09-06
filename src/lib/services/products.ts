@@ -183,6 +183,78 @@ export async function searchProducts(query: string) {
     return data;
 }
 
+/**
+ * Fast POS search across the whole catalog, returned in the exact shape the POS
+ * grid needs (stock + FEFO batch + price for a branch), so a cashier can search
+ * for a product that isn't in the in-memory grid, tap it, and sell it.
+ */
+export async function searchPosProducts(query: string, branchId?: string | null, limit: number = 25) {
+    const sb = await import('./supabase').then(m => m.getSB());
+    const q = query.trim();
+    if (!q) return [];
+    const searchOr = [
+        `name.ilike.%${q}%`,
+        `generic_name.ilike.%${q}%`,
+        `brand_name.ilike.%${q}%`,
+        `manufacturer.ilike.%${q}%`,
+        `sku.ilike.%${q}%`,
+        `barcode.ilike.%${q}%`,
+        `strength.ilike.%${q}%`,
+        `dosage_form.ilike.%${q}%`,
+    ].join(',');
+    const { data, error } = await sb.from('products')
+        .select(`
+            id, name, generic_name, brand_name, manufacturer, dosage_form, strength,
+            sku, barcode, category_id, is_active, default_selling_price,
+            categories(name),
+            product_batches(
+                id, branch_id, batch_number, expiry_date, quantity_available,
+                selling_price, purchase_price, is_active
+            )
+        `)
+        .or(searchOr)
+        .eq('is_active', true)
+        .order('name')
+        .limit(limit);
+    if (error) throw new Error(`Failed to search products: ${error.message}`);
+
+    const now = new Date();
+    return (data ?? []).map((p: any) => {
+        const batches: any[] = (p.product_batches ?? [])
+            .filter((b: any) => b.is_active !== false && (!branchId || b.branch_id === branchId))
+            .sort((a: any, b: any) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime());
+        const qty = batches.reduce((s: number, b: any) => s + Number(b.quantity_available ?? 0), 0);
+        const valid = batches.find((b: any) => Number(b.quantity_available) > 0 && new Date(b.expiry_date) > now);
+        const price = valid?.selling_price ?? batches.find((b: any) => Number(b.quantity_available) > 0)?.selling_price ?? Number(p.default_selling_price ?? 0);
+        const expiry_status = !batches.length ? (qty > 0 ? 'ok' : 'out')
+            : valid ? (() => {
+                const d = Math.ceil((new Date(valid.expiry_date).getTime() - now.getTime()) / 86400000);
+                return d <= 90 ? 'near' : 'ok';
+            })()
+            : qty > 0 ? 'expired' : 'out';
+        return {
+            id: p.id,
+            name: p.name,
+            generic_name: p.generic_name ?? null,
+            brand_name: p.brand_name ?? null,
+            manufacturer: p.manufacturer ?? null,
+            dosage_form: p.dosage_form ?? null,
+            strength: p.strength ?? null,
+            sku: p.sku ?? '',
+            barcode: p.barcode ?? null,
+            category_id: p.category_id ?? null,
+            category_name: p.categories?.name ?? null,
+            is_active: p.is_active,
+            stock: qty,
+            price,
+            batches,
+            fefo_batch: valid ? { batch_number: valid.batch_number, expiry_date: valid.expiry_date } : null,
+            expiry_status,
+            near_expiry_days: expiry_status === 'near' && valid ? Math.ceil((new Date(valid.expiry_date).getTime() - now.getTime()) / 86400000) : null,
+        };
+    });
+}
+
 export async function getProductsWithStock() {
     const sb = await import('./supabase').then(m => m.getSB());
     const { data, error } = await sb.from('products')

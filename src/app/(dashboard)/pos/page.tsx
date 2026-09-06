@@ -15,13 +15,19 @@ import { db } from "@/lib/offline/db";
 import { processSyncQueue, setupAutoSync, queuePosSale } from "@/lib/offline/sync";
 import { cachedFetch } from "@/lib/offline/cached-fetch";
 import { readUserContext, writeUserContext, getCachedCashierName } from "@/lib/offline/user-context";
+import { rankProducts, matchesProduct, type PosSearchable } from "@/lib/pos-search";
 
 type Product = {
   id: string;
   name: string;
   generic_name?: string | null;
+  brand_name?: string | null;
+  manufacturer?: string | null;
+  dosage_form?: string | null;
+  strength?: string | null;
   sku: string;
   barcode: string | null;
+  category_name?: string | null;
   stock: number;
   price: number;
   category_id?: string | null;
@@ -121,6 +127,8 @@ export default function PosPage(){
   const [splitPayments,setSplitPayments]=React.useState<Array<{id:string; method:'CASH'|'MOBILE_MONEY'|'CARD'|'BANK'|'OTHER'; amount:string; reference:string}>>([]);
   const [categoryFilter,setCategoryFilter]=React.useState<string>("all");
   const [categories,setCategories]=React.useState<any[]>([]);
+  const [remoteResults,setRemoteResults]=React.useState<Product[]>([]);
+  const [remoteSearching,setRemoteSearching]=React.useState(false);
   const {isOnline}=useOnlineStatus();
   const searchRef=React.useRef<HTMLInputElement>(null);
   const [cashierName,setCashierName]=React.useState<string>(()=> (typeof window!=="undefined" ? getCachedCashierName() : "Cashier") || "Cashier");
@@ -175,11 +183,16 @@ export default function PosPage(){
           id:p.id,
           name:p.name,
           generic_name:p.generic_name ?? null,
+          brand_name:p.brand_name ?? null,
+          manufacturer:p.manufacturer ?? null,
+          dosage_form:p.dosage_form ?? null,
+          strength:p.strength ?? null,
           sku:p.sku ?? '',
           barcode:p.barcode ?? null,
+          category_id:p.category_id ?? null,
+          category_name:p.categories?.name ?? null,
           stock: s?.qty ?? 0,
           price: batches.find(b=>Number(b.quantity_available)>0 && new Date(b.expiry_date)>now)?.selling_price ?? s?.price ?? 0,
-          category_id:p.category_id ?? null,
           batches,
           fefo_batch: fefo,
           expiry_status,
@@ -261,15 +274,51 @@ export default function PosPage(){
     cachedFetch(`/api/customers?search=${encodeURIComponent(q)}`).then((j:any)=> setCustomers(Array.isArray(j)?j:[])).catch(()=>{});
   },[customerSearch]);
 
+  // Ranked relevance search over the in-memory grid. Exact barcode/SKU, name
+  // prefixes and tokenized matches ("amox cap") all rank before simple substrings.
   const filtered = React.useMemo(()=>{
-    const q=searchQuery.toLowerCase().trim();
-    return products.filter(p=>{
-      if(categoryFilter!=="all" && p.category_id!==categoryFilter) return false;
-      if(!q) return true;
-      if(p.barcode && p.barcode.toLowerCase()===q) return true;
-      return p.name.toLowerCase().includes(q) || (p.generic_name??'').toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || (p.barcode??'').toLowerCase().includes(q);
-    });
+    const q=searchQuery.trim();
+    if(!q) return categoryFilter==="all" ? products : products.filter(p=>p.category_id===categoryFilter);
+    return rankProducts(
+      products.filter(p=> categoryFilter==="all" || p.category_id===categoryFilter),
+      q,
+    );
   },[products, searchQuery, categoryFilter]);
+
+  // Whole-catalog server fallback: when the loaded grid has no match, search the
+  // full product table (covers products added/received after the grid loaded or
+  // offline copies that went stale). Debounced; skipped while offline (grid-only).
+  React.useEffect(()=>{
+    const q=searchQuery.trim();
+    if(!q){ setRemoteResults([]); return; }
+    const localHit = products.some(p=> matchesProduct(p as PosSearchable, q));
+    if(localHit || !isOnline){ setRemoteResults([]); return; }
+    const t=setTimeout(async()=>{
+      setRemoteSearching(true);
+      try{
+        const r:any = await cachedFetch(`/api/products?search=${encodeURIComponent(q)}&pos=1&branch_id=${encodeURIComponent(branchId || '')}`);
+        const rows:any[] = Array.isArray(r) ? r : r.data ?? [];
+        const fresh = rows
+          .filter((xx:any)=> xx.is_active!==false && (categoryFilter==="all" || xx.category_id===categoryFilter))
+          .filter((xx:any)=> !products.some(p=> p.id===xx.id)) // never duplicate grid items
+          .map((xx:any)=>({
+            ...xx,
+            stock: Number(xx.stock ?? 0),
+            price: Number(xx.price ?? xx.default_selling_price ?? 0),
+            batches: Array.isArray(xx.batches) ? xx.batches : [],
+          }));
+        setRemoteResults(rankProducts(fresh as Product[], q, 12));
+      }catch{
+        setRemoteResults([]);
+      }finally{
+        setRemoteSearching(false);
+      }
+    }, 250);
+    return ()=> clearTimeout(t);
+  },[searchQuery, products, branchId, categoryFilter, isOnline]);
+
+  const displayList = (filtered.length ? filtered : remoteResults) ?? [];
+  const usingCatalogSearch = !!searchQuery.trim() && filtered.length===0 && (remoteResults.length>0 || remoteSearching);
 
   // barcode exact auto-add (no dialog)
   React.useEffect(()=>{
@@ -598,7 +647,18 @@ export default function PosPage(){
           <div className="p-3 sm:p-4 border-b space-y-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/>
-              <Input ref={searchRef} placeholder="Search name / generic / SKU / barcode — scan to add (Enter) — Ctrl+K" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} className="pl-9 pr-20" aria-label="Search products"/>
+              <Input ref={searchRef} placeholder="Search name / generic / brand / SKU / barcode — scan or type, Enter to sell (Ctrl+K)" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} onKeyDown={e=>{
+                if(e.key==='Enter'){
+                  e.preventDefault();
+                  // Exact scan barcodes are handled by the auto-add effect below,
+                  // so Enter on a fresh scan never double-adds.
+                  const q=searchQuery.trim();
+                  const exactBarcode = q.length>=4 ? products.find(p=>p.barcode && p.barcode.toLowerCase()===q.toLowerCase()) : undefined;
+                  if(exactBarcode) return;
+                  const top = displayList[0];
+                  if(top){ addToCart(top); setSearchQuery(""); searchRef.current?.focus(); }
+                }
+              }} className="pl-9 pr-20" aria-label="Search products"/>
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hidden sm:inline border px-1.5 py-0.5 rounded bg-muted">Ctrl K</span>
             </div>
             <div className="flex gap-2 overflow-x-auto pb-1">
@@ -609,8 +669,9 @@ export default function PosPage(){
           </div>
           <div className="flex-1 overflow-y-auto p-3 sm:p-4">
             {loading ? <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">{[...Array(8)].map((_,i)=><Skeleton key={i} className="h-28 rounded-lg"/>)}</div>
-            : filtered.length===0 ? <div className="py-12 text-center text-muted-foreground"><Search className="h-10 w-10 mx-auto mb-3 opacity-30"/><p>Product not found</p><p className="text-sm">Try name, generic, SKU or barcode</p></div>
-            : <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">{filtered.map(p=> <ProductCard key={p.id} product={p}/>)}</div>}
+            : usingCatalogSearch && <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">{remoteSearching ? <RefreshCw className="h-3.5 w-3.5 animate-spin"/> : <Search className="h-3.5 w-3.5"/>}{remoteSearching ? "Searching full catalog…" : `Matched ${displayList.length} from full catalog — not on this shelf. Tap or Enter to sell.`}</div>}
+            {!loading && displayList.length===0 ? <div className="py-12 text-center text-muted-foreground"><Search className="h-10 w-10 mx-auto mb-3 opacity-30"/><p>Product not found</p><p className="text-sm">Try name, generic, brand, SKU or barcode</p></div>
+            : <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">{displayList.map(p=> <ProductCard key={p.id} product={p}/>)}</div>}
           </div>
         </div>
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createBrowserClient } from "@/lib/supabase/client";
+import { performLogout } from "@/lib/logout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -48,10 +49,9 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
 
   const handleLogout = async () => {
     try {
-      const supabase = createBrowserClient();
-      await supabase.auth.signOut();
+      await performLogout();
     } catch (err) {
-      console.error("[logout] signOut failed", err);
+      console.error("[logout] failed", err);
     } finally {
       window.location.assign("/auth/login");
     }

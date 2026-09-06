@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { createBrowserClient } from "@/lib/supabase/client";
+import { performLogout } from "@/lib/logout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Hourglass, Phone, LogOut, RefreshCw, Loader2 } from "lucide-react";
@@ -53,10 +54,9 @@ export default function TrialExpiredPage() {
   const signOut = async () => {
     setSigningOut(true);
     try {
-      const supabase = createBrowserClient();
-      await supabase.auth.signOut();
+      await performLogout();
     } catch (err) {
-      console.error("[trial-expired] signOut failed", err);
+      console.error("[trial-expired] logout failed", err);
     } finally {
       window.location.assign("/auth/login");
     }

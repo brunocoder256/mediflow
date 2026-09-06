@@ -20,6 +20,14 @@ export async function GET(request: Request) {
         const page = searchParams.get('page') ? Number(searchParams.get('page')) : undefined;
         const perPage = searchParams.get('perPage') ? Number(searchParams.get('perPage')) : undefined;
 
+        // POS fast search — whole-catalog query returned WITH branch stock/FEFO
+        // batches in the exact shape the POS grid needs.
+        if (search && searchParams.get('pos') === '1') {
+            const { searchPosProducts } = await import('@/lib/services/products');
+            const data = await searchPosProducts(search, searchParams.get('branch_id'));
+            return NextResponse.json({ data, count: data.length });
+        }
+
         // Search param via GET (fuzzy)
         if (search && !category_id && !product_type && !status) {
             // Use paginated getProducts which already supports search; but keep fast path
