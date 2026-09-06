@@ -13,6 +13,8 @@ import { Receipt, printReceipt } from "@/components/receipt";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { db } from "@/lib/offline/db";
 import { processSyncQueue, setupAutoSync, queuePosSale } from "@/lib/offline/sync";
+import { cachedFetch } from "@/lib/offline/cached-fetch";
+import { readUserContext, writeUserContext, getCachedCashierName } from "@/lib/offline/user-context";
 
 type Product = {
   id: string;
@@ -58,7 +60,7 @@ function NewCustomerInline({ onCreated, preserveCartNote }:{ onCreated:(c:any)=>
   const checkDup=React.useCallback(async()=>{
     if(!phone && !email && !name) { setDup([]); return; }
     const p=new URLSearchParams(); if(phone) p.set("phone",phone); if(email) p.set("email",email); if(name) p.set("name",name);
-    try{ const r=await fetch(`/api/customers?check=1&${p.toString()}`); const j=await r.json(); if(Array.isArray(j)) setDup(j); }catch{}
+    try{ const r=await cachedFetch(`/api/customers?check=1&${p.toString()}`); if(Array.isArray(r)) setDup(r); }catch{}
   },[phone,email,name]);
   React.useEffect(()=>{ const t=setTimeout(checkDup,400); return()=>clearTimeout(t); },[checkDup]);
   const save=async(force=false)=>{
@@ -113,10 +115,6 @@ export default function PosPage(){
   const [expiryWarningDays,setExpiryWarningDays]=React.useState(90);
   const [showPay,setShowPay]=React.useState(false);
   const [showMobilePay,setShowMobilePay]=React.useState(false);
-  const [cashierName,setCashierName]=React.useState("Cashier");
-  const [showHeld,setShowHeld]=React.useState(false);
-  const [showCustomer,setShowCustomer]=React.useState(false);
-  const [showClear,setShowClear]=React.useState(false);
   const [showBatch,setShowBatch]=React.useState<CartItem|null>(null);
   const [saleDiscount,setSaleDiscount]=React.useState<number>(0);
   const [splitMode,setSplitMode]=React.useState(false);
@@ -125,12 +123,19 @@ export default function PosPage(){
   const [categories,setCategories]=React.useState<any[]>([]);
   const {isOnline}=useOnlineStatus();
   const searchRef=React.useRef<HTMLInputElement>(null);
+  const [cashierName,setCashierName]=React.useState<string>(()=> (typeof window!=="undefined" ? getCachedCashierName() : "Cashier") || "Cashier");
+  const [showHeld,setShowHeld]=React.useState(false);
+  const [showCustomer,setShowCustomer]=React.useState(false);
+  const [showClear,setShowClear]=React.useState(false);
 
   const fetchProducts = React.useCallback(async (bId:string)=>{
     if(!bId) return;
     setLoading(true);
     try{
-      const [prodRes, invRes] = await Promise.all([fetch("/api/products").then(r=>r.json()), fetch("/api/inventory").then(r=>r.json())]);
+      const [prodRes, invRes] = await Promise.all([
+        cachedFetch<unknown>("/api/products") as Promise<any>,
+        cachedFetch<{ stock: any[] }>("/api/inventory"),
+      ]);
       const list:Array<any> = Array.isArray(prodRes) ? prodRes : prodRes.data ?? prodRes ?? [];
       // stock map per product for branch
       const stockRows: any[] = invRes.stock ?? [];
@@ -188,21 +193,31 @@ export default function PosPage(){
 
   // initial load: branches + org + categories
   React.useEffect(()=>{
-    fetch("/api/settings").then(r=>r.json()).then(j=>{
+    cachedFetch("/api/settings").then((j:any)=>{
       if(j.branches?.length){ setBranches(j.branches); if(!branchId) setBranchId(j.branches[0].id); }
       if(j.organization_settings){ setOrgSettings(j.organization_settings); setExpiryWarningDays(j.organization_settings.expiry_warning_days ?? 90); }
-    }).catch(()=>{});
-    fetch("/api/categories").then(r=>r.json()).then(j=>{ if(Array.isArray(j)) setCategories(j); }).catch(()=>{});
-    fetch("/api/me").then(r=>r.json()).then(j=>{ if(j?.full_name) setCashierName(j.full_name); }).catch(()=>{});
+      if(typeof window!=="undefined"){
+        writeUserContext({ branches: j.branches ?? undefined, organization_settings: j.organization_settings ?? undefined });
+      }
+    }).catch(()=>{
+      const ctx = readUserContext();
+      if(ctx?.branches?.length){ setBranches(ctx.branches); if(!branchId) setBranchId(ctx.branches[0].id); }
+      if(ctx?.organization_settings){ setOrgSettings(ctx.organization_settings); setExpiryWarningDays((ctx.organization_settings as any).expiry_warning_days ?? 90); }
+    });
+    cachedFetch("/api/categories").then((j:any)=>{ if(Array.isArray(j)) setCategories(j); }).catch(()=>{});
+    cachedFetch("/api/me").then((j:any)=>{ if(j?.full_name){ setCashierName(j.full_name); writeUserContext({ full_name: j.full_name, email: j.email ?? null, organization_id: j.organization_id ?? null }); } }).catch(()=>{
+      const cached = getCachedCashierName();
+      if(cached) setCashierName(cached);
+    });
   },[]);
 
   // when branch changes refresh products + cash session + held sales
   React.useEffect(()=>{
     if(branchId){ fetchProducts(branchId); }
     if(branchId){
-      fetch(`/api/cash/sessions?current=true&branch_id=${branchId}`).then(r=>r.json()).then(j=> setCashSession(j)).catch(()=>setCashSession(null));
+      cachedFetch(`/api/cash/sessions?current=true&branch_id=${branchId}`).then((j:any)=> setCashSession(j)).catch(()=>setCashSession(null));
       // held sales
-      fetch(`/api/sales?branch_id=${branchId}&status=HELD`).then(r=>r.json()).then(j=>{
+      cachedFetch(`/api/sales?branch_id=${branchId}&status=HELD`).then((j:any)=>{
         const data = Array.isArray(j.data) ? j.data : Array.isArray(j) ? j : [];
         setHeld(data);
       }).catch(()=>{});
@@ -243,7 +258,7 @@ export default function PosPage(){
   // customers fetch
   React.useEffect(()=>{
     const q=customerSearch.trim();
-    fetch(`/api/customers?search=${encodeURIComponent(q)}`).then(r=>r.json()).then(j=> setCustomers(Array.isArray(j)?j:[])).catch(()=>{});
+    cachedFetch(`/api/customers?search=${encodeURIComponent(q)}`).then((j:any)=> setCustomers(Array.isArray(j)?j:[])).catch(()=>{});
   },[customerSearch]);
 
   const filtered = React.useMemo(()=>{
@@ -365,7 +380,7 @@ export default function PosPage(){
 
   const resumeHeld=async(sale:any)=>{
     try{
-      const r=await fetch(`/api/sales?id=${sale.id}`).then(rr=>rr.json());
+      const r:any = await cachedFetch(`/api/sales?id=${sale.id}`);
       const items:any[] = r.sale_items ?? r.items ?? sale.sale_items ?? [];
       // map to cart
       setCart(items.map((it:any)=>{

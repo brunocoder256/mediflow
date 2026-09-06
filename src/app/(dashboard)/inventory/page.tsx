@@ -12,6 +12,7 @@ import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Search, Download, RefreshCw, AlertTriangle, Clock, XCircle, ArrowUpDown, Package, TrendingUp, Layers, Scan, Truck, ClipboardList, History, WifiOff, Wifi, Eye, Plus, Minus, Trash2 } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
+import { cachedFetch } from "@/lib/offline/cached-fetch";
 
 type BatchRow = { id:string; product_id:string; branch_id:string; batch_number:string; quantity_available:number; quantity_received:number; purchase_price:number; selling_price:number; expiry_date:string; is_active:boolean; products:{name:string; generic_name?:string; sku?:string; barcode?:string; category_id?:string; reorder_level:number}; branches:{name:string}|null; suppliers?:{name:string}|null };
 
@@ -52,9 +53,7 @@ export default function InventoryPage() {
       const params = new URLSearchParams();
       if(branchFilter!=="all") params.set("branch_id", branchFilter);
       params.set("days", String(expiryThreshold));
-      const r=await fetch(`/api/inventory?${params.toString()}`);
-      if(!r.ok) throw new Error(await r.text());
-      const j=await r.json();
+      const j:any = await cachedFetch(`/api/inventory?${params.toString()}`);
       setData({stock: j.stock ?? [], lowStock: j.lowStock ?? [], expiring: j.expiring ?? [], expired: j.expired ?? [], valuation: j.inventoryValue ?? [], buckets: j.buckets ?? {}, kpi: j.kpi ?? {}});
     }catch(e:any){ setError(e.message); }
     setLoading(false);
@@ -63,13 +62,13 @@ export default function InventoryPage() {
 
   // branches & categories for filters
   React.useEffect(()=>{
-    fetch("/api/settings").then(r=>r.json()).then(j=>{ if(j.branches) setBranches(j.branches); }).catch(()=>{});
-    fetch("/api/categories").then(r=>r.json()).then(j=>{ if(Array.isArray(j)) setCategories(j); }).catch(()=>{});
+    cachedFetch("/api/settings").then((j:any)=>{ if(j.branches) setBranches(j.branches); }).catch(()=>{});
+    cachedFetch("/api/categories").then((j:any)=>{ if(Array.isArray(j)) setCategories(j); }).catch(()=>{});
   },[]);
   // stock counts, transfers, disposals for KPI + analytics
   React.useEffect(()=>{
-    fetch("/api/stock-counts").then(r=>r.json()).then(j=> setStockCounts(j.data ?? j ?? [])).catch(()=>{});
-    fetch("/api/transfers").then(r=>r.json()).then(j=> setTransfers(Array.isArray(j)? j : j.data ?? [])).catch(()=>{});
+    cachedFetch("/api/stock-counts").then((j:any)=> setStockCounts(j.data ?? j ?? [])).catch(()=>{});
+    cachedFetch("/api/transfers").then((j:any)=> setTransfers(Array.isArray(j)? j : j.data ?? [])).catch(()=>{});
     (async()=>{
       try{ const {createBrowserClient}=await import("@/lib/supabase/client"); const sb=createBrowserClient();
         const {data}=await (sb.from("disposals") as any).select("*, products(name), product_batches(batch_number)").order("created_at",{ascending:false}).limit(20);
@@ -98,7 +97,7 @@ export default function InventoryPage() {
   },[data.stock]);
   // movements for slow/dead stock (last sale per product)
   React.useEffect(()=>{
-    fetch("/api/stock-movements?perPage=200").then(r=>r.json()).then(j=> setAnalyticsMovements(j.data ?? [])).catch(()=>{});
+    cachedFetch("/api/stock-movements?perPage=200").then((j:any)=> setAnalyticsMovements(j.data ?? [])).catch(()=>{});
   },[]);
 
   const tabs = [
@@ -621,7 +620,7 @@ function MovementsTable({onSelect}:{onSelect:(m:any)=>void}){
   const [loadingM,setLoadingM]=React.useState(true);
   const [branch,setBranch]=React.useState("all");
   const [type,setType]=React.useState("all");
-  React.useEffect(()=>{ fetch("/api/stock-movements").then(r=>r.json()).then(j=>{ setRows(j.data ?? []); setLoadingM(false); }).catch(()=>setLoadingM(false)); },[]);
+  React.useEffect(()=>{ cachedFetch("/api/stock-movements").then((j:any)=>{ setRows(j.data ?? []); setLoadingM(false); }).catch(()=>setLoadingM(false)); },[]);
   const filtered=rows.filter(m=>{
     if(branch!=="all" && m.branch_id!==branch) return false;
     if(type!=="all" && m.movement_type!==type) return false;

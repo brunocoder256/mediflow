@@ -144,6 +144,15 @@ interface CachedCustomer {
   updated_at?: string;
 }
 
+// Generic offline read-cache: stores raw JSON responses keyed by API URL.
+interface DataCacheEntry {
+  id: string;
+  url: string;
+  payload: unknown;
+  cached_at: string;
+  stale_at?: string | null;
+}
+
 class MediFlowDB extends Dexie {
   products!: EntityTable<Product, "id">;
   batches!: EntityTable<Batch, "id">;
@@ -155,6 +164,7 @@ class MediFlowDB extends Dexie {
   cachedReturns!: EntityTable<CachedReturn, "id">;
   cachedExpenses!: EntityTable<CachedExpense, "id">;
   cachedCustomers!: EntityTable<CachedCustomer, "id">;
+  dataCache!: EntityTable<DataCacheEntry, "id">;
 
   constructor() {
     super("MediFlowDB");
@@ -232,9 +242,25 @@ class MediFlowDB extends Dexie {
     }).upgrade(async (tx) => {
       // v6 customers offline
     });
+
+    this.version(7).stores({
+      products: "id, organization_id, barcode",
+      batches: "id, product_id, branch_id, expiry_date",
+      cart: "id, organization_id, branch_id",
+      syncQueue: "id, operation_id, status",
+      pendingSales: "id, operation_id, status",
+      cachedPurchases: "id, branch_id, supplier_id, status, sync_status",
+      cachedSuppliers: "id, name, supplier_code, status, sync_status",
+      cachedReturns: "id, branch_id, return_type, status, sync_status",
+      cachedExpenses: "id, branch_id, expense_number, approval_status, payment_status, sync_status",
+      cachedCustomers: "id, customer_code, name, phone, email, branch_id, sync_status",
+      dataCache: "id, url, cached_at",
+    }).upgrade(async (tx) => {
+      // v7 generic read-cache (dataCache)
+    });
   }
 }
 
 export const db = new MediFlowDB();
 
-export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier, CachedReturn, CachedExpense, CachedCustomer };
+export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier, CachedReturn, CachedExpense, CachedCustomer, DataCacheEntry };

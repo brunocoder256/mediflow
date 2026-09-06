@@ -1,5 +1,15 @@
 // MediFlow Service Worker — offline shell, do not cache private data indiscriminately
-const CACHE_NAME = "mediflow-v2";
+// CACHING POLICY:
+//  - App shell (HTML + hashed static assets): network-first for navigations,
+//    cache-first for assets.
+//  - GET /api/* (idempotent read endpoints used by POS / inventory): network-first
+//    with Cache API fallback. The primary offline read-cache is the Dexie dataCache
+//    (see src/lib/offline/cached-fetch.ts); this SW copy is a safety net so any page
+//    still using plain fetch still gets a last-known snapshot when the network drops.
+//  - Non-GET (POST/PATCH/PUT/DELETE): never cached, never intercepted.
+//  - supabase / auth: never cached.
+const CACHE_NAME = "mediflow-v3";
+const API_CACHE_NAME = "mediflow-api-v1";
 const SHELL = ["/", "/offline", "/offline.html", "/manifest.json"];
 const OFFLINE_URL = "/offline";
 
@@ -7,13 +17,31 @@ self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", (event) => {
-  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME && k !== API_CACHE_NAME).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
-  // Never cache API or supabase auth
-  if (req.url.includes("/api/") || req.url.includes("supabase") || req.url.includes("/auth/")) return;
+  // Never cache supabase or auth
+  if (req.url.includes("supabase") || req.url.includes("/auth/")) return;
+
+  // GET /api/* read endpoints: network-first with Cache API fallback.
+  // Exclude the health probe — it must reflect true reachability, never a cache.
+  if (req.url.includes("/api/") && !req.url.includes("/api/health")) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res && res.status === 200) {
+            const clone = res.clone();
+            caches.open(API_CACHE_NAME).then((c) => c.put(req, clone));
+          }
+          return res;
+        })
+        .catch(() => caches.match(req).then((cached) => cached || caches.match(OFFLINE_URL)))
+    );
+    return;
+  }
+
   // Navigations: network-first so users always get the latest HTML when online,
   // and the cached copy never shadows a new deployment.
   if (req.mode === "navigate") {
