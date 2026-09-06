@@ -3,10 +3,9 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Search, ShoppingCart, Plus, Minus, Trash2, Banknote, CreditCard, Smartphone, Pause, Receipt as ReceiptIcon, WifiOff, Wifi, MapPin, RefreshCw, AlertTriangle, Clock, User, X, Eye, RotateCcw } from "lucide-react";
 import { Receipt, printReceipt } from "@/components/receipt";
@@ -593,25 +592,25 @@ export default function PosPage(){
     <div className="flex h-full flex-col overflow-y-auto pb-16 md:pb-0">
       {/* POS HEADER */}
       <div className="border-b bg-card">
-        <div className="flex flex-wrap gap-2 items-center justify-between px-2 sm:px-3 py-1.5 sm:py-2">
-          <div className="flex items-center gap-3">
-            <h1 className="font-bold text-base sm:text-lg">MediFlow POS</h1>
+        <div className="flex flex-wrap gap-1.5 sm:gap-2 items-center justify-between px-2 sm:px-3 py-1.5 sm:py-2">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <h1 className="font-bold text-sm sm:text-lg">MediFlow POS</h1>
             <span className="hidden sm:inline-flex items-center gap-1 text-sm text-muted-foreground"><MapPin className="h-4 w-4"/>{branches.find(b=>b.id===branchId)?.name ?? 'Select branch'}</span>
             <span className="hidden md:inline text-xs text-muted-foreground">Cashier — Register 01</span>
             {cashSession ? <Badge variant="secondary">Session OPEN</Badge> : <Badge variant="destructive">No cash session</Badge>}
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${!isOnline ? 'bg-amber-100 text-amber-800' : syncing ? 'bg-yellow-100 text-yellow-800' : syncError ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-700'}`}>
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+            <div className={`inline-flex items-center gap-1 sm:gap-1.5 rounded-full px-2 sm:px-3 py-0.5 sm:py-1 text-[10px] sm:text-xs font-medium ${!isOnline ? 'bg-amber-100 text-amber-800' : syncing ? 'bg-yellow-100 text-yellow-800' : syncError ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-700'}`}>
               {!isOnline ? <><WifiOff className="h-3 w-3"/> OFFLINE</> : syncing ? <><RefreshCw className="h-3 w-3 animate-spin"/> SYNCING</> : syncError ? <>🔴 SYNC ERROR</> : <><Wifi className="h-3 w-3"/> ONLINE</>}
             </div>
             {pendingCount>0 && <Badge variant="warning">{pendingCount} pending sync</Badge>}
             {failedCount>0 && <Badge variant="destructive">{failedCount} failed</Badge>}
-            {syncError ? <span className="text-xs text-destructive max-w-[180px] truncate" title={syncError}>{syncError}</span> : !isOnline && <span className="text-xs text-muted-foreground hidden sm:inline">Sales will sync when connection returns</span>}
+            {syncError ? <span className="text-xs text-destructive max-w-[120px] sm:max-w-[180px] truncate hidden sm:inline" title={syncError}>{syncError}</span> : !isOnline && <span className="text-xs text-muted-foreground hidden sm:inline">Sales will sync when connection returns</span>}
             {failedCount>0 && <a href="/sync" className="text-xs underline text-destructive">View in Sync Center →</a>}
           </div>
         </div>
         <div className="flex gap-2 px-2 py-1.5 border-t bg-muted/20 items-center flex-wrap">
-          <Select aria-label="Branch" value={branchId} onChange={e=>setBranchId(e.target.value)} className="w-[200px] sm:w-[220px]">
+          <Select aria-label="Branch" value={branchId} onChange={e=>setBranchId(e.target.value)} className="w-full max-w-[160px] sm:max-w-[220px]">
             <option value="">Select branch</option>
             {branches.map((b:any)=><option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}
           </Select>
@@ -623,8 +622,8 @@ export default function PosPage(){
         </div>
         {/* cash session banner */}
         {paymentMethod==='CASH' && !cashSession && branchId && (
-          <div className="bg-amber-50 border-t border-amber-200 text-amber-800 text-sm px-4 py-2 flex items-center justify-between">
-            <span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4"/> No active cash session for this branch — open a session before cash sales.</span>
+          <div className="bg-amber-50 border-t border-amber-200 text-amber-800 text-sm px-4 py-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0"/> No active cash session for this branch — open a session before cash sales.</span>
             <Button size="sm" variant="outline" onClick={()=> window.location.href='/cash'}>Open Cash Session</Button>
           </div>
         )}
@@ -643,7 +642,7 @@ export default function PosPage(){
       {/* MAIN LAYOUT: desktop two panes, mobile stacked */}
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
         {/* Left: search + products */}
-        <div className="md:flex-1 flex flex-col md:border-r min-h-0">
+        <div className="md:flex-1 flex flex-col md:border-r min-h-0 min-w-0">
           <div className="p-3 sm:p-4 border-b space-y-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/>
@@ -658,7 +657,7 @@ export default function PosPage(){
                   const top = displayList[0];
                   if(top){ addToCart(top); setSearchQuery(""); searchRef.current?.focus(); }
                 }
-              }} className="pl-9 pr-20" aria-label="Search products"/>
+              }} className="pl-9 pr-3 sm:pr-20" aria-label="Search products"/>
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hidden sm:inline border px-1.5 py-0.5 rounded bg-muted">Ctrl K</span>
             </div>
             <div className="flex gap-2 overflow-x-auto pb-1">
@@ -668,15 +667,15 @@ export default function PosPage(){
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-3 sm:p-4">
-            {loading ? <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">{[...Array(8)].map((_,i)=><Skeleton key={i} className="h-28 rounded-lg"/>)}</div>
+            {loading ? <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3">{[...Array(8)].map((_,i)=><Skeleton key={i} className="h-28 rounded-lg"/>)}</div>
             : usingCatalogSearch && <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">{remoteSearching ? <RefreshCw className="h-3.5 w-3.5 animate-spin"/> : <Search className="h-3.5 w-3.5"/>}{remoteSearching ? "Searching full catalog…" : `Matched ${displayList.length} from full catalog — not on this shelf. Tap or Enter to sell.`}</div>}
             {!loading && displayList.length===0 ? <div className="py-12 text-center text-muted-foreground"><Search className="h-10 w-10 mx-auto mb-3 opacity-30"/><p>Product not found</p><p className="text-sm">Try name, generic, brand, SKU or barcode</p></div>
-            : <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">{displayList.map(p=> <ProductCard key={p.id} product={p}/>)}</div>}
+            : <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3">{displayList.map(p=> <ProductCard key={p.id} product={p}/>)}</div>}
           </div>
         </div>
 
-        {/* Right: cart */}
-        <div className="w-full md:w-[380px] lg:w-[420px] flex flex-col bg-card border-t md:border-t-0">
+        {/* Right: cart — hidden on mobile, use bottom sheet instead */}
+        <div className="hidden md:flex md:w-[380px] lg:w-[420px] flex-col bg-card border-t md:border-t-0">
           <div className="px-3 sm:px-4 py-2 border-b flex items-center justify-between gap-2 shrink-0">
             <h2 className="font-semibold flex items-center gap-2"><ShoppingCart className="h-5 w-5"/>Cart ({totalItems} items)</h2>
             <div className="flex gap-1">
@@ -723,13 +722,13 @@ export default function PosPage(){
                           {lineDisc>0 && <p className="text-xs text-green-600">-{formatUGX(lineDisc)} discount</p>}
                         </div>
                       </div>
-                      <div className="flex gap-2 items-center">
-                        <Input placeholder="Discount" type="number" value={it.discount===0?'':String(it.discount)} onChange={e=>updateLineDiscount(it.product_id, e.target.value, it.discount_type)} className="h-8 text-xs flex-1" aria-label="Line discount"/>
-                        <Select value={it.discount_type??'fixed'} onChange={e=>updateLineDiscount(it.product_id, String(it.discount), e.target.value as any)} className="w-24 h-8 text-xs">
+                      <div className="flex gap-2 items-center flex-wrap">
+                        <Input placeholder="Discount" type="number" value={it.discount===0?'':String(it.discount)} onChange={e=>updateLineDiscount(it.product_id, e.target.value, it.discount_type)} className="h-8 text-xs min-w-0 basis-16 flex-1 md:flex-none md:basis-auto" aria-label="Line discount"/>
+                        <Select value={it.discount_type??'fixed'} onChange={e=>updateLineDiscount(it.product_id, String(it.discount), e.target.value as any)} className="w-20 md:w-24 h-8 text-xs">
                           <option value="fixed">UGX</option>
                           <option value="percent">%</option>
                         </Select>
-                        <Button variant="ghost" size="sm" onClick={()=>setShowBatch(it)} className="h-8 text-xs"><Eye className="h-3 w-3 mr-1"/>Batch</Button>
+                        <Button variant="ghost" size="sm" onClick={()=>setShowBatch(it)} className="h-8 text-xs px-2 ml-auto"><Eye className="h-3 w-3 md:mr-1"/>Batch</Button>
                       </div>
                     </div>
                   );
@@ -767,29 +766,99 @@ export default function PosPage(){
         </div>
       </div>
 
-      {/* Mobile cart sheet trigger - fixed bottom */}
-      <div className="md:hidden fixed bottom-0 inset-x-0 z-20 bg-card border-t px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-3">
-        <div className="flex-1"><p className="text-sm font-medium">{totalItems} items</p><p className="font-bold">{formatUGX(totalAfterSaleDisc)}</p></div>
-        <Sheet open={showMobilePay} onOpenChange={setShowMobilePay}><Button className="flex-1" size="lg" disabled={!cart.length} onClick={()=>setShowMobilePay(true)}><ShoppingCart className="h-5 w-5 mr-2"/>Complete Sale</Button>
-          <SheetContent side="bottom" className="h-[85vh] overflow-y-auto">
-            <SheetHeader><SheetTitle>Complete Sale — {formatUGX(totalAfterSaleDisc)}</SheetTitle></SheetHeader>
-            <div className="mt-4 space-y-4">
-              <div className="flex gap-2">
-                <Button variant={paymentMethod==='CASH'?"default":"outline"} className="flex-1" onClick={()=>setPaymentMethod('CASH')}><Banknote className="h-4 w-4 mr-1"/>Cash</Button>
-                <Button variant={paymentMethod==='MOBILE_MONEY'?"default":"outline"} className="flex-1" onClick={()=>setPaymentMethod('MOBILE_MONEY')}><Smartphone className="h-4 w-4 mr-1"/>Mobile</Button>
-                <Button variant={paymentMethod==='CARD'?"default":"outline"} className="flex-1" onClick={()=>setPaymentMethod('CARD')}><CreditCard className="h-4 w-4 mr-1"/>Card</Button>
+      {/* Mobile cart bar + sheet — fixed bottom */}
+      <div className="md:hidden fixed bottom-0 inset-x-0 z-20 bg-card border-t px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-muted-foreground">{totalItems} item{totalItems!==1?'s':''}</p>
+          <p className="font-bold text-sm truncate">{formatUGX(totalAfterSaleDisc)}</p>
+        </div>
+        <Sheet open={showMobilePay} onOpenChange={setShowMobilePay}>
+          <Button size="sm" disabled={!cart.length} onClick={()=>setShowMobilePay(true)} className="shrink-0">
+            <ShoppingCart className="h-4 w-4 mr-1"/>View Cart
+          </Button>
+          <SheetContent side="bottom" className="h-[92dvh] flex flex-col">
+            <div className="pb-3 pr-10 border-b shrink-0 flex items-center justify-between gap-2">
+              <SheetTitle className="text-base">Cart ({totalItems} items)</SheetTitle>
+              <div className="flex items-center gap-1.5">
+                <Button variant="outline" size="sm" className="h-8 text-xs" onClick={hold} disabled={!cart.length}><Pause className="h-3.5 w-3.5 mr-1"/>Hold</Button>
+                <Button variant="ghost" size="sm" className="h-8 w-8 text-destructive p-0" onClick={()=> cart.length && setShowClear(true)} disabled={!cart.length}><Trash2 className="h-3.5 w-3.5"/></Button>
+                {held.length>0 && <Button size="sm" variant="outline" className="h-8 text-xs" onClick={()=>{ setShowMobilePay(false); setShowHeld(true); }}><Clock className="h-3.5 w-3.5 mr-1"/>{held.length}</Button>}
               </div>
-              {paymentMethod==='CASH' ? (
-                <div className="space-y-2">
-                  <Input placeholder="Amount received" type="number" value={amountReceived} onChange={e=>setAmountReceived(e.target.value)} autoFocus/>
-                  <p className="text-sm flex justify-between"><span>Change</span><span className="font-bold text-green-600">{formatUGX(change)}</span></p>
-                  {amountReceived && Number(amountReceived) < totalAfterSaleDisc && <p className="text-sm text-destructive">Received &lt; Total</p>}
-                </div>
-              ) : (
-                <Input placeholder="Transaction reference" value={paymentRef} onChange={e=>setPaymentRef(e.target.value)} />
-              )}
-              <Button className="w-full" size="lg" disabled={!canPay} onClick={checkout}>{busy?"Processing...":"Complete Sale"}</Button>
             </div>
+            {/* Scrollable cart */}
+            <div className="flex-1 overflow-y-auto py-2 space-y-2 min-h-0">
+              {/* customer selector */}
+              <button onClick={()=>setShowCustomer(true)} className="flex items-center gap-2 text-sm w-full text-left py-1.5 rounded hover:bg-accent">
+                <User className="h-4 w-4 text-muted-foreground shrink-0"/>
+                <span className="truncate">{selectedCustomer ? `${selectedCustomer.name}${selectedCustomer.phone ? ' · '+selectedCustomer.phone : ''}` : 'Walk-in Customer'}</span>
+                <Badge variant="outline" className="ml-auto shrink-0">Change</Badge>
+              </button>
+              {cart.length===0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-8">
+                  <ShoppingCart className="h-10 w-10 mb-2 opacity-20"/><p>Cart empty</p>
+                </div>
+              ) : cart.map(it=>{
+                const p=products.find(pp=>pp.id===it.product_id);
+                const lineDisc = it.discount_type==='percent' ? Math.round(it.quantity*it.unit_price*it.discount/100*100)/100 : it.discount;
+                const lineTotal = Math.round((it.quantity*it.unit_price - lineDisc)*100)/100;
+                return (
+                  <div key={it.product_id} className="flex flex-col gap-1.5 p-2 rounded-lg border bg-background">
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">{it.name}</p>
+                        {it.generic && <p className="text-xs text-muted-foreground truncate">{it.generic}</p>}
+                        <p className="text-xs text-muted-foreground">{formatUGX(it.unit_price)} each {p?.fefo_batch ? `· FEFO ${p.fefo_batch.batch_number} · Exp ${new Date(p.fefo_batch.expiry_date).toLocaleDateString()}`:''}</p>
+                        {p?.expiry_status==='near' && <p className="text-xs text-amber-600 flex items-center gap-1"><Clock className="h-3 w-3"/> Expires in {p.near_expiry_days}d</p>}
+                      </div>
+                      <p className="font-medium text-sm shrink-0">{formatUGX(lineTotal)}</p>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive shrink-0" onClick={()=>removeItem(it.product_id)}><Trash2 className="h-3.5 w-3.5"/></Button>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={()=>updateQty(it.product_id,-1)}><Minus className="h-3.5 w-3.5"/></Button>
+                      <Input value={it.quantity} onChange={e=>updateQtyDirect(it.product_id, e.target.value)} className="w-12 text-center h-7 text-sm"/>
+                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={()=>updateQty(it.product_id,1)}><Plus className="h-3.5 w-3.5"/></Button>
+                      <span className="ml-auto text-xs text-muted-foreground">{formatUGX(it.unit_price)} x {it.quantity}</span>
+                    </div>
+                    <div className="flex gap-1.5 items-center">
+                      <Input placeholder="Discount" type="number" value={it.discount===0?'':String(it.discount)} onChange={e=>updateLineDiscount(it.product_id, e.target.value, it.discount_type)} className="h-7 text-xs min-w-0 flex-1" aria-label="Line discount"/>
+                      <Select value={it.discount_type??'fixed'} onChange={e=>updateLineDiscount(it.product_id, String(it.discount), e.target.value as any)} className="w-16 h-7 text-xs">
+                        <option value="fixed">UGX</option>
+                        <option value="percent">%</option>
+                      </Select>
+                      <Button variant="ghost" size="sm" onClick={()=>setShowBatch(it)} className="h-7 text-xs px-2"><Eye className="h-3.5 w-3.5 mr-1"/>Batch</Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Sticky totals + payment + checkout */}
+            {cart.length>0 && (
+              <div className="border-t pt-3 space-y-2.5 shrink-0">
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatUGX(subtotal)}</span></div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground text-xs shrink-0">Sale discount</span>
+                    <Input type="number" value={saleDiscount===0?'':String(saleDiscount)} onChange={e=>setSaleDiscount(Number(e.target.value)||0)} placeholder="0" className="w-20 h-8 text-right text-sm"/>
+                  </div>
+                  <div className="flex justify-between font-bold text-base border-t pt-1"><span>TOTAL</span><span>{formatUGX(totalAfterSaleDisc)}</span></div>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <Button variant={paymentMethod==='CASH'?"default":"outline"} size="sm" className="text-xs h-8" onClick={()=>setPaymentMethod('CASH')}><Banknote className="h-3.5 w-3.5 mr-1"/>Cash</Button>
+                  <Button variant={paymentMethod==='MOBILE_MONEY'?"default":"outline"} size="sm" className="text-xs h-8" onClick={()=>setPaymentMethod('MOBILE_MONEY')}><Smartphone className="h-3.5 w-3.5 mr-1"/>Mobile</Button>
+                  <Button variant={paymentMethod==='CARD'?"default":"outline"} size="sm" className="text-xs h-8" onClick={()=>setPaymentMethod('CARD')}><CreditCard className="h-3.5 w-3.5 mr-1"/>Card</Button>
+                </div>
+                {paymentMethod==='CASH' ? (
+                  <div className="space-y-1.5">
+                    <Input placeholder="Amount received" type="number" value={amountReceived} onChange={e=>setAmountReceived(e.target.value)} className="h-9"/>
+                    {amountReceived && <p className="text-xs flex justify-between"><span className="text-muted-foreground">Change</span><span className="font-bold text-green-600">{formatUGX(change)}</span></p>}
+                  </div>
+                ) : (
+                  <Input placeholder="Transaction reference" value={paymentRef} onChange={e=>setPaymentRef(e.target.value)} className="h-9"/>
+                )}
+                <Button className="w-full h-11 text-sm font-semibold" disabled={!canPay} onClick={()=>{ checkout(); }}>{busy?"Processing...":`Complete Sale — ${formatUGX(totalAfterSaleDisc)}`}</Button>
+                <div className="h-[env(safe-area-inset-bottom)]" />
+              </div>
+            )}
           </SheetContent>
         </Sheet>
       </div>
