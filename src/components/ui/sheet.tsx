@@ -105,7 +105,7 @@ function SheetContent({ className, children, side = 'right', ...props }: SheetCo
         role="dialog"
         aria-modal="true"
         className={cn(
-          'fixed z-50 gap-4 bg-background p-6 shadow-lg transition ease-in-out',
+          'fixed z-50 gap-4 bg-card text-card-foreground p-6 shadow-lg transition ease-in-out',
           sideStyles[side],
           className
         )}
