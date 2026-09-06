@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getTransfers, createTransfer, requestTransfer, approveTransfer, shipTransfer, receiveTransfer } from '@/lib/services/transfers';
+import { getTransfers, getTransferCapabilities, createTransfer, requestTransfer, approveTransfer, shipTransfer, receiveTransfer, cancelTransfer } from '@/lib/services/transfers';
 import { z } from 'zod/v4';
 
 export async function GET(req: Request){
   try{
     const p=new URL(req.url).searchParams;
+    if(p.get('capabilities') === '1'){
+      return NextResponse.json(await getTransferCapabilities());
+    }
     const data=await getTransfers({ branch_id: p.get('branch_id') ?? undefined, status: p.get('status') ?? undefined });
     return NextResponse.json(data);
   }catch(e:any){ return NextResponse.json({error:e.message},{status:500}); }
@@ -22,6 +25,7 @@ export async function POST(req: Request){
     if(body.action==='request') return NextResponse.json(await requestTransfer(body.id));
     if(body.action==='ship') return NextResponse.json(await shipTransfer(body.id));
     if(body.action==='receive') return NextResponse.json(await receiveTransfer(body.id));
+    if(body.action==='cancel') return NextResponse.json(await cancelTransfer(body.id));
     const parsed=CreateSchema.parse(body);
     const data=await createTransfer(parsed as any);
     return NextResponse.json(data,{status:201});

@@ -70,6 +70,10 @@ export async function createSaleTransaction(input:{
   const allowed=await getUserBranches();
   if(!allowed.includes(input.branch_id)) throw new Error('Unauthorized branch');
 
+  // A sale may only be posted to an active branch (RPC + trigger also enforce).
+  const { data: branchRec } = await sb.from('branches').select('is_active').eq('id', input.branch_id).single();
+  if (!branchRec?.is_active) throw new Error('Branch is inactive - cannot sell');
+
   // idempotency (also handled inside RPC)
   if(input.operation_id){
     const {data: existing}=await sb.from('sales').select('id, sale_number, status').eq('operation_id', input.operation_id).maybeSingle();

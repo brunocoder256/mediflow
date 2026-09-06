@@ -49,9 +49,29 @@ export async function PATCH(req: Request) {
     if (!prof) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     const canManage = await hasPermission(sb, prof.id, prof.organization_id, 'settings.manage_branches');
     if (!canManage) return NextResponse.json({ error: 'Forbidden: manage_branches permission required' }, { status: 403 });
-    const { data, error } = await sb.from('branches').update(patch).eq('id', id).select().single();
+
+    const allowed = ['name', 'code', 'phone', 'address', 'is_active'];
+    const clean: any = {};
+    for (const k of allowed) if (patch[k] !== undefined) clean[k] = patch[k];
+    if (!Object.keys(clean).length) return NextResponse.json({ error: 'No editable fields provided' }, { status: 400 });
+
+    // Block deactivating the last active branch (would freeze the whole org).
+    if (clean.is_active === false) {
+      const { data: activeBranches } = await sb
+        .from('branches')
+        .select('id')
+        .eq('organization_id', prof.organization_id)
+        .eq('is_active', true)
+        .neq('id', id);
+      if (!(activeBranches ?? []).length) {
+        return NextResponse.json({ error: 'Cannot deactivate the last active branch' }, { status: 409 });
+      }
+    }
+
+    // Writes must be scoped to the caller's own org.
+    const { data, error } = await sb.from('branches').update({ ...clean, updated_at: new Date().toISOString() }).eq('id', id).eq('organization_id', prof.organization_id).select().single();
     if (error) throw new Error(error.message);
-    await sb.from('audit_logs').insert({ action: 'BRANCH_EDITED', entity_type: 'branches', entity_id: id, old_values: {}, new_values: patch, created_by: prof.id });
+    await sb.from('audit_logs').insert({ action: 'BRANCH_EDITED', entity_type: 'branches', entity_id: id, old_values: {}, new_values: clean, created_by: prof.id });
     return NextResponse.json(data);
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 400 });
