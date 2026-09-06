@@ -3,6 +3,15 @@
 import * as React from "react";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
+import { useOnlineStatus } from "@/hooks/use-online-status";
+import { cachedFetch } from "@/lib/offline/cached-fetch";
+import {
+  queueCashRegisterCreate,
+  queueCashSessionOpen,
+  queueCashSessionAction,
+  queueCashMovement,
+} from "@/lib/offline/sync";
+import { invalidateCache } from "@/lib/offline/cached-fetch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -84,6 +93,7 @@ const STATUS = "status=OPEN,APPROVAL_REQUIRED,CLOSED,APPROVED,CLOSING";
 
 export default function CashPage() {
   const { toast } = useToast();
+  const { isOnline } = useOnlineStatus();
   const [branches, setBranches] = React.useState<any[]>([]);
   const [branchId, setBranchId] = React.useState("");
   const [registers, setRegisters] = React.useState<any[]>([]);
@@ -119,19 +129,19 @@ export default function CashPage() {
     if (showLoader) setLoading(true);
     try {
       const [regRes, curRes, histRes] = await Promise.all([
-        fetch(`/api/cash/registers?branch_id=${bId}`).then((r) => r.json()),
-        fetch(`/api/cash/sessions?current=true&branch_id=${bId}`).then((r) => r.json()),
-        fetch(`/api/cash/sessions?branch_id=${bId}&page=1&perPage=${perPage}`).then((r) => r.json()),
+        cachedFetch(`/api/cash/registers?branch_id=${bId}`),
+        cachedFetch(`/api/cash/sessions?current=true&branch_id=${bId}`),
+        cachedFetch(`/api/cash/sessions?branch_id=${bId}&page=1&perPage=${perPage}`),
       ]);
-      setRegisters(Array.isArray(regRes) ? regRes : regRes.data ?? []);
-      setCurrent(curRes ?? null);
-      if (curRes?.id) {
-        const s = await fetch(`/api/cash/sessions?summary=${curRes.id}`).then((r) => r.json());
-        setSummary(s ?? null);
+      setRegisters(Array.isArray(regRes) ? regRes : (regRes as any)?.data ?? []);
+      setCurrent((curRes as any) ?? null);
+      if ((curRes as any)?.id) {
+        const s = await cachedFetch(`/api/cash/sessions?summary=${(curRes as any).id}`);
+        setSummary((s as any) ?? null);
       } else {
         setSummary(null);
       }
-      setHistory({ data: histRes.data ?? [], count: histRes.count ?? 0 });
+      setHistory({ data: (histRes as any)?.data ?? [], count: (histRes as any)?.count ?? 0 });
     } catch {
       setCurrent(null);
       setSummary(null);
@@ -141,10 +151,9 @@ export default function CashPage() {
   }, [perPage]);
 
   React.useEffect(() => {
-    fetch("/api/settings")
-      .then((r) => r.json())
-      .then((j) => {
-        const br = j.branches ?? [];
+    cachedFetch("/api/settings")
+      .then((j: any) => {
+        const br = j?.branches ?? [];
         setBranches(br);
         if (br[0]) setBranchId(br[0].id);
       })
@@ -157,9 +166,8 @@ export default function CashPage() {
 
   React.useEffect(() => {
     if (branchId) {
-      fetch(`/api/cash/sessions?branch_id=${branchId}&page=${page}&perPage=${perPage}`)
-        .then((r) => r.json())
-        .then((j) => setHistory({ data: j.data ?? [], count: j.count ?? 0 }))
+      cachedFetch(`/api/cash/sessions?branch_id=${branchId}&page=${page}&perPage=${perPage}`)
+        .then((j: any) => setHistory({ data: j?.data ?? [], count: j?.count ?? 0 }))
         .catch(() => {});
     }
   }, [page, branchId, perPage]);
@@ -172,22 +180,31 @@ export default function CashPage() {
     }
     setBusy("open");
     try {
+      const body = {
+        action: "open",
+        register_id: openForm.register_id,
+        branch_id: branchId,
+        opening_float: Number(openForm.opening_float),
+        notes: openForm.notes || null,
+      };
+      if (!isOnline) {
+        await queueCashSessionOpen(body);
+        blast("Cash session queued offline", `Will open the register and sync when you reconnect. You can still record cash sales in POS offline.`);
+        setShowOpen(false);
+        setOpenForm({ register_id: "", opening_float: "", notes: "" });
+        return;
+      }
       const r = await fetch("/api/cash/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "open",
-          register_id: openForm.register_id,
-          branch_id: branchId,
-          opening_float: Number(openForm.opening_float),
-          notes: openForm.notes || null,
-        }),
+        body: JSON.stringify(body),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Failed to open session");
       blast(`Cash session opened`, `Register ${registers.find((x) => x.id === openForm.register_id)?.name ?? ""} · opening float ${fmt(Number(openForm.opening_float))}. You can now take cash sales in POS.`);
       setShowOpen(false);
       setOpenForm({ register_id: "", opening_float: "", notes: "" });
+      invalidateCache("/api/cash/sessions");
       refresh(branchId);
     } catch (e: any) {
       failToast("Could not open session", e.message);
@@ -203,10 +220,18 @@ export default function CashPage() {
     }
     setBusy("register");
     try {
+      const body = { branch_id: branchId, name: regForm.name.trim(), code: regForm.code.trim() };
+      if (!isOnline) {
+        await queueCashRegisterCreate(body);
+        setShowRegister(false);
+        setRegForm({ name: "", code: "" });
+        blast("Cash register queued offline", "It will be created when you reconnect.");
+        return;
+      }
       const r = await fetch("/api/cash/registers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ branch_id: branchId, name: regForm.name.trim(), code: regForm.code.trim() }),
+        body: JSON.stringify(body),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Failed to create register");
@@ -215,6 +240,7 @@ export default function CashPage() {
       setOpenForm((f) => ({ ...f, register_id: j.id }));
       setShowRegister(false);
       setRegForm({ name: "", code: "" });
+      invalidateCache(`/api/cash/registers?branch_id=${branchId}`);
       blast("Cash register created", `${j.name} (${j.code})`);
     } catch (e: any) {
       failToast("Could not create register", e.message);
@@ -231,15 +257,27 @@ export default function CashPage() {
     }
     setBusy("close");
     try {
+      const body = {
+        action: "close",
+        session_id: current.id,
+        closing_cash: Number(closeForm.closing_cash),
+        notes: closeForm.notes || null,
+      };
+      if (!isOnline) {
+        await queueCashSessionAction(body);
+        setShowClose(false);
+        setCloseForm({ closing_cash: "", notes: "" });
+        toast({
+          title: "Session close queued offline",
+          description: "The closure (and any variance approval) will be processed when you reconnect.",
+          variant: "warning",
+        });
+        return;
+      }
       const r = await fetch("/api/cash/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "close",
-          session_id: current.id,
-          closing_cash: Number(closeForm.closing_cash),
-          notes: closeForm.notes || null,
-        }),
+        body: JSON.stringify(body),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Failed to close session");
@@ -254,6 +292,7 @@ export default function CashPage() {
       } else {
         blast("Cash session closed", `Closing cash ${fmt(Number(closeForm.closing_cash))} · variance ${fmt(j.cash_variance)}`);
       }
+      invalidateCache("/api/cash/sessions");
       refresh(branchId);
     } catch (e: any) {
       failToast("Could not close session", e.message);
@@ -270,23 +309,33 @@ export default function CashPage() {
     }
     setBusy("move");
     try {
+      const body = {
+        action: "movement",
+        session_id: current.id,
+        branch_id: branchId,
+        type: moveType,
+        amount: Number(moveForm.amount),
+        direction: moveType === "CASH_IN" ? "IN" : "OUT",
+        reason: moveForm.reason || null,
+      };
+      if (!isOnline) {
+        await queueCashMovement(body);
+        setShowMove(false);
+        setMoveForm({ amount: "", reason: "" });
+        blast("Movement queued offline", `${moveType} ${fmt(Number(moveForm.amount))} will sync when you reconnect.`);
+        return;
+      }
       const r = await fetch("/api/cash/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "movement",
-          session_id: current.id,
-          type: moveType,
-          amount: Number(moveForm.amount),
-          direction: moveType === "CASH_IN" ? "IN" : "OUT",
-          reason: moveForm.reason || null,
-        }),
+        body: JSON.stringify(body),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Failed to record movement");
       setShowMove(false);
       setMoveForm({ amount: "", reason: "" });
       blast("Movement recorded", `${moveType} ${fmt(Number(moveForm.amount))}`);
+      invalidateCache(`/api/cash/sessions?summary=${current.id}`);
       refresh(branchId);
     } catch (e: any) {
       failToast("Could not record movement", e.message);
@@ -299,15 +348,23 @@ export default function CashPage() {
     if (!approveTarget) return;
     setBusy("approve");
     try {
+      const body = { action: "approve", session_id: approveTarget.id };
+      if (!isOnline) {
+        await queueCashSessionAction(body);
+        setApproveTarget(null);
+        blast("Approval queued offline", "The session approval will sync when you reconnect.");
+        return;
+      }
       const r = await fetch("/api/cash/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "approve", session_id: approveTarget.id }),
+        body: JSON.stringify(body),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Failed to approve");
       blast(`Session ${approveTarget.id.slice(0, 8)} approved`);
       setApproveTarget(null);
+      invalidateCache("/api/cash/sessions");
       refresh(branchId);
     } catch (e: any) {
       failToast("Could not approve session", e.message);
@@ -320,6 +377,11 @@ export default function CashPage() {
 
   return (
     <div className="space-y-6">
+      {!isOnline && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          You are offline. Cash actions you take now (open sessions, movements, close, approval) will be saved locally and synced automatically when you reconnect.
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">

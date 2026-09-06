@@ -1,5 +1,8 @@
 "use client";
 import * as React from "react";
+import { useOnlineStatus } from "@/hooks/use-online-status";
+import { cachedFetch, invalidateCache } from "@/lib/offline/cached-fetch";
+import { queueProductCreate, queueProductUpdate, queueProductToggle } from "@/lib/offline/sync";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +50,7 @@ function ExpiryRisk({qty}:{qty:number}){
 }
 
 export default function ProductsPage(){
+  const { isOnline } = useOnlineStatus();
   const [products,setProducts]=React.useState<ProductRow[]>([]);
   const [loading,setLoading]=React.useState(true);
   const [searchQuery,setSearchQuery]=React.useState("");
@@ -150,16 +154,16 @@ export default function ProductsPage(){
       if(expiringOnly) params.set("expiring","true");
       params.set("page", String(page)); params.set("perPage", String(perPage));
       const [prodRes, invRes]=await Promise.all([
-        fetch(`/api/products?${params.toString()}`).then(r=>r.json()),
-        fetch(`/api/inventory`).then(r=>r.json()).catch(()=>({stock:[]})),
+        cachedFetch(`/api/products?${params.toString()}`),
+        cachedFetch(`/api/inventory`).catch(()=>({stock:[]})),
       ]);
       let list:any[]=[]; let count=0;
       if(Array.isArray(prodRes)) { list=prodRes; count=prodRes.length; }
-      else if(prodRes.data){ list=prodRes.data; count=prodRes.count ?? list.length; }
-      else if(prodRes.error) throw new Error(prodRes.error);
+      else if((prodRes as any).data){ list=(prodRes as any).data; count=(prodRes as any).count ?? list.length; }
+      else if((prodRes as any).error) throw new Error((prodRes as any).error);
 
       // stock enrichment (single source of truth: product_batches)
-      const stockRows:any[] = invRes.stock ?? [];
+      const stockRows:any[] = (invRes as any)?.stock ?? [];
       const map:Record<string,{total:number, expiring:number, batches:any[]}> = {};
       const now=new Date();
       for(const b of stockRows){
@@ -228,6 +232,17 @@ export default function ProductsPage(){
       if(!editingId && form.opening_enabled && Number(form.opening_quantity)>0){
         payload.initial_stock = { quantity: Number(form.opening_quantity), batch_number: form.opening_batch_number.trim(), expiry_date: form.opening_expiry_date || undefined };
       }
+      if (!isOnline) {
+        if (editingId) {
+          await queueProductUpdate(editingId, payload);
+        } else {
+          await queueProductCreate(payload);
+        }
+        setShowAdd(false); setAddStep(1); setEditingId(null);
+        setForm({ name:"", generic_name:"", brand_name:"", sku:"", barcode:"", product_type:"Human Medicine", category_id:"", unit_id:"", description:"", alternative_names:"", strength:"", strength_unit:"", dosage_form:"", route:"", pack_size:"", units_per_pack:"", manufacturer:"", country_of_origin:"", registration_number:"", classification:"OTC", reorder_level:10, min_stock:0, max_stock:"", reorder_quantity:"", storage_location:"", shelf:"", rack:"", bin:"", track_batch:true, track_expiry:true, fefo_enabled:true, allow_negative_stock:false, default_purchase_cost:"", default_selling_price:"", min_selling_price:"", tax_category:"standard", tax_inclusive:false, preferred_supplier_id:"", supplier_product_code:"", opening_enabled:true, opening_quantity:"", opening_batch_number:"", opening_expiry_date:twoYearsFromNow });
+        alert(editingId ? "Product update queued offline — will sync when you reconnect." : "Product queued offline — will be created when you reconnect.");
+        return;
+      }
       const method = editingId ? "PATCH" : "POST";
       const body = editingId ? { id: editingId, ...payload } : payload;
       const res=await fetch("/api/products", { method, headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
@@ -235,6 +250,8 @@ export default function ProductsPage(){
       if(!res.ok) throw new Error(j.error || "Failed");
       setShowAdd(false); setAddStep(1); setEditingId(null);
       setForm({ name:"", generic_name:"", brand_name:"", sku:"", barcode:"", product_type:"Human Medicine", category_id:"", unit_id:"", description:"", alternative_names:"", strength:"", strength_unit:"", dosage_form:"", route:"", pack_size:"", units_per_pack:"", manufacturer:"", country_of_origin:"", registration_number:"", classification:"OTC", reorder_level:10, min_stock:0, max_stock:"", reorder_quantity:"", storage_location:"", shelf:"", rack:"", bin:"", track_batch:true, track_expiry:true, fefo_enabled:true, allow_negative_stock:false, default_purchase_cost:"", default_selling_price:"", min_selling_price:"", tax_category:"standard", tax_inclusive:false, preferred_supplier_id:"", supplier_product_code:"", opening_enabled:true, opening_quantity:"", opening_batch_number:"", opening_expiry_date:twoYearsFromNow });
+      invalidateCache("/api/products");
+      invalidateCache("/api/inventory");
       fetchProducts();
       if(editingId) alert("Product updated");
     }catch(e:any){ alert(e.message); } finally{ setSaving(false); }
@@ -243,16 +260,22 @@ export default function ProductsPage(){
   async function openDetail(id:string){
     setDetailId(id); setShowDetail(true);
     try{
-      const res=await fetch(`/api/products?id=${id}`).then(r=>r.json());
+      const res:any=await cachedFetch(`/api/products?id=${id}`);
       setDetail(res && res.product ? res : null);
     }catch{ setDetail(null); }
   }
   async function handleDeactivate(id:string, active:boolean){
     if(!confirm(active ? "Deactivate product? Historical transactions remain intact." : "Reactivate product?")) return;
     const action= active ? "deactivate" : "reactivate";
+    if (!isOnline) {
+      await queueProductToggle(id, active);
+      alert(active ? "Deactivation queued offline — will sync when you reconnect." : "Reactivation queued offline — will sync when you reconnect.");
+      return;
+    }
     const res=await fetch("/api/products", {method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id, action})});
     const j=await res.json();
     if(!res.ok) return alert(j.error);
+    invalidateCache("/api/products");
     fetchProducts();
   }
 
@@ -325,6 +348,14 @@ export default function ProductsPage(){
       }
     }
     const rowsForImport=payload.map(p=>({ name:p.name, sku:p.sku, barcode:p.barcode, category_id: /^[0-9a-f]{8}-/.test(catMap.get((p.category||"").toLowerCase())||"") ? catMap.get((p.category||"").toLowerCase())||"" : "", generic_name:p.generic_name, brand_name:p.brand_name, dosage_form:p.dosage_form, strength:p.strength, strength_unit:p.strength_unit, pack_size:p.pack_size, manufacturer:p.manufacturer, reorder_level:p.reorder_level, min_stock:p.min_stock, max_stock:p.max_stock, default_selling_price:p.selling_price, default_purchase_cost:p.purchase_cost }));
+    if (!isOnline) {
+      for (const row of rowsForImport) {
+        await queueProductCreate(row as any);
+      }
+      alert(`${rowsForImport.length} product(s) queued offline — will be imported when you reconnect.`);
+      setShowImport(false); setImportRows([]); setImportErrors([]);
+      return;
+    }
     const res=await fetch("/api/products", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({action:"bulk_import", rows: rowsForImport})});
     const j=await res.json();
     alert(`Imported ${j.success} succeeded, ${j.failed} failed`);
@@ -338,6 +369,11 @@ export default function ProductsPage(){
 
   return (
     <div className="space-y-6">
+      {!isOnline && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          You are offline. Product changes (add, edit, deactivate) will be saved locally and synced automatically when you reconnect. You can continue viewing the last-synced catalog.
+        </div>
+      )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><Package className="h-6 w-6"/>Products</h1>

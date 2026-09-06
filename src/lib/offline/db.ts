@@ -144,6 +144,70 @@ interface CachedCustomer {
   updated_at?: string;
 }
 
+// Offline cash register cache (mirrors cash_registers)
+interface CachedCashRegister {
+  id: string;
+  branch_id: string;
+  name: string;
+  code: string;
+  is_active?: boolean;
+  payload: Record<string, unknown>;
+  sync_status: "synced" | "pending" | "failed" | "pending_sync";
+  operation_id?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+// Offline cash session (packaged so the page can render and Reflect writes locally)
+interface CachedCashSession {
+  id: string;
+  register_id: string;
+  branch_id: string;
+  cashier_id: string;
+  status: "OPEN" | "CLOSING" | "CLOSED" | "APPROVAL_REQUIRED" | "APPROVED";
+  opening_float: number;
+  expected_cash: number | null;
+  closing_cash: number | null;
+  cash_variance: number | null;
+  opened_at: string;
+  closed_at: string | null;
+  notes: string | null;
+  payload: Record<string, unknown>;
+  sync_status: "synced" | "pending" | "failed" | "pending_sync";
+  operation_id?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+// Offline cash movements (CASH_IN / CASH_OUT recorded offline)
+interface CachedCashMovement {
+  id: string;
+  session_id: string;
+  branch_id: string;
+  type: string;
+  direction: "IN" | "OUT";
+  amount: number;
+  reason?: string | null;
+  payload: Record<string, unknown>;
+  sync_status: "synced" | "pending" | "failed" | "pending_sync";
+  operation_id?: string | null;
+  created_at: string;
+}
+
+// Offline product master (create/update products offline)
+interface CachedProduct {
+  id: string;
+  name: string;
+  sku?: string | null;
+  barcode?: string | null;
+  is_active?: boolean;
+  payload: Record<string, unknown>;
+  sync_status: "synced" | "pending" | "failed" | "pending_sync";
+  operation_id?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
 // Generic offline read-cache: stores raw JSON responses keyed by API URL.
 interface DataCacheEntry {
   id: string;
@@ -165,6 +229,10 @@ class MediFlowDB extends Dexie {
   cachedExpenses!: EntityTable<CachedExpense, "id">;
   cachedCustomers!: EntityTable<CachedCustomer, "id">;
   dataCache!: EntityTable<DataCacheEntry, "id">;
+  cachedCashRegisters!: EntityTable<CachedCashRegister, "id">;
+  cachedCashSessions!: EntityTable<CachedCashSession, "id">;
+  cachedCashMovements!: EntityTable<CachedCashMovement, "id">;
+  cachedProducts!: EntityTable<CachedProduct, "id">;
 
   constructor() {
     super("MediFlowDB");
@@ -258,9 +326,29 @@ class MediFlowDB extends Dexie {
     }).upgrade(async (tx) => {
       // v7 generic read-cache (dataCache)
     });
+
+    this.version(8).stores({
+      products: "id, organization_id, barcode",
+      batches: "id, product_id, branch_id, expiry_date",
+      cart: "id, organization_id, branch_id",
+      syncQueue: "id, operation_id, status",
+      pendingSales: "id, operation_id, status",
+      cachedPurchases: "id, branch_id, supplier_id, status, sync_status",
+      cachedSuppliers: "id, name, supplier_code, status, sync_status",
+      cachedReturns: "id, branch_id, return_type, status, sync_status",
+      cachedExpenses: "id, branch_id, expense_number, approval_status, payment_status, sync_status",
+      cachedCustomers: "id, customer_code, name, phone, email, branch_id, sync_status",
+      dataCache: "id, url, cached_at",
+      cachedCashRegisters: "id, branch_id, sync_status",
+      cachedCashSessions: "id, register_id, branch_id, status, sync_status",
+      cachedCashMovements: "id, session_id, branch_id, type, direction, sync_status",
+      cachedProducts: "id, name, sku, barcode, is_active, sync_status",
+    }).upgrade(async (tx) => {
+      // v8 cash & product offline
+    });
   }
 }
 
 export const db = new MediFlowDB();
 
-export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier, CachedReturn, CachedExpense, CachedCustomer, DataCacheEntry };
+export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier, CachedReturn, CachedExpense, CachedCustomer, DataCacheEntry, CachedCashRegister, CachedCashSession, CachedCashMovement, CachedProduct };

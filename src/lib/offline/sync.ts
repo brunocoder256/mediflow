@@ -199,6 +199,157 @@ export async function getCustomerPendingCount(): Promise<number>{
   try{ const c=await db.cachedCustomers.where("sync_status").equals("pending").count(); const q=await db.syncQueue.where("table_name").equals("customers").count(); return Math.max(c,q);}catch{return 0;}
 }
 
+// ---------------------------------------------------------------------------
+// Offline cash register / session / movement support
+// ---------------------------------------------------------------------------
+
+export function queueCashRegisterCreate(payload: Record<string, unknown>): Promise<string> {
+  return queueGenericCreate("cash_registers", "cachedCashRegisters", payload,
+    (d, op) => db.cachedCashRegisters.add({
+      id: crypto.randomUUID(),
+      branch_id: String((payload as any).branch_id ?? ""),
+      name: String((payload as any).name ?? "Register"),
+      code: String((payload as any).code ?? ""),
+      is_active: true,
+      payload,
+      sync_status: "pending" as any,
+      operation_id: op,
+      created_at: new Date().toISOString(),
+    } as any));
+}
+
+export function queueCashSessionOpen(payload: Record<string, unknown>): Promise<string> {
+  return queueGenericCreate("cash_sessions", "cachedCashSessions", payload,
+    (d, op) => db.cachedCashSessions.add({
+      id: crypto.randomUUID(),
+      register_id: String((payload as any).register_id ?? ""),
+      branch_id: String((payload as any).branch_id ?? ""),
+      cashier_id: "",
+      status: "OPEN",
+      opening_float: Number((payload as any).opening_float ?? 0),
+      expected_cash: null,
+      closing_cash: null,
+      cash_variance: null,
+      opened_at: new Date().toISOString(),
+      closed_at: null,
+      notes: String((payload as any).notes ?? null),
+      payload,
+      sync_status: "pending" as any,
+      operation_id: op,
+      created_at: new Date().toISOString(),
+    } as any));
+}
+
+// Queue a cash session write action (e.g. "close") for offline replay.
+export function queueCashSessionAction(
+  payload: Record<string, unknown>,
+): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "cash_sessions",
+    operation: "update",
+    payload: { ...payload, _operationId: op, _actionFromQueue: true },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+export function queueCashMovement(payload: Record<string, unknown>): Promise<string> {
+  return queueGenericCreate("cash_movements", "cachedCashMovements", payload,
+    (d, op) => db.cachedCashMovements.add({
+      id: crypto.randomUUID(),
+      session_id: String((payload as any).session_id ?? ""),
+      branch_id: String((payload as any).branch_id ?? ""),
+      type: String((payload as any).type ?? "CASH_IN"),
+      direction: (payload as any).direction === "OUT" ? "OUT" : "IN",
+      amount: Number((payload as any).amount ?? 0),
+      reason: (payload as any).reason ?? null,
+      payload,
+      sync_status: "pending" as any,
+      operation_id: op,
+      created_at: new Date().toISOString(),
+    } as any));
+}
+
+export function queueProductCreate(payload: Record<string, unknown>): Promise<string> {
+  return queueGenericCreate("products", "cachedProducts", payload,
+    (d, op) => db.cachedProducts.add({
+      id: crypto.randomUUID(),
+      name: String((payload as any).name ?? "Product"),
+      sku: (payload as any).sku ?? null,
+      barcode: (payload as any).barcode ?? null,
+      is_active: true,
+      payload,
+      sync_status: "pending" as any,
+      operation_id: op,
+      created_at: new Date().toISOString(),
+    } as any));
+}
+
+export function queueProductUpdate(id: string, payload: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "products",
+    operation: "update",
+    payload: { id, ...payload, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+export function queueProductToggle(id: string, active: boolean): Promise<string> {
+  return queueProductUpdate(id, { action: active ? "deactivate" : "reactivate" });
+}
+
+async function queueGenericCreate(
+  tableName: string,
+  cachedTable: "cachedCashRegisters" | "cachedCashSessions" | "cachedCashMovements" | "cachedProducts",
+  payload: Record<string, unknown>,
+  addCached: (d: any, op: string) => Promise<unknown>,
+): Promise<string> {
+  const op = crypto.randomUUID();
+  const internal: any = { ...payload, _operationId: op };
+  await db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: tableName,
+    operation: "create",
+    payload: internal,
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  });
+  try { await addCached(tableName, op); } catch {}
+  return op;
+}
+
+export async function getCashPendingCount(): Promise<number> {
+  try {
+    const s = await db.cachedCashSessions.where("sync_status").equals("pending").count();
+    const m = await db.cachedCashMovements.where("sync_status").equals("pending").count();
+    const r = await db.cachedCashRegisters.where("sync_status").equals("pending").count();
+    const q = await db.syncQueue.where("table_name").equals("cash_sessions").or("table_name").equals("cash_movements").or("table_name").equals("cash_registers").count();
+    return Math.max(s + m + r, q);
+  } catch { return 0; }
+}
+
+export async function getProductPendingCount(): Promise<number> {
+  try {
+    const c = await db.cachedProducts.where("sync_status").equals("pending").count();
+    const q = await db.syncQueue.where("table_name").equals("products").count();
+    return Math.max(c, q);
+  } catch { return 0; }
+}
+
 export async function processSyncQueue(): Promise<{
   processed: number;
   failed: number;
@@ -316,6 +467,69 @@ export async function processSyncQueue(): Promise<{
             if(c) await db.cachedSuppliers.update(c.id, { sync_status: "synced" as any });
           }catch{}
         }
+      } else if (entry.table_name === "cash_registers") {
+        const payload: any = entry.payload;
+        const op = payload._operationId ?? entry.operation_id;
+        const clean: any = { ...payload };
+        delete clean._operationId;
+        response = await fetch("/api/cash/registers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(clean),
+        });
+        if (response.ok) {
+          try{ const c = await db.cachedCashRegisters.where("operation_id").equals(op).first(); if(c) await db.cachedCashRegisters.update(c.id, { sync_status: "synced" as any }); }catch{}
+        }
+      } else if (entry.table_name === "cash_sessions") {
+        const payload: any = entry.payload;
+        const op = payload._operationId ?? entry.operation_id;
+        const clean: any = { ...payload };
+        delete clean._operationId; delete clean._actionFromQueue;
+        const action = clean.action || "open";
+        response = await fetch("/api/cash/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, ...clean }),
+        });
+        if (response.ok) {
+          try{ const c = await db.cachedCashSessions.where("operation_id").equals(op).first(); if(c) await db.cachedCashSessions.update(c.id, { sync_status: "synced" as any }); }catch{}
+        }
+      } else if (entry.table_name === "cash_movements") {
+        const payload: any = entry.payload;
+        const op = payload._operationId ?? entry.operation_id;
+        const clean: any = { ...payload };
+        delete clean._operationId;
+        response = await fetch("/api/cash/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "movement", ...clean }),
+        });
+        if (response.ok) {
+          try{ const c = await db.cachedCashMovements.where("operation_id").equals(op).first(); if(c) await db.cachedCashMovements.update(c.id, { sync_status: "synced" as any }); }catch{}
+        }
+      } else if (entry.table_name === "products") {
+        const payload: any = entry.payload;
+        const op = payload._operationId ?? entry.operation_id;
+        const clean: any = { ...payload };
+        delete clean._operationId;
+        if (entry.operation === "update") {
+          const pid = clean.id;
+          delete clean.id;
+          response = await fetch("/api/products", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: pid, ...clean }),
+          });
+        } else {
+          response = await fetch("/api/products", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(clean),
+          });
+        }
+        if (response.ok) {
+          try{ const c = await db.cachedProducts.where("operation_id").equals(op).first(); if(c) await db.cachedProducts.update(c.id, { sync_status: "synced" as any }); }catch{}
+        }
       } else {
         response = await fetch("/api/sync", {
           method: "POST",
@@ -353,6 +567,14 @@ export async function processSyncQueue(): Promise<{
             if(ce) await db.cachedExpenses.update(ce.id, { sync_status: "failed" as any });
             const cc = await db.cachedCustomers.where("operation_id").equals(op).first();
             if(cc) await db.cachedCustomers.update(cc.id, { sync_status: "failed" as any });
+            const ccr = await db.cachedCashRegisters.where("operation_id").equals(op).first();
+            if(ccr) await db.cachedCashRegisters.update(ccr.id, { sync_status: "failed" as any });
+            const ccs = await db.cachedCashSessions.where("operation_id").equals(op).first();
+            if(ccs) await db.cachedCashSessions.update(ccs.id, { sync_status: "failed" as any });
+            const ccm = await db.cachedCashMovements.where("operation_id").equals(op).first();
+            if(ccm) await db.cachedCashMovements.update(ccm.id, { sync_status: "failed" as any });
+            const cpr = await db.cachedProducts.where("operation_id").equals(op).first();
+            if(cpr) await db.cachedProducts.update(cpr.id, { sync_status: "failed" as any });
           }catch{}
         } else {
           await db.syncQueue.update(entry.id, {
