@@ -93,18 +93,18 @@ export function NotificationsMenu() {
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-[340px] max-w-[calc(100vw-2rem)]" align="end">
-        <DropdownMenuLabel className="flex items-center justify-between gap-2">
-          <span>Notifications</span>
-          {unread > 0 && (
-            <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => void patch({ all: true })}>
-              <CheckCheck className="h-3.5 w-3.5" />
-              Mark all read
-            </Button>
-          )}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <div className="max-h-[360px] overflow-y-auto">
+<DropdownMenuContent className="w-[340px] max-w-[calc(100vw-2rem)]" align="end">
+          <DropdownMenuLabel className="flex items-center justify-between gap-2">
+            <span>Notifications</span>
+            {unread > 0 && (
+              <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => void patch({ all: true })}>
+                <CheckCheck className="h-3.5 w-3.5" />
+                Mark all read
+              </Button>
+            )}
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <div className="max-h-[min(360px,50dvh)] overflow-y-auto sm:max-h-[360px]">
           {items.length === 0 ? (
             <div className="px-3 py-10 text-center text-sm text-muted-foreground flex flex-col items-center gap-2">
               <Inbox className="h-6 w-6 opacity-40" />
@@ -114,14 +114,14 @@ export function NotificationsMenu() {
             items.map((n) => (
               <DropdownMenuItem
                 key={n.id}
-                className={`items-start px-3 py-2.5 cursor-pointer whitespace-normal ${n.is_read ? "" : "bg-primary/5"}`}
+                className={`items-start px-3 py-2.5 cursor-pointer whitespace-normal ${n.is_read ? "" : "bg-[var(--primary)]/5"}`}
                 onSelect={(e) => {
                   e.preventDefault();
                   if (!n.is_read) void patch({ id: n.id });
                 }}
               >
                 <div className="flex items-start gap-2.5 w-full">
-                  <span className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${n.is_read ? "bg-muted" : TYPE_COLORS[n.type] ?? "bg-primary"}`} />
+                  <span className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${n.is_read ? "bg-[var(--muted)]" : TYPE_COLORS[n.type] ?? "bg-[var(--primary)]"}`} />
                   <div className="min-w-0 flex-1">
                     <p className={`text-sm leading-snug ${n.is_read ? "text-muted-foreground" : "font-medium"}`}>{n.title}</p>
                     <p className="text-xs text-muted-foreground leading-snug">{n.message}</p>
