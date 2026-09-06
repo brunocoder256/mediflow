@@ -48,6 +48,8 @@ type Registration = {
     plan: string | null;
     status: string | null;
     trial_ends_at: string | null;
+    paid_cycles: number | null;
+    access_ends_at: string | null;
   } | null;
 };
 
@@ -106,6 +108,7 @@ export default function SuperAdminAccountsPage() {
   const [busy, setBusy] = React.useState<DialogKind>(null);
   const [rejectReason, setRejectReason] = React.useState("");
   const [extendDays, setExtendDays] = React.useState(3);
+  const [approveMonths, setApproveMonths] = React.useState(1);
 
   const load = React.useCallback(async (search = q, st = status, pg = page, showLoader = true) => {
     if (showLoader) setLoading(true);
@@ -146,15 +149,16 @@ export default function SuperAdminAccountsPage() {
         } else if (kind === "extend-trial") {
           description = `${json.trial_days ?? "(unknown)"} more days added. The owner can sign in immediately.`;
         } else if (kind === "grant-full") {
-          description = `Permanent access granted. ${json.email ?? ""}`;
+          description = `${json.months ?? 1} month(s) of full access granted. ${json.paid_cycles ?? 0} cycle(s) remaining until ${new Date(json.access_ends_at ?? Date.now()).toLocaleDateString()}.`;
         } else if (kind === "approve-full") {
-          description = "Payment confirmed — this account can access MediFlow fully (no more trial deadline).";
+          description = `Payment confirmed — ${json.months ?? 1} month(s). ${json.paid_cycles ?? 0} cycle(s) remaining until ${new Date(json.access_ends_at ?? Date.now()).toLocaleDateString()}.`;
         }
         toast({ title: "Done", description, variant: "success" });
         setSelected(null);
         setDialog(null);
         setRejectReason("");
         setExtendDays(3);
+        setApproveMonths(1);
         load(q, status, page, true);
       } else {
         toast({ title: "Action failed", description: json.error || "Something went wrong.", variant: "error" });
@@ -254,6 +258,11 @@ export default function SuperAdminAccountsPage() {
                         <td className="p-3">
                           <Badge variant={STATUS_BADGE[displayStatus(r)] as any}>{STATUS_LABEL[displayStatus(r)]}</Badge>
                           {r.organizations?.plan === "trial" && <Badge variant="warning" className="ml-1">Trial</Badge>}
+                          {r.organizations?.plan === "full" && (r.organizations?.paid_cycles ?? 0) > 0 && (
+                            <Badge variant="secondary" className="ml-1">
+                              {r.organizations?.paid_cycles} cycle{r.organizations?.paid_cycles !== 1 ? "s" : ""}
+                            </Badge>
+                          )}
                         </td>
                         <td className="p-3 text-right">
                           <Button variant="outline" size="sm" onClick={() => setSelected(r)}>
@@ -274,6 +283,9 @@ export default function SuperAdminAccountsPage() {
                       <span className="flex items-center gap-1">
                         <Badge variant={STATUS_BADGE[displayStatus(r)] as any}>{STATUS_LABEL[displayStatus(r)]}</Badge>
                         {r.organizations?.plan === "trial" && <Badge variant="warning">Trial</Badge>}
+                        {r.organizations?.plan === "full" && (r.organizations?.paid_cycles ?? 0) > 0 && (
+                          <Badge variant="secondary">{r.organizations?.paid_cycles} cyc.</Badge>
+                        )}
                       </span>
                     </div>
                     <div className="text-sm font-medium">{r.business_name}</div>
@@ -326,6 +338,15 @@ export default function SuperAdminAccountsPage() {
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Registered</dt><dd>{new Date(selected.created_at).toLocaleString()}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Plan</dt><dd>{selected.organizations?.plan === "trial" ? "Trial" : selected.organizations?.plan === "full" ? "Full" : "—"}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Trial ends</dt><dd>{fmtDate(selected.organizations?.trial_ends_at)}</dd></div>
+                    {(selected.organizations?.paid_cycles ?? 0) > 0 && (
+                      <>
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-muted-foreground">Paid cycles remaining</dt>
+                          <dd className="font-semibold">{selected.organizations?.paid_cycles}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Access ends</dt><dd>{fmtDate(selected.organizations?.access_ends_at)}</dd></div>
+                      </>
+                    )}
                   </dl>
                 </div>
                 {selected.status === "rejected" && selected.rejection_reason && (
@@ -493,22 +514,38 @@ export default function SuperAdminAccountsPage() {
         {selected && (
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Approve this account after its trial?</DialogTitle>
+              <DialogTitle>Approve this account after its subscription ended?</DialogTitle>
               <DialogDescription>
-                Confirm payment and activate {selected.business_name} permanently — the trial deadline is removed.
+                Confirm the payment and choose how many months (cycles) the owner paid upfront. Access is granted
+                for that period — the account will re-block automatically when it lapses.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-1 text-sm">
               <p><span className="text-muted-foreground">Business:</span> {selected.business_name} ({selected.reference})</p>
               <p><span className="text-muted-foreground">Owner:</span> {selected.owner_full_name} ({selected.owner_email})</p>
               <p><span className="text-muted-foreground">Contact:</span> {selected.owner_phone}</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="approve-months">Months paid upfront (cycles)</Label>
+              <Input
+                id="approve-months"
+                type="number"
+                min={1}
+                max={24}
+                value={approveMonths}
+                onChange={(e) => setApproveMonths(Math.max(1, Math.min(24, Number(e.target.value) || 1)))}
+              />
+              <p className="text-xs text-muted-foreground">
+                UGX 20,000 per month · {approveMonths} month{approveMonths !== 1 ? "s" : ""} = UGX{" "}
+                {(approveMonths * 20000).toLocaleString()}
+              </p>
               <p className="pt-1 text-xs text-muted-foreground">
                 The owner is waiting on this approval — their screen reloads automatically the moment you click Approve.
               </p>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDialog(null)} disabled={busy !== null}>Cancel</Button>
-              <Button onClick={() => runAction("approve-full", selected.id)} disabled={busy !== null}>
+              <Button onClick={() => runAction("approve-full", selected.id, { months: approveMonths })} disabled={busy !== null}>
                 {busy === "approve-full" ? "Approving..." : "Approve Account"}
               </Button>
             </DialogFooter>
@@ -522,16 +559,32 @@ export default function SuperAdminAccountsPage() {
             <DialogHeader>
               <DialogTitle>Grant full access?</DialogTitle>
               <DialogDescription>
-                {selected.business_name} will have permanent access — the trial deadline is removed until you deactivate the account.
+                Credit paid months (cycles) to {selected.business_name}. The account stays active until the paid
+                period lapses, then re-blocks automatically.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-1 text-sm">
               <p><span className="text-muted-foreground">Business:</span> {selected.business_name} ({selected.reference})</p>
               <p><span className="text-muted-foreground">Owner:</span> {selected.owner_full_name} ({selected.owner_email})</p>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="grant-months">Months paid (cycles)</Label>
+              <Input
+                id="grant-months"
+                type="number"
+                min={1}
+                max={24}
+                value={approveMonths}
+                onChange={(e) => setApproveMonths(Math.max(1, Math.min(24, Number(e.target.value) || 1)))}
+              />
+              <p className="text-xs text-muted-foreground">
+                UGX 20,000 per month · {approveMonths} month{approveMonths !== 1 ? "s" : ""} = UGX{" "}
+                {(approveMonths * 20000).toLocaleString()}
+              </p>
+            </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDialog(null)} disabled={busy !== null}>Cancel</Button>
-              <Button onClick={() => runAction("grant-full", selected.id)} disabled={busy !== null}>
+              <Button onClick={() => runAction("grant-full", selected.id, { months: approveMonths })} disabled={busy !== null}>
                 {busy === "grant-full" ? "Granting..." : "Grant Full Access"}
               </Button>
             </DialogFooter>

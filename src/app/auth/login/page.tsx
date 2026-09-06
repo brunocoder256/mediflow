@@ -98,12 +98,13 @@ function LoginForm() {
       }
 
       // Client accounts are gated by organization status.
-      // Trial-expired owners stay signed in so they land on the block screen
-      // (with MediFlow contact info) instead of being logged out.
-      const { data: trial } = await (supabase as any).rpc("get_my_trial_status");
+      // Trial-expired / suspended owners stay signed in so they land on the
+      // dashboard where a dismissible subscription popup explains how to
+      // complete payment (instead of being logged out).
+      const { data: trial } = await (supabase as any).rpc("get_my_access_status");
       if (trial && trial.status !== "active") {
-        if (trial.status === "trial_expired") {
-          window.location.assign("/trial-expired");
+        if (trial.reason === "subscription_over" || trial.blocked === true) {
+          window.location.assign("/dashboard");
           return;
         }
         await supabase.auth.signOut();

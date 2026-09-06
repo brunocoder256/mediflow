@@ -3,18 +3,32 @@ export type TrialGate = {
   organization_name: string | null;
   status: string;
   plan: string;
+  blocked: boolean;
+  reason: string | null;
   trial_ends_at: string | null;
+  paid_cycles: number;
+  access_ends_at: string | null;
   trial_days: number;
   contact_phone_1: string;
   contact_phone_2: string;
 };
 
 export function isTrialActive(gate: TrialGate | null): boolean {
-  return !!gate && gate.status === 'active' && gate.plan === 'trial';
+  return !!gate && gate.status === 'active' && gate.plan === 'trial' && !gate.blocked;
+}
+
+export function isPaidActive(gate: TrialGate | null): boolean {
+  return !!gate && gate.status === 'active' && gate.plan === 'full' && !gate.blocked;
 }
 
 export function daysLeftInTrial(gate: TrialGate | null): number {
   if (!isTrialActive(gate) || !gate?.trial_ends_at) return 0;
   const ms = new Date(gate.trial_ends_at).getTime() - Date.now();
+  return Math.max(0, Math.ceil(ms / 86_400_000));
+}
+
+export function daysLeftInAccess(gate: TrialGate | null): number {
+  if (!gate?.access_ends_at || gate.blocked) return 0;
+  const ms = new Date(gate.access_ends_at).getTime() - Date.now();
   return Math.max(0, Math.ceil(ms / 86_400_000));
 }

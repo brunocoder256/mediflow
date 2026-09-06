@@ -64,8 +64,8 @@ export default function TrialExpiredPage() {
 
   const recheck = async () => {
     const supabase = createBrowserClient();
-    const { data } = await (supabase as any).rpc("get_my_trial_status");
-    if (data && data.status === "active") {
+    const { data } = await (supabase as any).rpc("get_my_access_status");
+    if (data && !data.blocked && data.status === "active") {
       window.location.assign("/dashboard");
     } else {
       await load();

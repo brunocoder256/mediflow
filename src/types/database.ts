@@ -107,6 +107,8 @@ export interface Organization {
   status: string;
   plan: string;
   trial_ends_at: string | null;
+  paid_cycles: number;
+  access_ends_at: string | null;
   created_at: string;
   updated_at: string;
 }
