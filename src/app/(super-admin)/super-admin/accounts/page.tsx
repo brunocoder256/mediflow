@@ -371,10 +371,15 @@ export default function SuperAdminAccountsPage() {
                     <Button variant="destructive" onClick={() => setDialog("reject")}>Reject</Button>
                   </>
                 )}
-                {selected.status === "active" && (
-                  <Button variant="destructive" className="flex-1" onClick={() => setDialog("suspend")}>
-                    Deactivate Account
-                  </Button>
+                {selected.status === "active" && selected.organizations && displayStatus(selected) !== "trial_expired" && (
+                  <>
+                    <Button className="flex-1" variant="outline" onClick={() => setDialog("grant-full")}>
+                      {selected.organizations.plan === "full" ? "Add Paid Cycles" : "Grant Full Access"}
+                    </Button>
+                    <Button variant="destructive" className="flex-1" onClick={() => setDialog("suspend")}>
+                      Deactivate Account
+                    </Button>
+                  </>
                 )}
                 {selected.status === "suspended" && (
                   <Button className="flex-1" onClick={() => setDialog("activate")}>Activate Account</Button>
@@ -539,6 +544,14 @@ export default function SuperAdminAccountsPage() {
                 UGX 20,000 per month · {approveMonths} month{approveMonths !== 1 ? "s" : ""} = UGX{" "}
                 {(approveMonths * 20000).toLocaleString()}
               </p>
+              <p className="rounded-md bg-muted/30 p-2 text-xs text-muted-foreground">
+                Access will be granted until{" "}
+                <span className="font-medium text-foreground">
+                  {new Date(Date.now() + approveMonths * 30.4375 * 86_400_000).toLocaleDateString()}
+                </span>
+                . The owner&apos;s dashboard will remind them to renew as it nears, and the account locks automatically
+                on that date unless payment is renewed in time.
+              </p>
               <p className="pt-1 text-xs text-muted-foreground">
                 The owner is waiting on this approval — their screen reloads automatically the moment you click Approve.
               </p>
@@ -580,6 +593,19 @@ export default function SuperAdminAccountsPage() {
               <p className="text-xs text-muted-foreground">
                 UGX 20,000 per month · {approveMonths} month{approveMonths !== 1 ? "s" : ""} = UGX{" "}
                 {(approveMonths * 20000).toLocaleString()}
+              </p>
+              <p className="rounded-md bg-muted/30 p-2 text-xs text-muted-foreground">
+                Access will be extended to{" "}
+                <span className="font-medium text-foreground">
+                  {new Date(
+                    (selected.organizations?.access_ends_at && !displayStatus(selected).includes("trial_expired")
+                      ? Math.max(new Date(selected.organizations.access_ends_at).getTime(), Date.now())
+                      : Date.now()) +
+                      approveMonths * 30.4375 * 86_400_000,
+                  ).toLocaleDateString()}
+                </span>
+                . The owner&apos;s dashboard will remind them to renew as it nears, and the account locks automatically on
+                that date if payment isn&apos;t made in time.
               </p>
             </div>
             <DialogFooter>

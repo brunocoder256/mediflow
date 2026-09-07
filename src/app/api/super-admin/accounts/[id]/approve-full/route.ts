@@ -20,10 +20,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const actorId = await superAdminProfileId(sb);
 
     const admin = createAdminSupabaseClient();
-    const { data: reg } = await admin.from('registrations').select('*').eq('id', id).single();
+    const { data: reg } = await admin.from('registrations').select('*, organizations(id, plan, status)').eq('id', id).single();
     if (!reg) return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     if (!reg.organization_id) {
       return NextResponse.json({ error: 'This account has no organization.' }, { status: 409 });
+    }
+    const prevOrg = (reg.organizations as any) ?? null;
+    // Abuse guard: only a trial-expired (or active) account may be re-approved
+    // after payment. Never silently re-open suspended/rejected/pending accounts.
+    const orgStatus = prevOrg?.status;
+    if (orgStatus && !['active', 'trial_expired'].includes(orgStatus)) {
+      return NextResponse.json({ error: `Cannot approve a ${orgStatus} organization.` }, { status: 409 });
     }
 
     const { data: credit, error: creditErr } = await admin.rpc('credit_paid_cycles', {
@@ -45,8 +52,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         action: 'ACCOUNT_APPROVED_AFTER_TRIAL',
         entityType: 'registrations',
         entityId: id,
-        oldValues: { plan: reg.organizations?.plan ?? null, status: reg.organizations?.status ?? null },
-        newValues: { plan: 'full', status: 'active', months_paid: months, approved_at: now },
+        oldValues: { plan: prevOrg?.plan ?? null, status: prevOrg?.status ?? null },
+        newValues: { plan: 'full', status: 'active', months_paid: months, paid_cycles: credit.paid_cycles, access_ends_at: credit.access_ends_at, approved_at: now },
       });
     }
 

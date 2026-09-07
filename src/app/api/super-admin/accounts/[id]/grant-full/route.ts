@@ -15,10 +15,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const actorId = await superAdminProfileId(sb);
 
     const admin = createAdminSupabaseClient();
-    const { data: reg } = await admin.from('registrations').select('*').eq('id', id).single();
+    const { data: reg } = await admin.from('registrations').select('*, organizations(id, plan, status)').eq('id', id).single();
     if (!reg) return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     if (!reg.organization_id) {
       return NextResponse.json({ error: 'This account has no organization.' }, { status: 409 });
+    }
+    const prevOrg = (reg.organizations as any) ?? null;
+    // Abuse guard: full access may only be granted to an account that is
+    // currently active (trial or paid) or trial-expired. Never re-open a
+    // suspended, rejected, or pending account through this route.
+    const orgStatus = prevOrg?.status;
+    if (orgStatus && !['active', 'trial_expired'].includes(orgStatus)) {
+      return NextResponse.json({ error: `Cannot grant full access to a ${orgStatus} organization.` }, { status: 409 });
     }
 
     const { data: credit, error: creditErr } = await admin.rpc('credit_paid_cycles', {
@@ -34,8 +42,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         action: 'FULL_ACCESS_GRANTED',
         entityType: 'registrations',
         entityId: id,
-        oldValues: { plan: reg.organizations?.plan ?? null, status: reg.organizations?.status ?? null },
-        newValues: { plan: 'full', status: 'active', months_paid: months },
+        oldValues: { plan: prevOrg?.plan ?? null, status: prevOrg?.status ?? null },
+        newValues: { plan: 'full', status: 'active', months_paid: months, paid_cycles: credit.paid_cycles, access_ends_at: credit.access_ends_at },
       });
     }
 
