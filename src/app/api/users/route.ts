@@ -1,6 +1,4 @@
 import { NextResponse } from 'next/server';
-import { sanitizeError } from '@/lib/security';
-import { randomBytes } from 'node:crypto';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import {
@@ -10,10 +8,6 @@ import {
   writeAudit,
   getEffectivePermissions,
 } from '@/lib/auth';
-
-function tempPassword(): string {
-  return 'MF@' + randomBytes(5).toString('hex');
-}
 
 async function getActor(sb: any) {
   const {
@@ -181,6 +175,19 @@ export async function POST(req: Request) {
     if (!fullName) return NextResponse.json({ error: 'Full name is required' }, { status: 400 });
     if (!email || !email.includes('@')) return NextResponse.json({ error: 'Valid email is required' }, { status: 400 });
 
+    // Password policy matches the rest of the app (signup/registration). Never
+    // returned in responses and never written to the audit log.
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (password.length < 8 || password.length > 128) {
+      return NextResponse.json({ error: 'Password must be 8–128 characters' }, { status: 400 });
+    }
+    if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
+      return NextResponse.json(
+        { error: 'Password must include an uppercase letter, a lowercase letter, and a number' },
+        { status: 400 },
+      );
+    }
+
     let admin: ReturnType<typeof createAdminSupabaseClient>;
     try {
       admin = createAdminSupabaseClient();
@@ -189,50 +196,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 
-    // Invite via Supabase Auth (user sets password from email link)
-    const redirectTo =
-      body.redirect_to ||
-      `${process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : ''}/auth/reset-password`;
-
-    const { data: invited, error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
-      data: {
+    // Direct creation: the account owner sets the password now, so the new user
+    // is immediately active and signs in with their email + this password (no
+    // email invite round-trip). Supabase enforces email uniqueness globally.
+    const username = (body.username ?? '').toString().trim().toLowerCase();
+    const { data: created, error: createErr } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: {
         full_name: fullName,
+        username: username || email.split('@')[0],
         organization_id: actor.profile.organization_id,
       },
-      redirectTo: redirectTo || undefined,
     });
-
-    let authUserId: string;
-    let invitationSent = false;
-    let provisionalPassword: string | null = null;
-
-    if (!inviteErr && invited?.user) {
-      authUserId = invited.user.id;
-      invitationSent = true;
-    } else {
-      // Fallback: auto-confirm with a one-time provisional password so the user can
-      // sign in immediately (no mandatory email confirmation) when the invite fails.
-      provisionalPassword = tempPassword();
-      const { data: created, error: createErr } = await admin.auth.admin.createUser({
-        email,
-        password: provisionalPassword,
-        email_confirm: true,
-        user_metadata: {
-          full_name: fullName,
-          organization_id: actor.profile.organization_id,
-        },
-      });
-      if (createErr || !created.user) {
-        return NextResponse.json(
-          { error: inviteErr?.message || createErr?.message || 'Unable to create auth user' },
-          { status: 400 },
-        );
-      }
-      authUserId = created.user.id;
-      invitationSent = false;
+    if (createErr || !created.user) {
+      return NextResponse.json(
+        { error: createErr?.message || 'Unable to create auth user' },
+        { status: 400 },
+      );
     }
+    const authUserId = created.user.id;
 
-    const now = new Date().toISOString();
     const { data: newProfile, error: profileErr } = await admin
       .from('profiles')
       .insert({
@@ -241,14 +226,13 @@ export async function POST(req: Request) {
         full_name: fullName,
         email,
         phone: body.phone ?? null,
-        username: body.username ?? email.split('@')[0],
+        username: username || email.split('@')[0],
         avatar_url: body.avatar_url ?? null,
-        status: invitationSent ? 'invited' : 'active',
+        status: 'active',
         is_active: true,
         default_branch_id: body.default_branch_id ?? body.branch_ids?.[0] ?? null,
         failed_login_attempts: 0,
-        invited_by: actor.profile.id,
-        invitation_sent_at: invitationSent ? now : null,
+        invitation_sent_at: null,
         invitation_accepted_at: null,
       })
       .select()
@@ -289,7 +273,7 @@ export async function POST(req: Request) {
     await writeAudit(admin, {
       organizationId: actor.profile.organization_id,
       actorProfileId: actor.profile.id,
-      action: invitationSent ? 'USER_INVITED' : 'USER_CREATED',
+      action: 'USER_CREATED',
       entityType: 'profiles',
       entityId: newProfile.id,
       newValues: {
@@ -304,8 +288,6 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         ...newProfile,
-        invitation_sent: invitationSent,
-        provisional_password: provisionalPassword,
         roles: roleId ? [roleId] : [],
       },
       { status: 201 },

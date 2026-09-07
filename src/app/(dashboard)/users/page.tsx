@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Search, Plus, Eye, Shield, Ban, ShieldCheck, Activity, Unlock } from "lucide-react";
+import { Search, Plus, Eye, EyeOff, Shield, Ban, ShieldCheck, Activity, Unlock, Building2, KeyRound, AtSign, Phone } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -134,11 +134,7 @@ export default function UsersPage() {
       if (!res.ok) throw new Error(j.error || "Unable to create user");
       toast({
         title: "Success",
-        description: j.invitation_sent
-          ? "Invitation sent — user will set their password via email"
-          : j.provisional_password
-            ? `User created — temporary password: ${j.provisional_password} (share it with the user)`
-            : "User created",
+        description: `${form.email} can now sign in with the password you set.`,
         variant: "success",
       });
       setShowAdd(false);
@@ -218,7 +214,7 @@ export default function UsersPage() {
           </Link>
           <Button onClick={() => setShowAdd(true)}>
             <Plus className="h-4 w-4 mr-2" />
-            Add User
+            Create User
           </Button>
         </div>
       </div>
@@ -341,7 +337,7 @@ export default function UsersPage() {
               ))}
             </div>
           ) : users.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">No users found. Invite your first team member.</div>
+            <div className="py-12 text-center text-muted-foreground">No users found. Create your first team member.</div>
           ) : (
             <>
               <div className="overflow-x-auto">
@@ -502,10 +498,13 @@ export default function UsersPage() {
       </div>
 
       <Dialog open={showAdd} onOpenChange={setShowAdd}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add User</DialogTitle>
-            <DialogDescription>Invite a team member. They will set their own password via email.</DialogDescription>
+            <DialogTitle>Create User</DialogTitle>
+            <DialogDescription>
+              Set up a team member account. They can sign in immediately with the email and password you set — access is
+              scoped to their role and branch.
+            </DialogDescription>
           </DialogHeader>
           <AddUserForm roles={roles} branches={branches} loading={saving} onSubmit={createUser} onCancel={() => setShowAdd(false)} />
         </DialogContent>
@@ -550,79 +549,215 @@ function AddUserForm({
   const [form, setForm] = React.useState({
     full_name: "",
     email: "",
+    username: "",
     phone: "",
     role_id: "",
     branch_id: "",
+    password: "",
+    confirmPassword: "",
   });
   const [extraBranches, setExtraBranches] = React.useState<string[]>([]);
+  const [showPassword, setShowPassword] = React.useState(false);
+  const [showConfirm, setShowConfirm] = React.useState(false);
+  const [orgName, setOrgName] = React.useState("");
+  const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled && j?.organization?.name) setOrgName(j.organization.name);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setForm((prev) => {
+      const next = { ...prev, [key]: value };
+      // Auto-suggest a username from the email's local part unless the user typed one.
+      if (key === "email" && (!prev.username.trim() || prev.username === prev.email.split("@")[0])) {
+        next.username = value.split("@")[0].replace(/[^a-z0-9._-]/gi, "");
+      }
+      return next;
+    });
+    setFieldErrors((prev) => ({ ...prev, [key]: "", username: prev.username ?? "" }));
+  };
+
+  const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const errs: Record<string, string> = {};
+    if (form.full_name.trim().length < 2) errs.full_name = "Full name is required";
+    if (!isEmail(form.email.trim())) errs.email = "Enter a valid email address";
+    if (!form.role_id) errs.role_id = "Select a role";
+    if (!form.branch_id) errs.branch_id = "Select a branch — data access is scoped to branches";
+    const p = form.password;
+    if (p.length < 8) errs.password = "At least 8 characters";
+    else {
+      if (!/[a-z]/.test(p)) errs.password = "Include a lowercase letter";
+      if (!/[A-Z]/.test(p)) errs.password = (errs.password ? errs.password + " " : "") + "Include an uppercase letter";
+      if (!/[0-9]/.test(p)) errs.password = (errs.password ? errs.password + " " : "") + "Include a number";
+    }
+    if (form.confirmPassword !== p) errs.confirmPassword = "Passwords do not match";
+    if (Object.keys(errs).length) {
+      setFieldErrors(errs);
+      return;
+    }
     const branch_ids = [...new Set([form.branch_id, ...extraBranches].filter(Boolean))];
     await onSubmit({
       full_name: form.full_name.trim(),
       email: form.email.trim(),
-      phone: form.phone || null,
-      role_id: form.role_id || null,
-      default_branch_id: form.branch_id || null,
+      username: form.username.trim() || form.email.split("@")[0],
+      phone: form.phone.trim() || null,
+      role_id: form.role_id,
+      default_branch_id: form.branch_id,
       branch_ids,
+      password: p,
     });
   };
 
+  const strength = (p: string) => {
+    let score = 0;
+    if (p.length >= 8) score++;
+    if (/[a-z]/.test(p)) score++;
+    if (/[A-Z]/.test(p)) score++;
+    if (/[0-9]/.test(p)) score++;
+    return score;
+  };
+  const strengthMeta = [
+    { label: "Too short", className: "bg-muted" },
+    { label: "Weak", className: "bg-red-500" },
+    { label: "Fair", className: "bg-amber-500" },
+    { label: "Good", className: "bg-lime-500" },
+    { label: "Strong", className: "bg-green-600" },
+  ];
+  const score = strength(form.password);
+
+  const error = (key: string) =>
+    fieldErrors[key] ? <p className="text-sm text-[var(--destructive)]">{fieldErrors[key]}</p> : null;
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="full_name">Full name *</Label>
-        <Input
-          id="full_name"
-          value={form.full_name}
-          onChange={(e) => setForm({ ...form, full_name: e.target.value })}
-          required
-        />
+    <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Org context — always the actor's own organization, never client-supplied */}
+      <div className="flex items-center gap-3 rounded-lg border bg-muted/30 p-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Building2 className="h-5 w-5" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Organization</p>
+          <p className="truncate font-semibold text-foreground">{orgName || "Your pharmacy"}</p>
+        </div>
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="email">Email *</Label>
-        <Input
-          id="email"
-          type="email"
-          value={form.email}
-          onChange={(e) => setForm({ ...form, email: e.target.value })}
-          required
-          placeholder="colleague@pharmacy.com"
-        />
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="full_name">Full name *</Label>
+          <Input
+            id="full_name"
+            value={form.full_name}
+            onChange={set("full_name")}
+            placeholder="Jane Doe"
+            autoComplete="off"
+          />
+          {error("full_name")}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="email">Email *</Label>
+          <Input
+            id="email"
+            type="email"
+            value={form.email}
+            onChange={set("email")}
+            placeholder="jane@pharmacy.com"
+            autoComplete="off"
+          />
+          {error("email")}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="username">Username</Label>
+          <div className="relative">
+            <AtSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="username"
+              value={form.username}
+              onChange={set("username")}
+              placeholder="jane"
+              autoComplete="off"
+              className="pl-9"
+            />
+          </div>
+          {error("username")}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="phone">Phone</Label>
+          <div className="relative">
+            <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="phone"
+              type="tel"
+              value={form.phone}
+              onChange={set("phone")}
+              placeholder="+256 700 000 000"
+              autoComplete="off"
+              className="pl-9"
+            />
+          </div>
+        </div>
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="phone">Phone</Label>
-        <Input id="phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="role">Role *</Label>
+          <Select
+            id="role"
+            value={form.role_id}
+            onChange={(e) => {
+              setForm({ ...form, role_id: e.target.value });
+              setFieldErrors((prev) => ({ ...prev, role_id: "" }));
+            }}
+            required
+          >
+            <option value="">Select role</option>
+            {roles.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+                {r.is_system_role ? " (System)" : ""}
+              </option>
+            ))}
+          </Select>
+          {error("role_id")}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="branch">Default branch *</Label>
+          <Select
+            id="branch"
+            value={form.branch_id}
+            onChange={(e) => {
+              setForm({ ...form, branch_id: e.target.value });
+              setFieldErrors((prev) => ({ ...prev, branch_id: "" }));
+            }}
+            required
+          >
+            <option value="">Select branch</option>
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </Select>
+          {branches.length === 0 && (
+            <p className="text-sm text-muted-foreground">No branches yet — create one in Settings.</p>
+          )}
+          {error("branch_id")}
+        </div>
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="role">Role</Label>
-        <Select
-          id="role"
-          value={form.role_id}
-          onChange={(e) => setForm({ ...form, role_id: e.target.value })}
-          required
-        >
-          <option value="">Select role</option>
-          {roles.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-              {r.is_system_role ? " (System)" : ""}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="branch">Default branch</Label>
-        <Select id="branch" value={form.branch_id} onChange={(e) => setForm({ ...form, branch_id: e.target.value })}>
-          <option value="">Select branch</option>
-          {branches.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </Select>
-      </div>
+
       {branches.length > 1 && form.branch_id && (
         <div className="space-y-2">
           <Label>Additional branches</Label>
@@ -632,7 +767,10 @@ function AddUserForm({
               .map((b) => {
                 const checked = extraBranches.includes(b.id);
                 return (
-                  <label key={b.id} className="flex items-center gap-2 text-sm border rounded-md px-2 py-1 cursor-pointer">
+                  <label
+                    key={b.id}
+                    className="flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1 text-sm transition-colors hover:bg-accent"
+                  >
                     <input
                       type="checkbox"
                       checked={checked}
@@ -647,9 +785,85 @@ function AddUserForm({
           </div>
         </div>
       )}
+
+      <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <KeyRound className="h-4 w-4 text-primary" />
+          Sign-in credentials
+          <span className="font-normal text-muted-foreground">— the user signs in with this email + password.</span>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="password">Password *</Label>
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                value={form.password}
+                onChange={set("password")}
+                placeholder="Min 8 chars, A–z, 0–9"
+                autoComplete="new-password"
+                className="pr-10"
+              />
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                onClick={() => setShowPassword((s) => !s)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            {form.password && (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-1.5 flex-1 gap-1">
+                    {[0, 1, 2, 3].map((i) => (
+                      <div
+                        key={i}
+                        className={`h-full flex-1 rounded-full transition-colors ${
+                          i < score ? strengthMeta[score].className : "bg-muted"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <span className="w-16 text-right text-xs text-muted-foreground">{strengthMeta[score].label}</span>
+                </div>
+              </div>
+            )}
+            {error("password")}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="confirmPassword">Confirm password *</Label>
+            <div className="relative">
+              <Input
+                id="confirmPassword"
+                type={showConfirm ? "text" : "password"}
+                value={form.confirmPassword}
+                onChange={set("confirmPassword")}
+                placeholder="Re-type password"
+                autoComplete="new-password"
+                className="pr-10"
+              />
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-label={showConfirm ? "Hide confirmation" : "Show confirmation"}
+                onClick={() => setShowConfirm((s) => !s)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            {error("confirmPassword")}
+          </div>
+        </div>
+      </div>
+
       <div className="flex gap-2">
-        <Button type="submit" disabled={loading || !form.full_name.trim() || !form.email.trim()} className="flex-1">
-          {loading ? "Inviting..." : "Send Invitation"}
+        <Button type="submit" disabled={loading} className="flex-1">
+          {loading ? "Creating..." : "Create User"}
         </Button>
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
