@@ -8,8 +8,10 @@ import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { BarChart3, TrendingUp, Package, Users, Download, FileText, DollarSign, AlertTriangle, Building2, ShoppingCart, Truck, Printer, Calendar, Clock, XCircle, Receipt, CreditCard, UserCircle, Boxes, Activity, Scale } from "lucide-react";
+import { BarChart3, TrendingUp, Package, Users, Download, FileText, DollarSign, AlertTriangle, Building2, ShoppingCart, Truck, Printer, Calendar, Clock, XCircle, Receipt, CreditCard, UserCircle, Boxes, Activity, Scale, WifiOff } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts";
+import { useOnlineStatus } from "@/hooks/use-online-status";
+import { cachedFetch } from "@/lib/offline/cached-fetch";
 
 function formatUGX(n: number) { return `UGX ${Number(n ?? 0).toLocaleString('en-UG')}`; }
 function formatNum(n: number) { return Number(n ?? 0).toLocaleString('en-UG'); }
@@ -47,17 +49,19 @@ export default function ReportsPage() {
   const [page, setPage] = React.useState(1); const perPage = 20;
   const [sortBy, setSortBy] = React.useState<string | null>(null); const [sortDir, setSortDir] = React.useState<'asc'|'desc'>('desc');
   const [selectedLow, setSelectedLow] = React.useState<Set<string>>(new Set());
+  const { isOnline } = useOnlineStatus();
+  const [viewingCached, setViewingCached] = React.useState(false);
 
   React.useEffect(() => { setMounted(true); }, []);
 
   React.useEffect(() => {
+    // Reports read through cachedFetch: online they stay authoritative, offline they
+    // replay the last-good JSON snapshot (dataCache) so the page keeps rendering.
     const safeFetchJson = async (url: string) => {
       try {
-        const r = await fetch(url);
-        if (!r.ok) return null;
-        const ct = r.headers.get('content-type') || '';
-        if (!ct.includes('application/json')) return null;
-        return await r.json();
+        const j: any = await cachedFetch(url);
+        if (j === null || j === undefined) return null;
+        return j;
       } catch { return null; }
     };
     safeFetchJson("/api/settings").then(j => { if (j?.branches) setBranches(j.branches); });
@@ -97,6 +101,19 @@ export default function ReportsPage() {
 
   const fetchReport = React.useCallback(async (tab: string) => {
     setLoading(true); setErr(null);
+    const offlineNow = typeof navigator !== "undefined" && !navigator.onLine;
+    setViewingCached(offlineNow);
+    // cachedFetch: fresh from the server when online, replays the last-good JSON
+    // snapshot (IndexedDB dataCache) when offline so reports still render.
+    const cf = async (u: string) => {
+      try {
+        return await cachedFetch<Record<string, unknown>>(u);
+      } catch (e: any) {
+        setViewingCached(true);
+        if (offlineNow) throw new Error("Offline — no cached copy of this report/filter combination yet. Open it once while online (or use default filters) and it becomes available offline.");
+        throw e;
+      }
+    };
     try {
       const params = new URLSearchParams();
       params.set("type", mapTabToType(tab));
@@ -118,31 +135,25 @@ export default function ReportsPage() {
       if (tab === "slow") {
         const slow = new URLSearchParams(params);
         const dead = new URLSearchParams(params); dead.set("type", "dead-stock");
-        const [r1, r2] = await Promise.all([fetch(`/api/reports?${slow.toString()}`), fetch(`/api/reports?${dead.toString()}`)]);
-        const [j1, j2] = await Promise.all([r1.json(), r2.json()]);
-        if (!r1.ok) throw new Error(j1.error ?? "Failed to load report");
-        setReportData({ type: "slow", data: j1.data ?? [], count: j1.count ?? 0, dead: j2.data ?? [], deadCount: j2.count ?? 0 });
-        setGeneratedAt(j1.generated_at ?? new Date().toISOString());
+        const [j1, j2] = await Promise.all([cf(`/api/reports?${slow.toString()}`), cf(`/api/reports?${dead.toString()}`)]);
+        setReportData({ type: "slow", data: (j1 as any)?.data ?? [], count: (j1 as any)?.count ?? 0, dead: (j2 as any)?.data ?? [], deadCount: (j2 as any)?.count ?? 0 });
+        setGeneratedAt((j1 as any)?.generated_at ?? new Date().toISOString());
         setLoading(false);
         return;
       }
       if (tab === "ar") {
         const ar = new URLSearchParams(params);
         const ap = new URLSearchParams(params); ap.set("type", "ap");
-        const [r1, r2] = await Promise.all([fetch(`/api/reports?${ar.toString()}`), fetch(`/api/reports?${ap.toString()}`)]);
-        const [j1, j2] = await Promise.all([r1.json(), r2.json()]);
-        if (!r1.ok) throw new Error(j1.error ?? "Failed to load report");
-        setReportData({ type: "ar", ...j1, ap: j2 });
-        setGeneratedAt(j1.generated_at ?? new Date().toISOString());
+        const [j1, j2] = await Promise.all([cf(`/api/reports?${ar.toString()}`), cf(`/api/reports?${ap.toString()}`)]);
+        setReportData({ type: "ar", ...(j1 as any), ap: j2 });
+        setGeneratedAt((j1 as any)?.generated_at ?? new Date().toISOString());
         setLoading(false);
         return;
       }
 
-      const r = await fetch(`/api/reports?${params.toString()}`);
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? 'Failed to load report');
+      const j = await cf(`/api/reports?${params.toString()}`);
       setReportData(j);
-      setGeneratedAt(j.generated_at ?? new Date().toISOString());
+      setGeneratedAt((j as any)?.generated_at ?? new Date().toISOString());
     } catch (e: any) { setErr(e.message); setReportData(null); }
     setLoading(false);
   }, [branchFilter, productFilter, categoryFilter, supplierFilter, customerFilter, paymentMethod, dateFrom, dateTo, granularity, expiryBucket, compare, page]);
@@ -221,6 +232,17 @@ export default function ReportsPage() {
           <Button variant="outline" size="sm" onClick={printReport}><Printer className="h-4 w-4 mr-1" />Print/PDF</Button>
         </div>
       </div>
+
+      {(!isOnline || viewingCached) && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex items-center gap-2">
+          <WifiOff className="h-4 w-4 shrink-0" />
+          <span>
+            {!isOnline
+              ? "OFFLINE — reports are showing the last synchronized snapshot (cached when you last viewed them online). CSV / Excel / Print still work. Queued offline writes appear after they sync, then re-open this report."
+              : "Showing the last-good cached report — the live fetch had a hiccup."}
+          </span>
+        </div>
+      )}
 
       {/* Global Filters */}
       <Card>
