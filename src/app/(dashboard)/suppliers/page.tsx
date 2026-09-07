@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { queueSupplierCreate, queueSupplierUpdate, getSupplierPendingCount } from "@/lib/offline/sync";
+import { usePendingSuppliers } from "@/lib/offline/pending-overlay";
 import { Search, Plus, Eye, Edit, Building2, Phone, Mail, MapPin, CreditCard, Package, Truck, Undo2, FileText, History, TrendingUp, Layers, DollarSign, Clock, AlertTriangle, CheckCircle, XCircle, PauseCircle, Wifi, WifiOff, RefreshCw, Download, Trash2, ShieldCheck, Globe, Users, FileArchive, MessageSquare, ScanLine, Upload, FileSpreadsheet, Printer, Bell } from "lucide-react";
 import { db } from "@/lib/offline/db";
 
@@ -71,6 +72,8 @@ export default function SuppliersPage(){
   const [approvalAmount,setApprovalAmount]=React.useState("");
   const [approvalReason,setApprovalReason]=React.useState("");
   const perPage=14;
+  const pendingSupplierRows = usePendingSuppliers();
+  const mergedSuppliers = React.useMemo(()=>[...pendingSupplierRows, ...data],[pendingSupplierRows, data]);
 
   // form for create/edit
   const emptyForm: any = { name:"", supplier_code:"", trading_name:"", supplier_type:"Pharmaceutical distributor", supplier_category:"", description:"", status:"Active", contact_person:"", contact_role:"", phone:"", phone_alt:"", email:"", email_alt:"", address:"", physical_address:"", postal_address:"", city:"", region:"", country:"Uganda", website:"", business_registration_number:"", tin:"", licence_number:"", licence_expiry_date:"", verification_status:"Unverified", payment_terms:"30 Days", credit_limit:0, currency:"UGX", default_discount:0, minimum_order_value:0, minimum_order_quantity:0, lead_time_days:"", delivery_terms:"", preferred_payment_method:"", account_reference:"", notes:"", branch_ids:[] };
@@ -134,6 +137,7 @@ export default function SuppliersPage(){
     setShowCreate(true);
   };
   const openEdit=(s:Supplier)=>{
+    if((s as any).pendingSync) return alert("This supplier hasn't synced yet — it will be editable after it syncs.");
     setForm({
       name:s.name, supplier_code:s.supplier_code??"", trading_name:s.trading_name??"", supplier_type:s.supplier_type??"Pharmaceutical distributor",
       supplier_category:s.supplier_category??"", description:s.description??"", status:s.status?? (s.is_active?"Active":"Inactive"),
@@ -148,6 +152,7 @@ export default function SuppliersPage(){
     setShowEdit(s);
   };
   const openDetail=async(s:Supplier)=>{
+    if((s as any).pendingSync) return alert("This supplier hasn't synced yet — view the full record after it syncs.");
     setShowDetail(s);
     setDetailTab("overview");
     setDetailLoading(true);
@@ -420,14 +425,14 @@ export default function SuppliersPage(){
       <Card><CardContent className="p-0">
         {err && <div className="p-4 text-sm text-destructive">{err}</div>}
         {loading ? <div className="p-6 space-y-3">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-16 w-full"/>)}</div>
-        : data.length===0 ? <div className="py-12 text-center space-y-2"><p className="text-muted-foreground">No suppliers — add your first supplier</p><p className="text-xs text-muted-foreground">After: associate Paracetamol/Amoxicillin/ORS → set preferred → reorder → PO → GRN</p></div>
+        : data.length===0 && mergedSuppliers.length===0 ? <div className="py-12 text-center space-y-2"><p className="text-muted-foreground">No suppliers — add your first supplier</p><p className="text-xs text-muted-foreground">After: associate Paracetamol/Amoxicillin/ORS → set preferred → reorder → PO → GRN</p></div>
         : <>
           <div className="hidden lg:block overflow-x-auto">
             <Table><TableHeader><TableRow><TableHead>Supplier</TableHead><TableHead>Contact</TableHead><TableHead>Products</TableHead><TableHead>Open POs</TableHead><TableHead className="text-right">Outstanding</TableHead><TableHead>Payment Terms</TableHead><TableHead>Status</TableHead><TableHead>Last Purchase</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
-              {data.map((s:any)=>(
+              {mergedSuppliers.map((s:any)=>(
                 <TableRow key={s.id} className="hover:bg-muted/40 cursor-pointer" onClick={()=>openDetail(s)}>
                   <TableCell>
-                    <div className="font-medium flex items-center gap-2"><Building2 className="h-4 w-4 text-muted-foreground"/>{s.name}</div>
+                    <div className="font-medium flex items-center gap-2"><Building2 className="h-4 w-4 text-muted-foreground"/>{s.name}{s.pendingSync && <Badge variant="warning">Pending sync</Badge>}</div>
                     <div className="text-xs text-muted-foreground font-mono">{s.supplier_code ?? s.id.slice(0,8)} • {s.supplier_type ?? "—"}</div>
                   </TableCell>
                   <TableCell>
@@ -442,9 +447,9 @@ export default function SuppliersPage(){
                   <TableCell>{statusBadge(s.status ?? (s.is_active?"Active":"Inactive"))}{s.sync_status==="pending" && <Badge variant="warning" className="ml-1">Pending Sync</Badge>}</TableCell>
                   <TableCell className="text-xs">{s.last_purchase_at ? new Date(s.last_purchase_at).toLocaleDateString() : "—"}</TableCell>
                   <TableCell className="text-right space-x-1" onClick={e=>e.stopPropagation()}>
-                    <Button variant="ghost" size="icon" onClick={()=>openDetail(s)} title="View"><Eye className="h-4 w-4"/></Button>
-                    <Button variant="ghost" size="icon" onClick={()=>openEdit(s)} title="Edit"><Edit className="h-4 w-4"/></Button>
-                    <Button variant="ghost" size="icon" onClick={()=>handleDeactivate(s)} title="Toggle active">{s.status==="Active"? <XCircle className="h-4 w-4"/> : <CheckCircle className="h-4 w-4"/>}</Button>
+                    <Button variant="ghost" size="icon" disabled={s.pendingSync} title={s.pendingSync?"Pending sync": undefined} onClick={()=>openDetail(s)}><Eye className="h-4 w-4"/></Button>
+                    <Button variant="ghost" size="icon" disabled={s.pendingSync} title={s.pendingSync?"Pending sync": undefined} onClick={()=>openEdit(s)}><Edit className="h-4 w-4"/></Button>
+                    <Button variant="ghost" size="icon" disabled={s.pendingSync} title={s.pendingSync?"Pending sync": undefined} onClick={()=>handleDeactivate(s)}>{s.status==="Active"? <XCircle className="h-4 w-4"/> : <CheckCircle className="h-4 w-4"/>}</Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -452,12 +457,12 @@ export default function SuppliersPage(){
           </div>
 
           <div className="lg:hidden p-3 grid gap-3">
-            {data.map((s:any)=>(
+            {mergedSuppliers.map((s:any)=>(
               <Card key={s.id} className="border cursor-pointer" onClick={()=>openDetail(s)}>
                 <CardContent className="p-3 space-y-2">
                   <div className="flex justify-between items-start">
                     <div>
-                      <div className="font-medium">{s.name}</div>
+                      <div className="font-medium">{s.name}{s.pendingSync && <Badge variant="warning" className="ml-2">Pending</Badge>}</div>
                       <div className="text-xs text-muted-foreground font-mono">{s.supplier_code ?? s.id.slice(0,8)} • {s.supplier_type}</div>
                       <div className="text-xs flex items-center gap-1 mt-1"><Phone className="h-3 w-3"/>{s.phone ?? s.email ?? "—"}</div>
                     </div>
@@ -469,9 +474,9 @@ export default function SuppliersPage(){
                   </div>
                   <div className="flex justify-between text-xs"><span className="flex items-center gap-1"><Package className="h-3 w-3"/>{s.products_count ?? 0} products</span><span>{s.payment_terms ?? "30 Days"}</span></div>
                   <div className="flex gap-2" onClick={e=>e.stopPropagation()}>
-                    <Button size="sm" variant="outline" className="flex-1" onClick={()=>openDetail(s)}><Eye className="h-4 w-4 mr-1"/>View</Button>
-                    <Button size="sm" variant="outline" onClick={()=>openEdit(s)}><Edit className="h-4 w-4"/></Button>
-                    <Button size="sm" variant="outline" onClick={()=>handleDeactivate(s)}>{s.status==="Active"? "Deactivate" : "Activate"}</Button>
+                    <Button size="sm" variant="outline" className="flex-1" disabled={s.pendingSync} onClick={()=>openDetail(s)}><Eye className="h-4 w-4 mr-1"/>View</Button>
+                    <Button size="sm" variant="outline" disabled={s.pendingSync} onClick={()=>openEdit(s)}><Edit className="h-4 w-4"/></Button>
+                    <Button size="sm" variant="outline" disabled={s.pendingSync} onClick={()=>handleDeactivate(s)}>{s.status==="Active"? "Deactivate" : "Activate"}</Button>
                   </div>
                 </CardContent>
               </Card>

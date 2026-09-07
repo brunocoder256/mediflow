@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Search, Download, RefreshCw, AlertTriangle, Clock, XCircle, ArrowUpDown, Package, TrendingUp, Layers, Scan, Truck, ClipboardList, History, WifiOff, Wifi, Eye, Plus, Minus, Trash2 } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { cachedFetch } from "@/lib/offline/cached-fetch";
+import { usePendingStock } from "@/lib/offline/pending-overlay";
 
 type BatchRow = { id:string; product_id:string; branch_id:string; batch_number:string; quantity_available:number; quantity_received:number; purchase_price:number; selling_price:number; expiry_date:string; is_active:boolean; products:{name:string; generic_name?:string; sku?:string; barcode?:string; category_id?:string; reorder_level:number}; branches:{name:string}|null; suppliers?:{name:string}|null };
 
@@ -43,6 +44,12 @@ export default function InventoryPage() {
   const [agingData, setAgingData] = React.useState<{label:string; qty:number; value:number}[]>([]);
   const [analyticsMovements, setAnalyticsMovements] = React.useState<any[]>([]);
   const { isOnline } = useOnlineStatus();
+  const pendingStockRows = usePendingStock();
+  // Merge queued (offline) batches — product opening stock + pending purchase receipts — on top of cached server stock.
+  const stockMerge = React.useMemo(()=>{
+    const pend = pendingStockRows.filter(r=>!(data.stock as any[]).some(s=>s.id===r.id));
+    return [...pend, ...(data.stock ?? [])];
+  },[pendingStockRows, data.stock]);
 
   // debounce
   React.useEffect(()=>{ const id=setTimeout(()=>setDebounced(searchQuery),300); return ()=>clearTimeout(id); },[searchQuery]);
@@ -78,7 +85,7 @@ export default function InventoryPage() {
   },[]);
   // aging computed from stock batches received_at
   React.useEffect(()=>{
-    if(!data.stock.length){ setAgingData([]); return; }
+    if(!stockMerge.length){ setAgingData([]); return; }
     const now=Date.now();
     const buckets=[
       {label:"0–30d", min:0, max:30, qty:0, value:0},
@@ -87,14 +94,14 @@ export default function InventoryPage() {
       {label:"91–180d", min:91, max:180, qty:0, value:0},
       {label:"180+ d", min:181, max:9999, qty:0, value:0},
     ];
-    for(const b of data.stock as any[]){
+    for(const b of stockMerge as any[]){
       const recv=b.received_at ? new Date(b.received_at).getTime() : new Date(b.created_at||Date.now()).getTime();
       const age=Math.floor((now-recv)/(1000*3600*24));
       const bucket=buckets.find(x=> age>=x.min && age<=x.max);
       if(bucket){ bucket.qty+=Number(b.quantity_available); bucket.value+=Number(b.quantity_available)*Number(b.purchase_price); }
     }
     setAgingData(buckets);
-  },[data.stock]);
+  },[stockMerge]);
   // movements for slow/dead stock (last sale per product)
   React.useEffect(()=>{
     cachedFetch("/api/stock-movements?perPage=200").then((j:any)=> setAnalyticsMovements(j.data ?? [])).catch(()=>{});
@@ -109,15 +116,15 @@ export default function InventoryPage() {
   ];
 
   // KPIs
-  const totalUnits = React.useMemo(()=> data.stock.reduce((s:any,r:any)=> s+Number(r.quantity_available),0),[data.stock]);
-  const totalValue = React.useMemo(()=> data.stock.reduce((s:any,r:any)=> s+Number(r.quantity_available)*Number(r.purchase_price),0),[data.stock]);
+  const totalUnits = React.useMemo(()=> stockMerge.reduce((s:any,r:any)=> s+Number(r.quantity_available),0),[stockMerge]);
+  const totalValue = React.useMemo(()=> stockMerge.reduce((s:any,r:any)=> s+Number(r.quantity_available)*Number(r.purchase_price),0),[stockMerge]);
   const outOfStock = React.useMemo(()=> {
-    const ids=new Set(data.stock.filter((r:any)=>Number(r.quantity_available)>0).map((r:any)=>r.product_id));
+    const ids=new Set(stockMerge.filter((r:any)=>Number(r.quantity_available)>0).map((r:any)=>r.product_id));
     // approximate: products with no batch? Use lowStock logic; for now count products with zero total
     const byProduct:Record<string,number>={};
-    for(const r of data.stock) byProduct[r.product_id]=(byProduct[r.product_id]??0)+Number(r.quantity_available);
+    for(const r of stockMerge) byProduct[r.product_id]=(byProduct[r.product_id]??0)+Number(r.quantity_available);
     return Object.values(byProduct).filter(v=>v===0).length;
-  },[data.stock]);
+  },[stockMerge]);
   const expiringQty = React.useMemo(()=> data.expiring.reduce((s:any,r:any)=> s+Number(r.quantity_available),0),[data.expiring]);
   const expiredQty = React.useMemo(()=> data.expired.reduce((s:any,r:any)=> s+Number(r.quantity_available),0),[data.expired]);
   const expiringValue = React.useMemo(()=> data.expiring.reduce((s:any,r:any)=> s+Number(r.quantity_available)*Number(r.purchase_price),0),[data.expiring]);
@@ -126,7 +133,7 @@ export default function InventoryPage() {
     if(activeTab==="low-stock") return data.lowStock as BatchRow[];
     if(activeTab==="expiring") return data.expiring as BatchRow[];
     if(activeTab==="expired") return data.expired as BatchRow[];
-    return data.stock as BatchRow[];
+    return stockMerge as BatchRow[];
   };
   // search across product name, generic, sku, barcode, batch, supplier, category, branch
   const rows = React.useMemo(()=>{
@@ -164,7 +171,7 @@ export default function InventoryPage() {
       });
     }
     return filtered;
-  },[data.stock, data.lowStock, data.expiring, data.expired, debounced, stockStatus, expiryFilter, expiryThreshold, activeTab]);
+  },[stockMerge, data.lowStock, data.expiring, data.expired, debounced, stockStatus, expiryFilter, expiryThreshold, activeTab]);
 
   const getStatusBadge=(r:BatchRow)=>{
     const days=(new Date(r.expiry_date).getTime()-Date.now())/(1000*3600*24);
@@ -190,7 +197,7 @@ export default function InventoryPage() {
     const now=Date.now();
     const threshold=slowDays*24*3600*1000;
     const byProduct:Record<string,{name:string; qty:number; value:number; last:number}>={};
-    for(const b of data.stock as any[]){
+    for(const b of stockMerge as any[]){
       const pid=b.product_id; const last=lastSaleByProduct[pid] ?? 0;
       const age = last ? now-last : Infinity;
       if(age>threshold || last===0){
@@ -200,23 +207,23 @@ export default function InventoryPage() {
       }
     }
     return Object.entries(byProduct).map(([id,v])=>({product_id:id, ...v})).sort((a,b)=> b.value - a.value).slice(0,20);
-  },[data.stock, lastSaleByProduct, slowDays]);
+  },[stockMerge, lastSaleByProduct, slowDays]);
   const deadStockRows = React.useMemo(()=>{
     const now=Date.now();
     const threshold=deadDays*24*3600*1000;
     return slowMovingRows.filter(r=> (r.last===0 || now - r.last > threshold));
   },[slowMovingRows, deadDays]);
-  const quarantineRows = React.useMemo(()=> data.stock.filter((r:any)=> !r.is_active || new Date(r.expiry_date) <= new Date()).slice(0,20),[data.stock]);
+  const quarantineRows = React.useMemo(()=> stockMerge.filter((r:any)=> !r.is_active || new Date(r.expiry_date) <= new Date()).slice(0,20),[stockMerge]);
   const valuationByBranch = React.useMemo(()=>{
     const map:Record<string,{name:string; value:number; qty:number}>={};
-    for(const b of data.stock as any[]){
+    for(const b of stockMerge as any[]){
       const key=b.branch_id; const name=b.branches?.name||key.slice(0,6);
       if(!map[key]) map[key]={name, value:0, qty:0};
       map[key].value+=Number(b.quantity_available)*Number(b.purchase_price);
       map[key].qty+=Number(b.quantity_available);
     }
     return Object.values(map);
-  },[data.stock]);
+  },[stockMerge]);
 
   const handleExport=()=>{
     const header=["Product","Generic","SKU","Batch","Branch","Qty","Purchase","Expiry","Status","Value"].join(",");
@@ -321,7 +328,7 @@ export default function InventoryPage() {
 
       {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp className="h-4 w-4"/>Total Value</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">UGX {totalValue.toLocaleString()}</div><p className="text-xs text-muted-foreground">{totalUnits.toLocaleString()} units • {data.stock.length} batches • FEFO cost preserved</p></CardContent></Card>
+        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp className="h-4 w-4"/>Total Value</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">UGX {totalValue.toLocaleString()}</div><p className="text-xs text-muted-foreground">{totalUnits.toLocaleString()} units • {stockMerge.length} batches • FEFO cost preserved</p></CardContent></Card>
         <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><AlertTriangle className="h-4 w-4"/>Low Stock</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-amber-600">{data.lowStock.length}</div><p className="text-xs text-muted-foreground">≤ reorder level • {data.kpi?.pendingReceipts ?? 0} pending receipts</p><Button variant="link" size="sm" className="p-0 h-auto" onClick={()=>setActiveTab("low-stock")}>View</Button></CardContent></Card>
         <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><Clock className="h-4 w-4"/>Expiring</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-amber-600">{data.expiring.length} <span className="text-sm font-normal">({expiringQty} units)</span></div><p className="text-xs text-muted-foreground">≤{expiryThreshold}d • Value UGX {expiringValue.toLocaleString()}</p>
           <div className="flex gap-1 mt-1 text-xs"><Badge variant="outline">7d: {data.buckets?.exp7?.length ?? 0}</Badge><Badge variant="outline">30d: {data.buckets?.exp30?.length ?? 0}</Badge><Badge variant="outline">60d: {data.buckets?.exp60?.length ?? 0}</Badge><Badge variant="outline">90d: {data.buckets?.exp90?.length ?? 0}</Badge></div>
@@ -374,12 +381,12 @@ export default function InventoryPage() {
                 <Table><TableHeader><TableRow><TableHead>Product</TableHead><TableHead>Generic / SKU</TableHead><TableHead>Batch</TableHead><TableHead>Location</TableHead><TableHead className="text-right">Avail</TableHead><TableHead>FEFO</TableHead><TableHead>Expiry</TableHead><TableHead className="text-right">Value</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
                   {rows.map((r:any)=>(
                     <TableRow key={r.id} className="hover:bg-muted/40">
-                      <TableCell className="font-medium max-w-[180px] truncate">{r.products?.name ?? r.product_id.slice(0,8)}<div className="text-xs text-muted-foreground truncate">{r.products?.sku||""} {r.products?.barcode ? `• ${r.products.barcode}`:""}</div></TableCell>
+                      <TableCell className="font-medium max-w-[180px] truncate">{r.products?.name ?? r.product_id.slice(0,8)}{r.pendingSync && <Badge variant="warning" className="ml-1 text-[10px]">Pending</Badge>}<div className="text-xs text-muted-foreground truncate">{r.products?.sku||""} {r.products?.barcode ? `• ${r.products.barcode}`:""}</div></TableCell>
                       <TableCell className="text-xs text-muted-foreground">{(r as any).products?.generic_name||"—"}<div className="text-xs">{(r as any).products?.sku||""}</div></TableCell>
                       <TableCell className="font-mono text-xs">{r.batch_number}<div className="text-xs text-muted-foreground">Recv {r.quantity_received}</div></TableCell>
                       <TableCell><Badge variant="outline">{r.branches?.name ?? r.branch_id.slice(0,6)}</Badge></TableCell>
                       <TableCell className="text-right font-bold">{r.quantity_available}</TableCell>
-                      <TableCell className="text-xs">{/* FEFO indicator: earliest expiry for this product */} {(() => { const sameProduct=data.stock.filter((x:any)=>x.product_id===r.product_id && x.branch_id===r.branch_id).sort((a:any,b:any)=> new Date(a.expiry_date).getTime()-new Date(b.expiry_date).getTime())[0]; return sameProduct?.id===r.id ? <Badge variant="success">FEFO 1st</Badge> : <span className="text-muted-foreground">—</span>; })()}</TableCell>
+                      <TableCell className="text-xs">{/* FEFO indicator: earliest expiry for this product */} {(() => { const sameProduct=stockMerge.filter((x:any)=>x.product_id===r.product_id && x.branch_id===r.branch_id).sort((a:any,b:any)=> new Date(a.expiry_date).getTime()-new Date(b.expiry_date).getTime())[0]; return sameProduct?.id===r.id ? <Badge variant="success">FEFO 1st</Badge> : <span className="text-muted-foreground">—</span>; })()}</TableCell>
                       <TableCell className="text-xs">{new Date(r.expiry_date).toLocaleDateString()}<div className="text-xs text-muted-foreground">{Math.ceil((new Date(r.expiry_date).getTime()-Date.now())/86400000)}d</div></TableCell>
                       <TableCell className="text-right text-xs">UGX {(Number(r.quantity_available)*Number(r.purchase_price)).toLocaleString()}</TableCell>
                       <TableCell>{getStatusBadge(r)}</TableCell>
@@ -393,7 +400,7 @@ export default function InventoryPage() {
                 {rows.map((r:any)=>(
                   <Card key={r.id} className="border">
                     <CardContent className="p-3 space-y-2">
-                      <div className="flex justify-between gap-2"><div className="min-w-0"><p className="font-semibold text-sm truncate">{r.products?.name}</p><p className="text-xs text-muted-foreground truncate">{r.batch_number} • {r.branches?.name}</p></div>{getStatusBadge(r)}</div>
+                      <div className="flex justify-between gap-2"><div className="min-w-0"><p className="font-semibold text-sm truncate">{r.products?.name}{r.pendingSync && <Badge variant="warning" className="ml-1 text-[10px]">Pending</Badge>}</p><p className="text-xs text-muted-foreground truncate">{r.batch_number} • {r.branches?.name}</p></div>{getStatusBadge(r)}</div>
                       <div className="flex justify-between text-sm"><span>Stock: <strong>{r.quantity_available}</strong> @ UGX {Number(r.purchase_price).toLocaleString()}</span><span className="font-mono text-xs">Exp {new Date(r.expiry_date).toLocaleDateString()}</span></div>
                       <div className="flex gap-2"><Button size="sm" variant="outline" className="flex-1" onClick={()=>{ setSelectedBatch(r); setShowBatch(true); }}>View</Button><Button size="sm" variant="outline" onClick={()=>{ setAdjustForm({batch_id:r.id, quantity:"", reason:"", type:"ADJUSTMENT_IN"}); setShowAdjustment(true); }}><Plus className="h-4 w-4"/></Button></div>
                     </CardContent>
@@ -429,7 +436,7 @@ export default function InventoryPage() {
               {slowMovingRows.length===0 ? <p className="text-sm text-muted-foreground">{`No slow-moving stock (all moved within ${slowDays}d)`}</p> :
                 <Table><TableHeader><TableRow><TableHead>Product</TableHead><TableHead>Qty</TableHead><TableHead>Value</TableHead><TableHead>Last Sale</TableHead><TableHead>Expiry</TableHead></TableRow></TableHeader><TableBody>
                   {slowMovingRows.map(r=>(
-                    <TableRow key={r.product_id}><TableCell className="font-medium">{r.name}</TableCell><TableCell>{r.qty}</TableCell><TableCell>UGX {r.value.toLocaleString()}</TableCell><TableCell className="text-xs">{r.last ? new Date(r.last).toLocaleDateString() : "Never"}</TableCell><TableCell className="text-xs">{(() => { const b=(data.stock as any[]).find(x=>x.product_id===r.product_id); return b ? new Date(b.expiry_date).toLocaleDateString() : "—"; })()}</TableCell></TableRow>
+                    <TableRow key={r.product_id}><TableCell className="font-medium">{r.name}</TableCell><TableCell>{r.qty}</TableCell><TableCell>UGX {r.value.toLocaleString()}</TableCell><TableCell className="text-xs">{r.last ? new Date(r.last).toLocaleDateString() : "Never"}</TableCell><TableCell className="text-xs">{(() => { const b=(stockMerge as any[]).find(x=>x.product_id===r.product_id); return b ? new Date(b.expiry_date).toLocaleDateString() : "—"; })()}</TableCell></TableRow>
                   ))}
                 </TableBody></Table>
               }
@@ -570,7 +577,7 @@ export default function InventoryPage() {
         <DialogContent className="bg-card">
           <DialogHeader><DialogTitle>Controlled Adjustment</DialogTitle><DialogDescription>Current → +/- Quantity → New. Creates ADJUSTMENT_IN/OUT movement + audit. Require reason.</DialogDescription></DialogHeader>
           <div className="space-y-3">
-            <div><Label>Batch</Label><Select value={adjustForm.batch_id} onChange={e=>setAdjustForm({...adjustForm, batch_id:e.target.value})}><option value="">Select batch</option>{data.stock.slice(0,100).map((b:any)=><option key={b.id} value={b.id}>{b.products?.name} — {b.batch_number} ({b.quantity_available} avail)</option>)}</Select></div>
+            <div><Label>Batch</Label><Select value={adjustForm.batch_id} onChange={e=>setAdjustForm({...adjustForm, batch_id:e.target.value})}><option value="">Select batch</option>{stockMerge.slice(0,100).map((b:any)=><option key={b.id} value={b.id}>{b.products?.name} — {b.batch_number} ({b.quantity_available} avail){b.pendingSync?" • Pending":""}</option>)}</Select></div>
             <div className="grid md:grid-cols-2 gap-3">
               <div><Label>Quantity (+5 / -3)</Label><Input type="number" value={adjustForm.quantity} onChange={e=>setAdjustForm({...adjustForm, quantity:e.target.value})} placeholder="+5 or -5"/></div>
               <div><Label>Reason</Label><Select value={adjustForm.reason} onChange={e=>setAdjustForm({...adjustForm, reason:e.target.value})}><option value="">Select reason</option><option value="Physical count correction">Physical count correction</option><option value="Damaged">Damaged</option><option value="Expired">Expired</option><option value="Lost">Lost</option><option value="Found">Found</option><option value="Opening balance correction">Opening balance correction</option><option value="Data correction">Data correction</option></Select></div>
@@ -578,7 +585,7 @@ export default function InventoryPage() {
             {adjustForm.batch_id && adjustForm.quantity && (
               <Card><CardContent className="p-3 text-sm">
                 {(() => {
-                  const b=data.stock.find((x:any)=>x.id===adjustForm.batch_id);
+                  const b=stockMerge.find((x:any)=>x.id===adjustForm.batch_id);
                   if(!b) return "Select batch";
                   const cur=Number(b.quantity_available); const n=cur+Number(adjustForm.quantity||0);
                   return <><div>Current: <strong>{cur}</strong> → Result: <strong className={n<0?"text-destructive":""}>{n}</strong> {n<0 && <Badge variant="destructive">Would be negative — blocked</Badge>}</div><div className="text-xs text-muted-foreground">Product {b.products?.name} • Batch {b.batch_number} • Branch {b.branches?.name}</div></>;

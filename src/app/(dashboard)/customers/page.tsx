@@ -15,6 +15,7 @@ import { Search, Plus, Eye, Edit, Trash2, Ban, RefreshCw, UserCircle, Building2,
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { db } from "@/lib/offline/db";
 import { queueCustomerCreate } from "@/lib/offline/sync";
+import { usePendingCustomers } from "@/lib/offline/pending-overlay";
 
 type Customer = {
   id:string; organization_id?:string; customer_code?: string|null; customer_type?: string; name:string; display_name?:string|null; company_name?:string|null; first_name?:string|null; last_name?:string|null;
@@ -22,6 +23,7 @@ type Customer = {
   preferred_contact?:string|null; sms_opt_in?:boolean; email_opt_in?:boolean; marketing_opt_in?:boolean; contact_person?:string|null; payment_terms?:string|null;
   // derived
   total_purchases?:number; outstanding_balance?:number; overdue_amount?:number; available_credit?:number; total_paid?:number; transaction_count?:number; last_purchase?:string|null; branch_name?:string|null; branch_totals?:Record<string,number>;
+  pendingSync?: boolean;
 };
 
 const customerTypes = [
@@ -56,6 +58,11 @@ export default function CustomersPage(){
   const [branches,setBranches]=React.useState<any[]>([]);
   const [kpi,setKpi]=React.useState<any>(null);
   const [pendingCount,setPendingCount]=React.useState(0);
+  const pendingCustomerRows = usePendingCustomers();
+  const mergedCustomers = React.useMemo<Customer[]>(()=>{
+    const pend = pendingCustomerRows.filter(pc=>!data.some(c=>c.id===pc.id));
+    return [...(pend as Customer[]), ...data];
+  },[pendingCustomerRows, data]);
 
   // form
   const [showAdd,setShowAdd]=React.useState(false);
@@ -128,6 +135,7 @@ export default function CustomersPage(){
   },[branchFilter]);
 
   const openProfile=async(id:string)=>{
+    if(pendingCustomerRows.some(p=>p.id===id)) return alert("This customer hasn't synced yet — view the full record after it syncs.");
     setProfileId(id); setProfileTab("overview"); setProfile(null); setStatementData(null);
     setProfileLoading(true);
     try{
@@ -416,16 +424,18 @@ export default function CustomersPage(){
       {/* List */}
       <Card><CardContent className="p-0">
         {loading ? <div className="p-6 space-y-3">{[...Array(6)].map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
-        : data.length===0 ? <div className="py-12 text-center space-y-2"><UserCircle className="h-10 w-10 mx-auto text-muted-foreground"/><p className="font-medium">No customers</p><p className="text-sm text-muted-foreground">Add your first customer — POS can create fast without losing cart</p><Button onClick={()=>setShowAdd(true)}><Plus className="h-4 w-4 mr-2"/>Add Customer</Button></div>
+        : data.length===0 && mergedCustomers.length===0 ? <div className="py-12 text-center space-y-2"><UserCircle className="h-10 w-10 mx-auto text-muted-foreground"/><p className="font-medium">No customers</p><p className="text-sm text-muted-foreground">Add your first customer — POS can create fast without losing cart</p><Button onClick={()=>setShowAdd(true)}><Plus className="h-4 w-4 mr-2"/>Add Customer</Button></div>
         : <>
           {/* Desktop table */}
           <div className="hidden lg:block overflow-x-auto">
             <Table><TableHeader><TableRow>
               <TableHead>Customer</TableHead><TableHead>Phone</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Total Purchases</TableHead><TableHead className="text-right">Outstanding</TableHead><TableHead>Last Purchase</TableHead><TableHead>Status</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Actions</TableHead>
             </TableRow></TableHeader><TableBody>
-              {data.map(c=>(
+              {mergedCustomers.map(c=>{
+                const pending=c.pendingSync===true;
+                return (
                 <TableRow key={c.id} className="hover:bg-muted/40 cursor-pointer" onClick={()=>openProfile(c.id)}>
-                  <TableCell className="font-medium max-w-[220px]"><div className="truncate">{c.display_name ?? c.company_name ?? c.name}</div><div className="text-xs text-muted-foreground truncate font-mono">{c.customer_code ?? c.id.slice(0,8)}</div></TableCell>
+                  <TableCell className="font-medium max-w-[220px]"><div className="truncate">{c.display_name ?? c.company_name ?? c.name}{pending && <Badge variant="warning" className="ml-2">Pending sync</Badge>}</div><div className="text-xs text-muted-foreground truncate font-mono">{c.customer_code ?? c.id.slice(0,8)}</div></TableCell>
                   <TableCell className="text-sm">{c.phone ?? "—"}{c.alternate_phone ? <div className="text-xs text-muted-foreground">{c.alternate_phone}</div>:null}</TableCell>
                   <TableCell><Badge variant="outline">{customerTypes.find(t=>t.v===(c.customer_type??'INDIVIDUAL'))?.l ?? c.customer_type}</Badge></TableCell>
                   <TableCell className="text-right font-mono text-xs">{formatUGX(c.total_purchases??0)}<div className="text-[10px] text-muted-foreground">{c.transaction_count??0} txns</div></TableCell>
@@ -435,32 +445,34 @@ export default function CustomersPage(){
                   <TableCell className="text-xs">{branches.find(b=>b.id===c.branch_id)?.code ?? c.branch_id?.slice(0,6) ?? "—"}</TableCell>
                   <TableCell className="text-right" onClick={e=>e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon" onClick={()=>openProfile(c.id)} title="View 360"><Eye className="h-4 w-4"/></Button>
-                      <Button variant="ghost" size="icon" onClick={()=>{ setEditing(c); setForm({ display_name: c.display_name ?? c.name ?? "", company_name: c.company_name ?? "", first_name: c.first_name ?? "", last_name: c.last_name ?? "", customer_type: c.customer_type ?? "INDIVIDUAL", phone: c.phone ?? "", alternate_phone: c.alternate_phone ?? "", email: c.email ?? "", address: c.address ?? "", city: c.city ?? "", branch_id: c.branch_id ?? "", credit_limit: String(c.credit_limit ?? 0), tax_id: c.tax_id ?? "", external_reference: c.external_reference ?? "", notes: c.notes ?? "", preferred_contact: c.preferred_contact ?? "PHONE", sms_opt_in: !!c.sms_opt_in, email_opt_in: !!c.email_opt_in, marketing_opt_in: !!c.marketing_opt_in, contact_person: c.contact_person ?? "" }); setShowAdd(true); }} title="Edit"><Edit className="h-4 w-4"/></Button>
-                      <Button variant="ghost" size="icon" onClick={()=>handleDeactivate(c.id, !!c.is_active && c.status!=='BLOCKED')} title={c.is_active ? "Deactivate" : "Reactivate"}>{c.is_active ? <Trash2 className="h-4 w-4"/> : <RefreshCw className="h-4 w-4"/>}</Button>
-                      <Button variant="ghost" size="icon" onClick={()=>handleBlock(c.id, c.status==='BLOCKED')} title={c.status==='BLOCKED' ? "Unblock" : "Block"}><Ban className="h-4 w-4"/></Button>
+                      <Button variant="ghost" size="icon" disabled={pending} title={pending?"Pending sync": "View 360"} onClick={()=>openProfile(c.id)}><Eye className="h-4 w-4"/></Button>
+                      <Button variant="ghost" size="icon" disabled={pending} title={pending?"Pending sync": "Edit"} onClick={()=>{ setEditing(c); setForm({ display_name: c.display_name ?? c.name ?? "", company_name: c.company_name ?? "", first_name: c.first_name ?? "", last_name: c.last_name ?? "", customer_type: c.customer_type ?? "INDIVIDUAL", phone: c.phone ?? "", alternate_phone: c.alternate_phone ?? "", email: c.email ?? "", address: c.address ?? "", city: c.city ?? "", branch_id: c.branch_id ?? "", credit_limit: String(c.credit_limit ?? 0), tax_id: c.tax_id ?? "", external_reference: c.external_reference ?? "", notes: c.notes ?? "", preferred_contact: c.preferred_contact ?? "PHONE", sms_opt_in: !!c.sms_opt_in, email_opt_in: !!c.email_opt_in, marketing_opt_in: !!c.marketing_opt_in, contact_person: c.contact_person ?? "" }); setShowAdd(true); }}><Edit className="h-4 w-4"/></Button>
+                      <Button variant="ghost" size="icon" disabled={pending} title={pending?"Pending sync": c.is_active?"Deactivate":"Reactivate"} onClick={()=>handleDeactivate(c.id, !!c.is_active && c.status!=='BLOCKED')}>{c.is_active ? <Trash2 className="h-4 w-4"/> : <RefreshCw className="h-4 w-4"/>}</Button>
+                      <Button variant="ghost" size="icon" disabled={pending} title={pending?"Pending sync": c.status==='BLOCKED'?"Unblock":"Block"} onClick={()=>handleBlock(c.id, c.status==='BLOCKED')}><Ban className="h-4 w-4"/></Button>
                     </div>
                   </TableCell>
-                </TableRow>
-              ))}
+                </TableRow>);
+              })}
             </TableBody></Table>
           </div>
           {/* Mobile cards */}
           <div className="lg:hidden p-3 grid gap-3 sm:grid-cols-2">
-            {data.map(c=>(
+            {mergedCustomers.map(c=>{
+              const pending=c.pendingSync===true;
+              return (
               <Card key={c.id} className="cursor-pointer" onClick={()=>openProfile(c.id)}><CardContent className="p-3 space-y-2">
-                <div className="flex justify-between gap-2"><p className="font-semibold truncate">{c.display_name ?? c.company_name ?? c.name}</p>{c.status==='BLOCKED' ? <Badge variant="destructive">Blocked</Badge> : c.is_active ? <Badge variant="success">Active</Badge> : <Badge variant="secondary">Inactive</Badge>}</div>
+                <div className="flex justify-between gap-2"><p className="font-semibold truncate">{c.display_name ?? c.company_name ?? c.name}</p>{pending ? <Badge variant="warning">Pending sync</Badge> : c.status==='BLOCKED' ? <Badge variant="destructive">Blocked</Badge> : c.is_active ? <Badge variant="success">Active</Badge> : <Badge variant="secondary">Inactive</Badge>}</div>
                 <p className="text-xs text-muted-foreground flex items-center gap-1"><Phone className="h-3 w-3"/>{c.phone ?? "—"} {c.customer_code && <span className="ml-auto font-mono">{c.customer_code}</span>}</p>
                 <div className="flex flex-wrap gap-1"><Badge variant="outline">{customerTypes.find(t=>t.v===c.customer_type)?.l}</Badge>{c.credit_limit ? <Badge variant="warning">Limit {formatUGX(Number(c.credit_limit))}</Badge>:null}</div>
                 <div className="flex justify-between text-xs"><span>Purchases: <strong>{formatUGX(c.total_purchases??0)}</strong> ({c.transaction_count??0})</span>{Number(c.outstanding_balance??0)>0 && <span className="text-amber-600 font-bold">Owes {formatUGX(c.outstanding_balance!)}</span>}</div>
                 <div className="text-xs text-muted-foreground">Last: {c.last_purchase ? new Date(c.last_purchase).toLocaleDateString() : "—"} • {branches.find(b=>b.id===c.branch_id)?.code ?? "—"}</div>
                 <div className="flex gap-1" onClick={e=>e.stopPropagation()}>
-                  <Button size="sm" variant="outline" className="flex-1" onClick={()=>openProfile(c.id)}><Eye className="h-4 w-4 mr-1"/>View</Button>
-                  <Button size="sm" variant="outline" onClick={()=>{ setEditing(c); setForm({ display_name: c.display_name ?? c.name ?? "", company_name: c.company_name ?? "", first_name: c.first_name ?? "", last_name: c.last_name ?? "", customer_type: c.customer_type ?? "INDIVIDUAL", phone: c.phone ?? "", alternate_phone: c.alternate_phone ?? "", email: c.email ?? "", address: c.address ?? "", city: c.city ?? "", branch_id: c.branch_id ?? "", credit_limit: String(c.credit_limit ?? 0), tax_id: c.tax_id ?? "", external_reference: c.external_reference ?? "", notes: c.notes ?? "", preferred_contact:"PHONE", sms_opt_in:false, email_opt_in:false, marketing_opt_in:false, contact_person:"" }); setShowAdd(true); }}><Edit className="h-4 w-4"/></Button>
-                  <Button size="sm" variant={c.is_active?"ghost":"secondary"} onClick={()=>handleDeactivate(c.id, !!c.is_active)}>{c.is_active?<Trash2 className="h-4 w-4"/>:<RefreshCw className="h-4 w-4"/>}</Button>
+                  <Button size="sm" variant="outline" className="flex-1" disabled={pending} title={pending?"Pending sync": undefined} onClick={()=>openProfile(c.id)}><Eye className="h-4 w-4 mr-1"/>View</Button>
+                  <Button size="sm" variant="outline" disabled={pending} title={pending?"Pending sync": undefined} onClick={()=>{ setEditing(c); setForm({ display_name: c.display_name ?? c.name ?? "", company_name: c.company_name ?? "", first_name: c.first_name ?? "", last_name: c.last_name ?? "", customer_type: c.customer_type ?? "INDIVIDUAL", phone: c.phone ?? "", alternate_phone: c.alternate_phone ?? "", email: c.email ?? "", address: c.address ?? "", city: c.city ?? "", branch_id: c.branch_id ?? "", credit_limit: String(c.credit_limit ?? 0), tax_id: c.tax_id ?? "", external_reference: c.external_reference ?? "", notes: c.notes ?? "", preferred_contact:"PHONE", sms_opt_in:false, email_opt_in:false, marketing_opt_in:false, contact_person:"" }); setShowAdd(true); }}><Edit className="h-4 w-4"/></Button>
+                  <Button size="sm" variant={c.is_active?"ghost":"secondary"} disabled={pending} title={pending?"Pending sync": undefined} onClick={()=>handleDeactivate(c.id, !!c.is_active)}>{c.is_active?<Trash2 className="h-4 w-4"/>:<RefreshCw className="h-4 w-4"/>}</Button>
                 </div>
               </CardContent></Card>
-            ))}
+            );})}
           </div>
           <div className="flex items-center justify-between p-3 border-t">
             <span className="text-xs text-muted-foreground">Page {page} of {totalPages} • {totalCount} total</span>

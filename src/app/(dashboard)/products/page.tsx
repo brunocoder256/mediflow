@@ -3,6 +3,7 @@ import * as React from "react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { cachedFetch, invalidateCache } from "@/lib/offline/cached-fetch";
 import { queueProductCreate, queueProductUpdate, queueProductToggle } from "@/lib/offline/sync";
+import { usePendingProducts, isPendingRow } from "@/lib/offline/pending-overlay";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +52,7 @@ function ExpiryRisk({qty}:{qty:number}){
 
 export default function ProductsPage(){
   const { isOnline } = useOnlineStatus();
+  const pendingProducts = usePendingProducts();
   const [products,setProducts]=React.useState<ProductRow[]>([]);
   const [loading,setLoading]=React.useState(true);
   const [searchQuery,setSearchQuery]=React.useState("");
@@ -98,7 +100,12 @@ export default function ProductsPage(){
       if(!dbNames.has(t)) merged.push({ id: t, name: t, __fallback: true });
     }
     return merged;
-  },[categories]);
+  },[categoryFilter]);
+
+  const mergedProducts = React.useMemo(()=>{
+    const pend = pendingProducts.filter(pp=>!products.some(p=>p.id===pp.id));
+    return [...pend, ...products];
+  },[pendingProducts, products]);
 
   // Permissions check (simple)
   React.useEffect(()=>{
@@ -441,7 +448,7 @@ export default function ProductsPage(){
         <CardContent className="p-0">
           {loading ? (
             <div className="p-6 space-y-4">{[...Array(6)].map((_,i)=><div key={i} className="flex gap-4"><Skeleton className="h-12 w-12"/><div className="flex-1 space-y-2"><Skeleton className="h-4 w-48"/><Skeleton className="h-3 w-32"/></div><Skeleton className="h-8 w-20"/></div>)}</div>
-          ) : products.length===0 ? (
+          ) : products.length===0 && pendingProducts.length===0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center"><Package className="h-12 w-12 text-muted-foreground mb-3"/><p className="font-medium">No products found</p><p className="text-sm text-muted-foreground">Adjust search/filters or add your first product</p><Button className="mt-4" onClick={()=>setShowAdd(true)}>Add Product</Button></div>
           ) : (
             <>
@@ -466,9 +473,11 @@ export default function ProductsPage(){
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {products.map(p=>(
+                    {mergedProducts.map(p=>{
+                      const pending=isPendingRow(p);
+                      return (
                       <TableRow key={p.id} className="hover:bg-muted/40">
-                        <TableCell className="font-medium max-w-[200px] truncate" title={p.name}>{p.name}<div className="text-xs text-muted-foreground truncate">{(p as any).manufacturer||""}</div></TableCell>
+                        <TableCell className="font-medium max-w-[200px] truncate" title={p.name}>{p.name}{pending && <Badge variant="warning" className="ml-2">Pending sync</Badge>}<div className="text-xs text-muted-foreground truncate">{(p as any).manufacturer||""}</div></TableCell>
                         <TableCell className="text-muted-foreground">{p.generic_name||"—"}</TableCell>
                         <TableCell className="font-mono text-xs">{p.sku||"—"}</TableCell>
                         <TableCell className="font-mono text-xs">{p.barcode ? <span className="inline-flex items-center gap-1"><Barcode className="h-3 w-3"/>{p.barcode}</span> : "—"}</TableCell>
@@ -482,30 +491,32 @@ export default function ProductsPage(){
                         <TableCell><ExpiryRisk qty={(p as any).expiringQty ?? 0}/></TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="icon" onClick={()=>openDetail(p.id)} aria-label="View"><Eye className="h-4 w-4"/></Button>
-                            <Button variant="ghost" size="icon" onClick={()=>handleEdit(p)} aria-label="Edit"><Edit className="h-4 w-4"/></Button>
-                            <Button variant="ghost" size="icon" onClick={()=>handleDeactivate(p.id, p.is_active)} aria-label={p.is_active?"Deactivate":"Reactivate"}>{p.is_active ? <Trash2 className="h-4 w-4"/> : <History className="h-4 w-4"/>}</Button>
+                            <Button variant="ghost" size="icon" disabled={pending} title={pending?"Pending sync": undefined} onClick={()=>openDetail(p.id)} aria-label="View"><Eye className="h-4 w-4"/></Button>
+                            <Button variant="ghost" size="icon" disabled={pending} title={pending?"Pending sync": undefined} onClick={()=>handleEdit(p as any)} aria-label="Edit"><Edit className="h-4 w-4"/></Button>
+                            <Button variant="ghost" size="icon" disabled={pending} title={pending?"Pending sync": undefined} onClick={()=>handleDeactivate(p.id, p.is_active)} aria-label={p.is_active?"Deactivate":"Reactivate"}>{p.is_active ? <Trash2 className="h-4 w-4"/> : <History className="h-4 w-4"/>}</Button>
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))}
+                    );})}
                   </TableBody>
                 </Table>
               </div>
               {/* Mobile cards */}
               <div className="lg:hidden p-4 grid gap-3 sm:grid-cols-2">
-                {products.map(p=>(
+                {mergedProducts.map(p=>{
+                  const pending=isPendingRow(p);
+                  return (
                   <Card key={p.id} className="overflow-hidden">
                     <CardContent className="p-4 space-y-2">
-                      <div className="flex justify-between gap-2"><p className="font-semibold line-clamp-2">{p.name}</p><Badge variant={p.is_active?"success":"secondary"}>{p.is_active?"Active":"Inactive"}</Badge></div>
+                      <div className="flex justify-between gap-2"><p className="font-semibold line-clamp-2">{p.name}</p>{pending ? <Badge variant="warning">Pending sync</Badge> : <Badge variant={p.is_active?"success":"secondary"}>{p.is_active?"Active":"Inactive"}</Badge>}</div>
                       {p.generic_name && <p className="text-xs text-muted-foreground">{p.generic_name} • {(p as any).brand_name||""}</p>}
                       <div className="flex flex-wrap gap-1 text-xs"><span className="font-mono">{p.sku||"No SKU"}</span>{p.barcode && <span className="inline-flex items-center gap-1"><Barcode className="h-3 w-3"/>{p.barcode}</span>}</div>
                       <div className="flex flex-wrap gap-1"><StockBadge stock={p.totalStock??0} reorder={p.reorder_level} expiring={(p as any).expiringQty??0}/> {(p as any).expiringQty>0 && <ExpiryRisk qty={(p as any).expiringQty}/>}</div>
                       <div className="flex justify-between text-sm"><span>Stock: <strong>{p.totalStock ?? 0}</strong></span><span>{(p as any).default_selling_price ? `UGX ${Number((p as any).default_selling_price).toLocaleString()}`:"—"}</span></div>
-                      <div className="flex gap-1"><Button size="sm" variant="outline" className="flex-1" onClick={()=>openDetail(p.id)}><Eye className="h-4 w-4 mr-1"/>View</Button><Button size="sm" variant="outline" className="flex-1" onClick={()=>handleEdit(p)}><Edit className="h-4 w-4 mr-1"/>Edit</Button></div>
+                      <div className="flex gap-1"><Button size="sm" variant="outline" className="flex-1" disabled={pending} title={pending?"Pending sync": undefined} onClick={()=>openDetail(p.id)}><Eye className="h-4 w-4 mr-1"/>View</Button><Button size="sm" variant="outline" className="flex-1" disabled={pending} title={pending?"Pending sync": undefined} onClick={()=>handleEdit(p as any)}><Edit className="h-4 w-4 mr-1"/>Edit</Button></div>
                     </CardContent>
                   </Card>
-                ))}
+                );})}
               </div>
             </>
           )}
@@ -513,7 +524,7 @@ export default function ProductsPage(){
       </Card>
 
       <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">Showing {(page-1)*perPage+1}–{Math.min(page*perPage, totalCount)} of {totalCount} • Page {page}/{totalPages}</p>
+        <p className="text-sm text-muted-foreground">Showing {(page-1)*perPage+1}–{Math.min(page*perPage, totalCount)} of {totalCount}{(pendingProducts.length>0 && ` + ${pendingProducts.length} pending sync`)} • Page {page}/{totalPages}</p>
         <div className="flex gap-2"><Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}><ChevronLeft className="h-4 w-4"/>Previous</Button><Button variant="outline" size="sm" disabled={page>=totalPages} onClick={()=>setPage(p=>Math.min(totalPages,p+1))}>Next<ChevronRight className="h-4 w-4 ml-1"/></Button></div>
       </div>
 

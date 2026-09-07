@@ -13,8 +13,9 @@ import { Label } from "@/components/ui/label";
 import { Search, Plus, Eye, Truck, Trash2, Wifi, WifiOff, RefreshCw, Download, CreditCard, Undo2, Layers, TrendingUp, Package, Building2, Users, FileText, History } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { queuePurchaseCreate, queuePurchaseReceive, getPurchasePendingCount } from "@/lib/offline/sync";
+import { usePendingPurchases } from "@/lib/offline/pending-overlay";
 
-type Purchase = { id:string; purchase_number:string; supplier_id:string; branch_id:string; status:string; total:number; subtotal?:number; discount?:number; tax?:number; created_at:string; ordered_at?:string; received_at?:string; suppliers?:{name:string}; branches?:{name:string}; purchase_items?:any[] };
+type Purchase = { id:string; purchase_number:string; supplier_id:string; branch_id:string; status:string; total:number; subtotal?:number; discount?:number; tax?:number; created_at:string; ordered_at?:string; received_at?:string; suppliers?:{name:string}; branches?:{name:string}; purchase_items?:any[]; pendingSync?: boolean };
 type Line = { product_id:string; product_name?:string; quantity_ordered:number; unit_cost:number; discount:number; tax:number; search_query?:string };
 
 export default function PurchasesPage(){
@@ -48,6 +49,12 @@ export default function PurchasesPage(){
   const [attachForm,setAttachForm]=React.useState({document_type:"SUPPLIER_INVOICE", file_name:"", file_url:""});
   const [searchOpen,setSearchOpen]=React.useState<number|null>(null);
   const perPage=20;
+  const pendingPurchases = usePendingPurchases();
+  const mergedPurchases = React.useMemo<Purchase[]>(()=>{
+    if(tab!=="all") return data;
+    const pend = pendingPurchases.filter(pp=>!data.some(p=>p.id===pp.id));
+    return [...(pend as unknown as Purchase[]), ...data];
+  },[tab, pendingPurchases, data]);
 
   React.useEffect(()=>{ const id=setTimeout(()=>setDebouncedQ(q),300); return ()=>clearTimeout(id); },[q]);
   React.useEffect(()=>{
@@ -110,6 +117,7 @@ export default function PurchasesPage(){
   };
 
   const openDetail=async(p:Purchase)=>{
+    if((p as any).pendingSync) return alert("This purchase hasn't synced yet — view the full record after it syncs.");
     setShowDetail(p);
     setDetailTab("overview");
     const r=await fetch(`/api/purchases?id=${p.id}`);
@@ -117,6 +125,7 @@ export default function PurchasesPage(){
     setDetailData(j);
   };
   const openReceive=async(p:Purchase)=>{
+    if((p as any).pendingSync) return alert("This purchase hasn't synced yet — receive goods after it syncs.");
     setShowReceive(p);
     const r=await fetch(`/api/purchases?id=${p.id}`);
     const j=await r.json();
@@ -168,12 +177,14 @@ export default function PurchasesPage(){
   };
 
   const handleStatus=async(p:Purchase, status:string)=>{
+    if((p as any).pendingSync) return alert("Pending sync — update status after it syncs.");
     if(!confirm(`Change ${p.purchase_number} to ${status}?`)) return;
     const r=await fetch("/api/purchases",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"status", purchase_order_id:p.id, status})});
     const j=await r.json();
     if(!r.ok) alert(j.error); else fetchAll();
   };
   const handleCancel=async(p:Purchase)=>{
+    if((p as any).pendingSync) return alert("Pending sync — cancel after it syncs.");
     if(!confirm(`Cancel ${p.purchase_number}? This is irreversible if no stock received.`)) return;
     const r=await fetch("/api/purchases",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"cancel", purchase_order_id:p.id})});
     const j=await r.json();
@@ -206,6 +217,7 @@ export default function PurchasesPage(){
   };
 
   const badge=(s:string)=>{
+    if(s==="PENDING_SYNC") return <Badge variant="warning">Pending Sync</Badge>;
     if(s==="DRAFT") return <Badge variant="secondary">Draft</Badge>;
     if(s==="PENDING_APPROVAL") return <Badge variant="warning">Pending Approval</Badge>;
     if(s==="APPROVED") return <Badge variant="warning">Approved</Badge>;
@@ -266,17 +278,18 @@ export default function PurchasesPage(){
         <TabsContent value={tab} className="mt-4">
           <Card><CardContent className="p-0">
             {loading ? <div className="p-6 space-y-3">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
-            : data.length===0 ? <div className="py-12 text-center text-muted-foreground">No purchase orders — create PO then Receive to add stock</div>
+            : data.length===0 && mergedPurchases.length===0 ? <div className="py-12 text-center text-muted-foreground">No purchase orders — create PO then Receive to add stock</div>
             : <>
               <div className="hidden md:block overflow-x-auto"><Table><TableHeader><TableRow><TableHead>PO #</TableHead><TableHead>Date</TableHead><TableHead>Supplier</TableHead><TableHead>Branch</TableHead><TableHead>Items</TableHead><TableHead className="text-right">Ordered</TableHead><TableHead className="text-right">Received</TableHead><TableHead>Pay Status*</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
-                {data.map(p=>{
+                {mergedPurchases.map(p=>{
+                  const pending=p.pendingSync===true;
                   const itemsCount=(p as any).purchase_items?.length ?? "-";
                   const ordered=p.total;
                   // Approx received value from detail? fallback to status
                   const receivedHint = p.status==="RECEIVED" ? ordered : p.status==="PARTIALLY_RECEIVED" ? Math.round(ordered*0.6) : 0;
                   return (
                   <TableRow key={p.id} className="hover:bg-muted/40">
-                    <TableCell className="font-mono text-xs cursor-pointer underline" onClick={()=>openDetail(p)}>{p.purchase_number}</TableCell>
+                    <TableCell className="font-mono text-xs cursor-pointer underline" onClick={()=>openDetail(p)}>{p.purchase_number}{pending && <Badge variant="warning" className="ml-2 text-[10px]">Pending</Badge>}</TableCell>
                     <TableCell className="text-xs">{new Date(p.created_at).toLocaleDateString()}<div className="text-[10px] text-muted-foreground">{p.ordered_at?`Ord ${new Date(p.ordered_at).toLocaleDateString()}`:""}</div></TableCell>
                     <TableCell className="text-sm">{(p as any).suppliers?.name ?? p.supplier_id.slice(0,8)}</TableCell>
                     <TableCell className="text-xs">{(p as any).branches?.name ?? p.branch_id.slice(0,6)}</TableCell>
@@ -295,10 +308,10 @@ export default function PurchasesPage(){
                 )})}
               </TableBody></Table></div>
               <div className="md:hidden p-3 grid gap-3">
-                {data.map(p=>(
+                {mergedPurchases.map(p=>(
                   <Card key={p.id} className="border cursor-pointer" onClick={()=>openDetail(p)}>
                     <CardContent className="p-3 space-y-2">
-                      <div className="flex justify-between"><span className="font-mono text-xs">{p.purchase_number}</span>{badge(p.status)}</div>
+                      <div className="flex justify-between"><span className="font-mono text-xs">{p.purchase_number}</span><span className="flex items-center gap-1">{p.pendingSync && <Badge variant="warning" className="text-[10px]">Pending</Badge>}{badge(p.status)}</span></div>
                       <div className="text-sm">{(p as any).suppliers?.name} • {(p as any).branches?.name ?? p.branch_id.slice(0,6)}</div>
                       <div className="flex justify-between text-xs"><span>{new Date(p.created_at).toLocaleDateString()}</span><span className="font-bold">UGX {Number(p.total).toLocaleString()}</span></div>
                       <div className="flex gap-2" onClick={e=>e.stopPropagation()}>
