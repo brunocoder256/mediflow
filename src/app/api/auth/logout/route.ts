@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sanitizeError } from '@/lib/security';
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 

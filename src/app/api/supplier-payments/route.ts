@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { recordSupplierPayment, getSupplierPayments } from '@/lib/services/supplier-payments';
 import { supplierPaymentSchema } from '@/lib/validations/purchases';
 import { getSB } from '@/lib/services/supabase';
@@ -16,7 +17,7 @@ export async function GET(request: Request){
     }
     const data = await getSupplierPayments(supplier_id, branch_id);
     return NextResponse.json(data);
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:500});}
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:500});}
 }
 export async function POST(request: Request){
   try{
@@ -24,5 +25,5 @@ export async function POST(request: Request){
     const parsed = supplierPaymentSchema.parse(body);
     const data = await recordSupplierPayment(parsed as any);
     return NextResponse.json(data,{status:201});
-  }catch(e:any){ return NextResponse.json({error:e.message, issues:e.issues},{status:400});}
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? ''), issues: e.issues },{status:400});}
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { getSB } from '@/lib/services/supabase';
 import { hasPermission } from '@/lib/auth';
 
@@ -31,7 +32,7 @@ export async function GET() {
     }
     return NextResponse.json({ organization: org, organization_settings: orgSettings, branches, branch_settings: branchSettings });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 500 });
   }
 }
 
@@ -93,6 +94,6 @@ export async function PATCH(req: Request) {
     }
     return NextResponse.json({ success: true });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 500 });
   }
 }

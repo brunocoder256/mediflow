@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { isSuperAdmin, superAdminProfileId, platformAudit } from '@/lib/super-admin';
@@ -42,7 +43,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .eq('id', org.id)
       .select('id, plan, status, trial_ends_at')
       .single();
-    if (error || !updated) return NextResponse.json({ error: error?.message || 'Failed to extend trial' }, { status: 500 });
+    if (error || !updated) return NextResponse.json({ error: sanitizeError(error?.message ?? '') || 'Failed to extend trial' }, { status: 500 });
 
     if (actorId) {
       await platformAudit(actorId, {
@@ -56,6 +57,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     return NextResponse.json({ ok: true, plan: 'trial', status: 'active', trial_ends_at: trialEndsAt, trial_days: days });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Failed to extend trial' }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') || 'Failed to extend trial' }, { status: 500 });
   }
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { isSuperAdmin, superAdminProfileId, platformAudit } from '@/lib/super-admin';
@@ -38,7 +39,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       p_months: months,
     });
     if (creditErr || !credit) {
-      return NextResponse.json({ error: creditErr?.message || 'Failed to credit payment' }, { status: 500 });
+      return NextResponse.json({ error: sanitizeError(creditErr?.message ?? '') || 'Failed to credit payment' }, { status: 500 });
     }
 
     const now = new Date().toISOString();
@@ -67,6 +68,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       months,
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Failed to approve account' }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') || 'Failed to approve account' }, { status: 500 });
   }
 }

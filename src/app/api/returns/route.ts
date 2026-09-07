@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { getReturns, getReturnsKPIs, getReturnById, createReturn, updateReturnStatus, createRefund, getRefunds, completeRefund } from '@/lib/services/returns';
 import { getSB } from '@/lib/services/supabase';
 import { z } from 'zod/v4';
@@ -66,7 +67,7 @@ export async function GET(request: Request) {
     const data = await getReturns({ branch_id, page, perPage, search, status, reason, refund_status, date_from, date_to, product_id, batch_id });
     return NextResponse.json(data);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error?.message ?? '') }, { status: 500 });
   }
 }
 
@@ -106,7 +107,7 @@ export async function POST(req: Request){
     const parsed = ReturnSchema.parse(body);
     const data = await createReturn({ sale_id: parsed.sale_id, branch_id: parsed.branch_id, operation_id: (body as any).operation_id, reason: parsed.reason, reason_category: parsed.reason_category, resolution: parsed.resolution, refund_method: parsed.refund_method, items: parsed.items as any });
     return NextResponse.json(data, {status:201});
-  }catch(e:any){ return NextResponse.json({error:e.message, issues:e.issues},{status:400}); }
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? ''), issues: e.issues },{status:400}); }
 }
 
 export async function PATCH(req: Request){
@@ -123,5 +124,5 @@ export async function PATCH(req: Request){
       }
     }
     return NextResponse.json({error:'Invalid action'},{status:400});
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:400});}
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:400});}
 }

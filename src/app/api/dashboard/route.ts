@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSB } from '@/lib/services/supabase';
 import { getInventoryValuation, getNetProfitReport } from '@/lib/services/financial';
+import { sanitizeError } from '@/lib/security';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -114,5 +115,8 @@ export async function GET(req: Request) {
       recentTxns: (todaySales ?? []).slice(0, 5),
       salesSeries,
     });
-  } catch (e: any) { return NextResponse.json({ error: e.message }, { status: 500 }); }
+  } catch (e: any) {
+    console.error('[dashboard] error:', e?.message);
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 500 });
+  }
 }

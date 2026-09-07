@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { hasPermission, getUserBranches } from '@/lib/auth';
 
@@ -70,6 +71,6 @@ export async function GET(req: Request) {
     const enriched = (data ?? []).map((d: any) => ({ ...d, user_name: d.user_id ? (names[d.user_id] ?? d.user_id.slice(0, 8)) : 'System' }));
     return NextResponse.json({ data: enriched, count });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 500 });
   }
 }

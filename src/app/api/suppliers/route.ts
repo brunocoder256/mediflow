@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { getSuppliers, createSupplier, getSupplierDetail, updateSupplier, deleteSupplier, getSupplierStatement, setSupplierStatus, getSupplierPriceHistory, addSupplierNote, addSupplierDocument, linkSupplierProduct, unlinkSupplierProduct, getPriceAlerts, importSupplierCatalogue, requestCreditApproval, getCreditApprovals, decideCreditApproval } from '@/lib/services/suppliers';
 import { getSB } from '@/lib/services/supabase';
 
@@ -59,7 +60,7 @@ export async function GET(req: Request){
     }
     // backward compat: return array
     return NextResponse.json(result.data);
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:500});}
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:500});}
 }
 
 export async function POST(req: Request){
@@ -120,7 +121,7 @@ export async function PATCH(req: Request){
     }
     const data = await updateSupplier(targetId, body);
     return NextResponse.json(data);
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:400});}
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:400});}
 }
 
 export async function DELETE(req: Request){
@@ -130,5 +131,5 @@ export async function DELETE(req: Request){
     if(!id) return NextResponse.json({error:'Missing id'},{status:400});
     await deleteSupplier(id);
     return NextResponse.json({ok:true});
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:400});}
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:400});}
 }

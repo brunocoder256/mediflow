@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { getExpenses, getExpenseById, createExpense, updateExpense, submitExpense, approveExpense, rejectExpense, payExpense, cancelExpense, reverseExpense, duplicateExpense, getExpenseCategories, createExpenseCategory, addExpenseAttachment, removeExpenseAttachment, getExpenseKPIs, getExpenseReports } from '@/lib/services/expenses';
 import { createExpenseSchema, expenseActionSchema, expenseCategorySchema, expenseAttachmentSchema } from '@/lib/validations/expenses';
 import { getSB, getProfileId, getOrgId } from '@/lib/services/supabase';
@@ -52,7 +53,7 @@ export async function GET(request: Request) {
     const { total, count, byCategory } = await import('@/lib/services/expenses').then(m=>m.getExpenseSummary({ branch_id, date_from, date_to }));
     return NextResponse.json({ ...result, summary: { total, count, byCategory } });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error?.message ?? '') }, { status: 500 });
   }
 }
 
@@ -102,7 +103,7 @@ export async function POST(req: Request){
     const parsed = createExpenseSchema.parse(body);
     const data = await createExpense(parsed as any);
     return NextResponse.json(data,{status:201});
-  }catch(e:any){ return NextResponse.json({error:e.message, issues:e.issues ?? e.errors},{status:400}); }
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? ''), issues: e.issues ?? e.errors },{status:400}); }
 }
 
 export async function PATCH(req: Request){
@@ -131,7 +132,7 @@ export async function PATCH(req: Request){
     // generic update (draft edit)
     const data = await updateExpense(id, body);
     return NextResponse.json(data);
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:400}); }
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:400}); }
 }
 
 export async function PUT(req: Request){
@@ -161,5 +162,5 @@ export async function DELETE(req: Request){
     const { error } = await sb.from('expenses').delete().eq('id', id);
     if (error) throw new Error(error.message);
     return NextResponse.json({ok:true});
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:400}); }
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:400}); }
 }

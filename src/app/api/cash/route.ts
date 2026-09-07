@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { getCashRegisters } from '@/lib/services/cash';
 
 export async function GET(req: Request) {
@@ -10,6 +11,6 @@ export async function GET(req: Request) {
     }
     return NextResponse.json([]);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 500 });
   }
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { getSB } from '@/lib/services/supabase';
 import { hasPermission } from '@/lib/auth';
 
@@ -13,7 +14,7 @@ export async function GET(req: Request) {
     if (error) throw new Error(error.message);
     return NextResponse.json(branches ?? []);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 500 });
   }
 }
 
@@ -34,7 +35,7 @@ export async function POST(req: Request) {
     await sb.from('audit_logs').insert({ action: 'BRANCH_CREATED', entity_type: 'branches', entity_id: data.id, old_values: null, new_values: { name, code }, created_by: prof.id });
     return NextResponse.json(data, { status: 201 });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 400 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 400 });
   }
 }
 
@@ -74,7 +75,7 @@ export async function PATCH(req: Request) {
     await sb.from('audit_logs').insert({ action: 'BRANCH_EDITED', entity_type: 'branches', entity_id: id, old_values: {}, new_values: clean, created_by: prof.id });
     return NextResponse.json(data);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 400 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 400 });
   }
 }
 
@@ -101,6 +102,6 @@ export async function DELETE(req: Request) {
     await sb.from('audit_logs').insert({ action: 'BRANCH_DELETED', entity_type: 'branches', entity_id: id, old_values: { name: data?.name }, new_values: null, created_by: prof.id });
     return NextResponse.json(data);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 400 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 400 });
   }
 }

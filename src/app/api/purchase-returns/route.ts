@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { createPurchaseReturn, approvePurchaseReturn, completePurchaseReturn, getPurchaseReturns, getPurchaseReturnsKPIs } from '@/lib/services/purchase-returns';
 import { purchaseReturnSchema } from '@/lib/validations/purchases';
 import { getSB } from '@/lib/services/supabase';
@@ -44,7 +45,7 @@ export async function GET(request: Request){
       return NextResponse.json({ data: sliced, count: (data as any[]).length });
     }
     return NextResponse.json({ data, count: (data as any[]).length });
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:500});}
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:500});}
 }
 export async function POST(request: Request){
   try{
@@ -79,7 +80,7 @@ export async function POST(request: Request){
       const data = await createPurchaseReturn(payload as any);
       return NextResponse.json(data,{status:201});
     }
-  }catch(e:any){ return NextResponse.json({error:e.message, issues:e.issues},{status:400});}
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? ''), issues: e.issues },{status:400});}
 }
 export async function PATCH(request: Request){
   try{
@@ -97,5 +98,5 @@ export async function PATCH(request: Request){
       return NextResponse.json(data);
     }
     return NextResponse.json({error:'Invalid action'},{status:400});
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:400});}
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:400});}
 }

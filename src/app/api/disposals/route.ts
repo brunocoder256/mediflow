@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sanitizeError } from '@/lib/security';
 import { createDisposal, approveDisposal, disposeStock, getDisposals } from "@/lib/services/disposals";
 import { z } from "zod/v4";
 
@@ -19,7 +20,7 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ data });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 500 });
   }
 }
 
@@ -58,6 +59,6 @@ export async function POST(req: Request) {
     });
     return NextResponse.json(data, { status: 201 });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message, issues: e.issues }, { status: 400 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? ''), issues: e.issues }, { status: 400 });
   }
 }

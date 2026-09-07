@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { getStockOverview, getLowStockItems, getExpiringItems, getExpiredItems, getInventoryValue } from '@/lib/services/batches';
 
 export async function GET(request: Request) {
@@ -54,6 +55,6 @@ export async function GET(request: Request) {
             }
         });
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: sanitizeError(error?.message ?? '') }, { status: 500 });
     }
 }

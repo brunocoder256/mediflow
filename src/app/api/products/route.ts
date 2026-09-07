@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getProducts, searchProducts, createProduct, updateProduct, deactivateProduct } from '@/lib/services/products';
+import { sanitizeError } from '@/lib/security';
 
 export async function GET(request: Request) {
     try {
@@ -38,7 +39,8 @@ export async function GET(request: Request) {
         const result = await getProducts({ category_id, product_type, status, supplier_id, search, page, perPage, lowStock, expiring });
         return NextResponse.json(result);
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error('[products] GET error:', error?.message);
+        return NextResponse.json({ error: sanitizeError(error?.message ?? '') }, { status: 500 });
     }
 }
 
@@ -75,8 +77,9 @@ export async function POST(request: Request) {
         }
         return NextResponse.json({ error: 'Invalid request: provide name or search' }, { status: 400 });
     } catch (error: any) {
-        const msg = error?.issues ? JSON.stringify(error.issues) : error.message;
-        return NextResponse.json({ error: msg }, { status: 400 });
+        console.error('[products] POST error:', error?.message);
+        const msg = error?.issues ? JSON.stringify(error.issues) : (error?.message ?? '');
+        return NextResponse.json({ error: sanitizeError(msg) }, { status: 400 });
     }
 }
 
@@ -97,6 +100,7 @@ export async function PATCH(request: Request) {
         const data = await updateProduct(id, patch);
         return NextResponse.json(data);
     } catch (e: any) {
-        return NextResponse.json({ error: e.message }, { status: 400 });
+        console.error('[products] PATCH error:', e?.message);
+        return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 400 });
     }
 }

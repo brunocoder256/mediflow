@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSalesList, getSaleById } from '@/lib/services/sales';
 import { createSaleTransaction } from '@/lib/services/pos';
+import { sanitizeError } from '@/lib/security';
 import { z } from 'zod/v4';
 
 export async function GET(request: Request) {
@@ -45,7 +46,8 @@ export async function GET(request: Request) {
         const data = await getSalesList({ branch_id, status, page, perPage });
         return NextResponse.json(data);
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error('[sales] GET error:', error?.message);
+        return NextResponse.json({ error: sanitizeError(error?.message ?? '') }, { status: 500 });
     }
 }
 
@@ -88,7 +90,9 @@ export async function POST(request: Request){
     if((result as any).duplicate) return NextResponse.json({ ...result, message: 'Duplicate operation - returned existing' }, { status: 200 });
     return NextResponse.json(result, { status: 201 });
   }catch(e:any){
+    console.error('[sales] POST error:', e?.message);
     const status = e.name === 'ZodError' ? 400 : 400;
-    return NextResponse.json({ error: e.message ?? 'Invalid sale', issues: e.issues ?? undefined }, { status });
+    const issues = e.name === 'ZodError' ? e.issues ?? undefined : undefined;
+    return NextResponse.json({ error: sanitizeError(e?.message ?? 'Invalid sale'), ...(issues ? { issues } : {}) }, { status });
   }
 }

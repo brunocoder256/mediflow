@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import {
   getSalesReport, getSalesAggregates, getSalesByProduct, getSalesByCategory, getSalesByCustomer, getSalesByPaymentMethod, getSalesByBranch, getSalesByTime,
   getInventoryReports, getStockSummary, getStockValuation, getStockMovements, getExpiryReport, getLowStockReport, getSlowMovingReport, getDeadStockReport,
@@ -9,15 +10,16 @@ import {
 import { getCOGSReport, getNetProfitReport, getInventoryValuation, getExpenseSummary } from '@/lib/services/financial';
 
 async function checkPermission(): Promise<{ ok: boolean; branchId?: string }> {
-  // Server-side: we trust RLS but also verify user exists. For reports, permission is validated via RLS + branch scope.
-  // If we cannot verify, still allow but branch-scoped.
   try {
     const { getSB } = await import('@/lib/services/supabase');
     const sb: any = await getSB();
-    const { data: { user } } = await sb.auth.getUser();
-    if (!user) return { ok: false };
+    const { data: { user }, error } = await sb.auth.getUser();
+    if (error || !user) return { ok: false };
     return { ok: true };
-  } catch { return { ok: true }; }
+  } catch {
+    // If auth verification fails, DENY access (fail-closed).
+    return { ok: false };
+  }
 }
 
 export async function GET(req: Request) {
@@ -205,5 +207,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ sales, aggregates: agg });
     }
     return NextResponse.json({ error: `Unknown report type: ${type}` }, { status: 400 });
-  } catch (e: any) { return NextResponse.json({ error: e.message }, { status: 500 }); }
+  } catch (e: any) {
+    console.error('[reports] error:', e?.message);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
 }

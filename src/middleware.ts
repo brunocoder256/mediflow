@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { rateLimit, setRateLimitHeaders } from "@/lib/rate-limit";
 
 const publicRoutes = ["/", "/auth/*", "/features", "/pricing", "/about", "/contact", "/demo", "/terms", "/privacy", "/_next/*", "/manifest.json", "/sw.js", "/offline.html", "/icon-*.png", "/mediflow-logo.png", "/Mediflow IQ logo.png"];
 
@@ -12,7 +13,97 @@ function isPublicRoute(pathname: string): boolean {
   });
 }
 
+function getClientIp(request: NextRequest): string {
+  return (
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip") ||
+    "unknown"
+  );
+}
+
+function applySecurityHeaders(response: NextResponse): NextResponse {
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("X-XSS-Protection", "1; mode=block");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  response.headers.set(
+    "Strict-Transport-Security",
+    "max-age=63072000; includeSubDomains; preload"
+  );
+  return response;
+}
+
+function applyCorsHeaders(response: NextResponse, origin: string | null): NextResponse {
+  const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:3000,http://localhost:3333,https://mediflow.vercel.app")
+    .split(",")
+    .map((o) => o.trim());
+  const allowedOrigin = origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+
+  response.headers.set("Access-Control-Allow-Origin", allowedOrigin);
+  response.headers.set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+  response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-Id");
+  response.headers.set("Access-Control-Allow-Credentials", "true");
+  response.headers.set("Access-Control-Max-Age", "86400");
+  return response;
+}
+
+function getRateLimitConfig(pathname: string, ip: string, method: string) {
+  if (pathname.startsWith("/api/auth") || pathname === "/api/register") {
+    return { key: `auth:${ip}`, limit: 10, windowMs: 60_000 };
+  }
+  if (pathname.startsWith("/api/super-admin")) {
+    return { key: `admin:${ip}`, limit: 30, windowMs: 60_000 };
+  }
+  if (pathname.startsWith("/api/sales") || pathname.startsWith("/api/pos")) {
+    return { key: `write:${ip}`, limit: 60, windowMs: 60_000 };
+  }
+  if (pathname.startsWith("/api/") && method === "GET") {
+    return { key: `read:${ip}`, limit: 200, windowMs: 60_000 };
+  }
+  if (pathname.startsWith("/api/")) {
+    return { key: `api:${ip}`, limit: 120, windowMs: 60_000 };
+  }
+  return { key: `page:${ip}`, limit: 300, windowMs: 60_000 };
+}
+
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Compute rate limit result ONCE per request (reused for both the 429 gate and response headers).
+  const isApi = pathname.startsWith("/api/");
+  const rateLimitConfig = isApi
+    ? getRateLimitConfig(pathname, getClientIp(request), request.method)
+    : null;
+  const rateResult = rateLimitConfig
+    ? rateLimit({ ...rateLimitConfig, clientKey: rateLimitConfig.key })
+    : null;
+
+  // Handle CORS preflight for API routes.
+  if (isApi && request.method === "OPTIONS") {
+    const preflight = new NextResponse(null, { status: 204 });
+    applyCorsHeaders(preflight, request.headers.get("origin"));
+    applySecurityHeaders(preflight);
+    if (rateLimitConfig && rateResult) {
+      setRateLimitHeaders(preflight.headers, rateResult, rateLimitConfig.limit);
+    }
+    return preflight;
+  }
+
+  // --- Rate limiting for API routes ---
+  if (rateLimitConfig && rateResult && !rateResult.allowed) {
+    const retryAfter = Math.ceil((rateResult.resetAt - Date.now()) / 1000);
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(retryAfter),
+        },
+      }
+    );
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   });
@@ -46,10 +137,16 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { pathname } = request.nextUrl;
-
   // Don't redirect API or asset requests — let them return JSON 401/404 instead of HTML redirect (fixes manifest Syntax error & api 404 loops)
-  if (pathname.startsWith("/api/") || pathname === "/manifest.json" || pathname === "/sw.js" || pathname === "/offline.html" || pathname.match(/\.(?:json|png|jpg|jpeg|svg|ico|webp)$/)) {
+  if (isApi || pathname === "/manifest.json" || pathname === "/sw.js" || pathname === "/offline.html" || pathname.match(/\.(?:json|png|jpg|jpeg|svg|ico|webp)$/)) {
+    applySecurityHeaders(supabaseResponse);
+    applyCorsHeaders(supabaseResponse, request.headers.get("origin"));
+
+    // Set rate limit headers for API responses (reuse the single computed result).
+    if (rateLimitConfig && rateResult) {
+      setRateLimitHeaders(supabaseResponse.headers, rateResult, rateLimitConfig.limit);
+    }
+
     return supabaseResponse;
   }
 
@@ -59,10 +156,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Optional: redirect authenticated users away from auth pages
-  // if (isPublicRoute(pathname) && pathname.startsWith("/auth") && user) {
-  //   return NextResponse.redirect(new URL("/dashboard", request.url));
-  // }
+  applySecurityHeaders(supabaseResponse);
 
   return supabaseResponse;
 }

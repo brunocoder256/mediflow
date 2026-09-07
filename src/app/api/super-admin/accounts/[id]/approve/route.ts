@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { randomBytes } from 'node:crypto';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -182,6 +183,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       login,
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Approval failed' }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') || 'Approval failed' }, { status: 500 });
   }
 }

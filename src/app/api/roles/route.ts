@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { hasPermission, writeAudit } from '@/lib/auth';
 
@@ -89,7 +90,7 @@ export async function GET(req: Request) {
     }));
     return NextResponse.json(enriched);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 500 });
   }
 }
 
@@ -144,7 +145,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(data, { status: 201 });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 400 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 400 });
   }
 }
 
@@ -231,7 +232,7 @@ export async function PATCH(req: Request) {
     const { data: refreshed } = await sb.from('roles').select('*').eq('id', id).single();
     return NextResponse.json(refreshed);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 400 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 400 });
   }
 }
 
@@ -273,6 +274,6 @@ export async function DELETE(req: Request) {
 
     return NextResponse.json({ id, deleted: true });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 400 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 400 });
   }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getEffectivePermissions, getUserBranches } from '@/lib/auth';
+import { sanitizeError } from '@/lib/security';
 
 /** Current authenticated user profile + effective permissions + branches (for nav/RBAC). */
 export async function GET() {
@@ -38,6 +39,7 @@ export async function GET() {
       branches: branches ?? [],
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error('[me] error:', e?.message);
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 500 });
   }
 }

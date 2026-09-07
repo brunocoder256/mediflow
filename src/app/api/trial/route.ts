@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getTrialGate } from '@/lib/trial';
 

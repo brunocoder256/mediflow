@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { isSuperAdmin, superAdminProfileId, platformAudit } from '@/lib/super-admin';
@@ -42,6 +43,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     return NextResponse.json({ ok: true, status: 'rejected' });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Rejection failed' }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') || 'Rejection failed' }, { status: 500 });
   }
 }

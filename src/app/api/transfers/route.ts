@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { getTransfers, getTransferCapabilities, createTransfer, requestTransfer, approveTransfer, shipTransfer, receiveTransfer, cancelTransfer } from '@/lib/services/transfers';
 import { z } from 'zod/v4';
 
@@ -10,7 +11,7 @@ export async function GET(req: Request){
     }
     const data=await getTransfers({ branch_id: p.get('branch_id') ?? undefined, status: p.get('status') ?? undefined });
     return NextResponse.json(data);
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:500}); }
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:500}); }
 }
 const CreateSchema=z.object({
   source_branch_id: z.string().uuid(),
@@ -29,5 +30,5 @@ export async function POST(req: Request){
     const parsed=CreateSchema.parse(body);
     const data=await createTransfer(parsed as any);
     return NextResponse.json(data,{status:201});
-  }catch(e:any){ return NextResponse.json({error:e.message, issues:e.issues},{status:400}); }
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? ''), issues: e.issues },{status:400}); }
 }

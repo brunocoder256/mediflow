@@ -28,12 +28,17 @@ const BASE = process.env.BASE || 'http://localhost:3333';
 const URL_ = env('SUPABASE_URL') || env('NEXT_PUBLIC_SUPABASE_URL');
 const ANON = env('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY') || env('NEXT_PUBLIC_SUPABASE_ANON_KEY');
 const SECRET = env('SUPABASE_SECRET_KEY') || env('SUPABASE_SERVICE_ROLE_KEY');
-const ADMIN_EMAIL = 'brodevtech@gmail.com';
-const ADMIN_PASSWORD = 'brodevsoft@mediflow';
+const ADMIN_EMAIL = env('SUPER_ADMIN_EMAIL');
+const ADMIN_PASSWORD = env('SUPER_ADMIN_PASSWORD');
 const PLATFORM_ORG = 'f0eebc99-9c0b-4ef8-bb6d-6bb9bd380a00';
 
 if (!BASE || !URL_ || !ANON || !SECRET) {
   console.error('Missing env (BASE, SUPABASE_URL/KEY needed)');
+  process.exit(1);
+}
+
+if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+  console.error('Missing SUPER_ADMIN_EMAIL or SUPER_ADMIN_PASSWORD in env or .env.local');
   process.exit(1);
 }
 

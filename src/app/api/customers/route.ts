@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { z } from 'zod/v4';
 import { listCustomers, getCustomerKPIs, createCustomer, checkDuplicates } from '@/lib/services/customers';
 
@@ -41,7 +42,7 @@ export async function GET(req: Request){
       return NextResponse.json(res.data ?? []);
     }
     return NextResponse.json(res);
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:500}); }
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:500}); }
 }
 
 const CreateSchema=z.object({
@@ -99,8 +100,8 @@ export async function POST(req: Request){
     return NextResponse.json(res.customer,{status:201});
   }catch(e:any){
     if(e.name==='ZodError') return NextResponse.json({error:'Validation failed', issues:e.issues},{status:400});
-    if(e.message?.includes('similar customer')) return NextResponse.json({error:e.message},{status:409});
-    return NextResponse.json({error:e.message, issues:e.issues},{status:400});
+    if(e.message?.includes('similar customer')) return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:409});
+    return NextResponse.json({ error: sanitizeError(e?.message ?? ''), issues: e.issues },{status:400});
   }
 }
 
@@ -132,7 +133,7 @@ export async function PATCH(req: Request){
     }
     const data=await updateCustomer(id, patch);
     return NextResponse.json(data);
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:400}); }
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:400}); }
 }
 
 export async function DELETE(req: Request){
@@ -143,5 +144,5 @@ export async function DELETE(req: Request){
     const { deleteCustomerHard } = await import('@/lib/services/customers');
     await deleteCustomerHard(id);
     return NextResponse.json({success:true});
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:400}); }
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:400}); }
 }

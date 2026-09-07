@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { randomBytes } from 'node:crypto';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
@@ -158,7 +159,8 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ data: enriched, count: count ?? enriched.length, page, perPage });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error('[users] GET error:', e?.message);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
@@ -183,7 +185,8 @@ export async function POST(req: Request) {
     try {
       admin = createAdminSupabaseClient();
     } catch (e: any) {
-      return NextResponse.json({ error: e.message }, { status: 500 });
+      console.error('[users] admin client error:', e?.message);
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 
     // Invite via Supabase Auth (user sets password from email link)
@@ -308,7 +311,8 @@ export async function POST(req: Request) {
       { status: 201 },
     );
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 400 });
+    console.error('[users] POST error:', e?.message);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 400 });
   }
 }
 
@@ -427,7 +431,8 @@ export async function PATCH(req: Request) {
     const { data: refreshed } = await admin.from('profiles').select('*').eq('id', id).single();
     return NextResponse.json(refreshed);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 400 });
+    console.error('[users] PATCH error:', e?.message);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 400 });
   }
 }
 
@@ -487,6 +492,7 @@ export async function DELETE(req: Request) {
 
     return NextResponse.json(data);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 400 });
+    console.error('[users] DELETE error:', e?.message);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 400 });
   }
 }

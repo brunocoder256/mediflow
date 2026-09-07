@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { registrationSchema } from '@/lib/validations/auth';
+import { sanitizeError } from '@/lib/security';
 
 /** Platform-scope organization used for audit log entries (matches register_account RPC). */
 const PLATFORM_ORG = 'f0eebc99-9c0b-4ef8-bb6d-6bb9bd380a00';
@@ -210,6 +211,7 @@ export async function POST(req: Request) {
       { status: 201 },
     );
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Unable to create your account' }, { status: 400 });
+    console.error('[register] error:', e?.message);
+    return NextResponse.json({ error: sanitizeError(e?.message || '') || 'Unable to create your account' }, { status: 400 });
   }
 }

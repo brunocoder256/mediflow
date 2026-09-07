@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { isSuperAdmin } from '@/lib/super-admin';
@@ -70,6 +71,6 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ data: rows ?? [], total: count ?? 0, page, perPage, counts });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Failed to load accounts' }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') || 'Failed to load accounts' }, { status: 500 });
   }
 }

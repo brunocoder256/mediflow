@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { addPurchaseAttachment, getPurchaseAttachments } from '@/lib/services/purchases';
 import { purchaseAttachmentSchema } from '@/lib/validations/purchases';
 
@@ -10,7 +11,7 @@ export async function GET(request: Request) {
     const data = await getPurchaseAttachments(po);
     return NextResponse.json(data);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 500 });
   }
 }
 
@@ -22,6 +23,6 @@ export async function POST(request: Request) {
     const data = await addPurchaseAttachment(parsed as any);
     return NextResponse.json(data, { status: 201 });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message, issues: e.issues }, { status: 400 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? ''), issues: e.issues }, { status: 400 });
   }
 }

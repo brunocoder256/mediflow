@@ -3,13 +3,16 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { formatDate } from '@/lib/utils';
 
-let _sb: ReturnType<typeof createServerSupabaseClient> | null = null;
-
+/**
+ * Creates a fresh Supabase server client on every call.
+ *
+ * Previous implementation cached a single client at module scope (`let _sb`).
+ * In Vercel serverless, a single isolate can serve multiple requests — the
+ * cached client would retain the first request's auth cookies, leaking
+ * session context to subsequent requests. Always create a new client.
+ */
 export async function getSB() {
-    if (!_sb) {
-        _sb = createServerSupabaseClient();
-    }
-    return _sb;
+    return createServerSupabaseClient();
 }
 
 export async function getProfileId(): Promise<string | null> {

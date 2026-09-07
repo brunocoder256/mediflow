@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { getSB } from '@/lib/services/supabase';
 
 export async function GET() {
@@ -8,6 +9,6 @@ export async function GET() {
     if (error) throw new Error(error.message);
     return NextResponse.json(data ?? []);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 500 });
   }
 }

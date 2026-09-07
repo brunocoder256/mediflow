@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { listCustomers } from '@/lib/services/customers';
 export async function GET(req: Request){
   try{
@@ -10,5 +11,5 @@ export async function GET(req: Request){
     // fetch up to 5000 for export respecting filters
     const { data } = await listCustomers({ search, customer_type, status, branch_id, page:1, perPage:5000 });
     return NextResponse.json({ data, count: data.length });
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:500}); }
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:500}); }
 }

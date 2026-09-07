@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { getCustomerById, getCustomerSales, getCustomerPayments, getCustomerReturns, getCustomerNotes, getCustomerAudit, getCustomerLoyalty, getCustomerStatement } from '@/lib/services/customers';
 export async function GET(req: Request){
   try{
@@ -57,5 +58,5 @@ export async function GET(req: Request){
     }
     const customer = await getCustomerById(id);
     return NextResponse.json(customer);
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:500}); }
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:500}); }
 }

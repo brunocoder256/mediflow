@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 export async function GET(req: Request){
   try{
     const { searchParams } = new URL(req.url);
@@ -9,5 +10,5 @@ export async function GET(req: Request){
     const { getCustomerStatement } = await import('@/lib/services/customers');
     const data=await getCustomerStatement(customer_id, from, to);
     return NextResponse.json(data);
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:500}); }
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:500}); }
 }

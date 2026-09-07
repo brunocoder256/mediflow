@@ -91,15 +91,22 @@ export async function getEffectivePermissions(sb: any, profileId: string, _organ
 
 export async function hasPermission(sb: any, profileId: string, organizationId: string, code: string): Promise<boolean> {
   try {
-    const { data } = await sb.rpc('has_permission', { p_code: code });
-    if (typeof data === 'boolean') return data;
+    const { data, error } = await sb.rpc('has_permission', { p_code: code });
+    if (!error && typeof data === 'boolean') return data;
   } catch {
-    /* fall through */
+    // RPC unavailable — fall through to direct DB check below.
   }
-  const perms = await getEffectivePermissions(sb, profileId, organizationId);
-  if (perms.has(code)) return true;
-  if (perms.has('users.manage') && code.startsWith('users.')) return true;
-  return false;
+
+  try {
+    const perms = await getEffectivePermissions(sb, profileId, organizationId);
+    if (perms.has(code)) return true;
+    if (perms.has('users.manage') && code.startsWith('users.')) return true;
+    return false;
+  } catch {
+    // If permission resolution fails entirely, DENY access (fail-closed).
+    console.error(`[auth] Permission check failed for ${code}, denying access`);
+    return false;
+  }
 }
 
 export async function requirePermission(sb: any, profileId: string, organizationId: string, code: string) {

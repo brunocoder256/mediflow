@@ -18,9 +18,14 @@ function env(key) {
   }
 }
 
-const ADMIN_EMAIL = 'brodevtech@gmail.com';
-const ADMIN_PASSWORD = 'brodevsoft@mediflow';
+const ADMIN_EMAIL = env('SUPER_ADMIN_EMAIL');
+const ADMIN_PASSWORD = env('SUPER_ADMIN_PASSWORD');
 const PLATFORM_ORG = 'f0eebc99-9c0b-4ef8-bb6d-6bb9bd380a00';
+
+if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+  console.error('Missing SUPER_ADMIN_EMAIL or SUPER_ADMIN_PASSWORD in env or .env.local');
+  process.exit(1);
+}
 
 const url = env('SUPABASE_URL') || env('NEXT_PUBLIC_SUPABASE_URL');
 const key = env('SUPABASE_SECRET_KEY') || env('SUPABASE_SERVICE_ROLE_KEY');

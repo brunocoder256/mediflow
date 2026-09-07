@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { getPurchases, getPurchaseById, createPurchase, receivePurchase, updatePurchaseStatus, cancelPurchase, getPurchaseKPIs } from '@/lib/services/purchases';
 import { createPurchaseSchema, receivePurchaseSchema, purchaseStatusSchema } from '@/lib/validations/purchases';
 
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
         const data = await getPurchases({ branch_id, status, supplier_id, search, date_from, date_to, product_id, page, perPage });
         return NextResponse.json(data);
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: sanitizeError(error?.message ?? '') }, { status: 500 });
     }
 }
 export async function POST(request: Request){
@@ -48,7 +49,7 @@ export async function POST(request: Request){
     const normalized = { ...parsed, items: parsed.items.map(i=>({ ...i, discount: i.discount ?? 0, tax: i.tax ?? 0 })) };
     const data = await createPurchase(normalized as any);
     return NextResponse.json(data, {status:201});
-  }catch(e:any){ return NextResponse.json({error:e.message, issues:e.issues},{status:400}); }
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? ''), issues: e.issues },{status:400}); }
 }
 export async function PATCH(request: Request){
   try{
@@ -63,5 +64,5 @@ export async function PATCH(request: Request){
       return NextResponse.json(data);
     }
     return NextResponse.json({error:'Invalid PATCH payload'},{status:400});
-  }catch(e:any){ return NextResponse.json({error:e.message},{status:400}); }
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:400}); }
 }

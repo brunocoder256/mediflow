@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sanitizeError } from '@/lib/security';
 import { getSessions, openCashSession, closeCashSession, getSessionSummary, approveCashSession, getCurrentSession } from '@/lib/services/cash';
 
 export async function GET(req: Request) {
@@ -40,5 +41,5 @@ export async function POST(req: Request) {
       return NextResponse.json(data);
     }
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
-  } catch (e:any) { return NextResponse.json({ error: e.message }, { status: 500 }); }
+  } catch (e:any) { return NextResponse.json({ error: sanitizeError(e?.message ?? '') }, { status: 500 }); }
 }
