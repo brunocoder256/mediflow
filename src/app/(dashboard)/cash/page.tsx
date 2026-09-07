@@ -12,6 +12,7 @@ import {
   queueCashMovement,
 } from "@/lib/offline/sync";
 import { invalidateCache } from "@/lib/offline/cached-fetch";
+import { usePendingCash, useMediflowSynced } from "@/lib/offline/pending-overlay";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -75,6 +76,7 @@ const STATUS_BADGE: Record<string, string> = {
   CLOSED: "secondary",
   APPROVAL_REQUIRED: "destructive",
   APPROVED: "success",
+  PENDING_SYNC: "warning",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -83,6 +85,7 @@ const STATUS_LABEL: Record<string, string> = {
   CLOSED: "Closed",
   APPROVAL_REQUIRED: "Needs Approval",
   APPROVED: "Approved",
+  PENDING_SYNC: "Pending Sync",
 };
 
 function fmt(n: number | null | undefined) {
@@ -94,6 +97,7 @@ const STATUS = "status=OPEN,APPROVAL_REQUIRED,CLOSED,APPROVED,CLOSING";
 export default function CashPage() {
   const { toast } = useToast();
   const { isOnline } = useOnlineStatus();
+  const pendingCash = usePendingCash();
   const [branches, setBranches] = React.useState<any[]>([]);
   const [branchId, setBranchId] = React.useState("");
   const [registers, setRegisters] = React.useState<any[]>([]);
@@ -171,6 +175,10 @@ export default function CashPage() {
         .catch(() => {});
     }
   }, [page, branchId, perPage]);
+
+  useMediflowSynced(() => {
+    if (branchId) refresh(branchId, false);
+  });
 
   const openSession = async () => {
     if (!branchId || !openForm.register_id) return;
@@ -374,6 +382,27 @@ export default function CashPage() {
   };
 
   const openBtnDisabled = busy !== null || !!current;
+  const pendingIn = (pendingCash.movements as any[]).filter((m:any)=>m.direction==="IN").reduce((a:number,m:any)=>a+m.amount,0);
+  const pendingOut = (pendingCash.movements as any[]).filter((m:any)=>m.direction==="OUT").reduce((a:number,m:any)=>a+m.amount,0);
+  const mergedRegisters = React.useMemo(()=>{
+    const server = (registers as any[]).map((r:any)=>({ id: r.id, label: `${r.name} (${r.code})`, pending: false }));
+    const pend = isOnline ? [] : (pendingCash.registers as any[]).map((r:any)=>({ id: r.id, label: `${r.name} (${r.code}) · Pending`, pending: true }));
+    return [...pend, ...server];
+  }, [registers, pendingCash.registers, isOnline]);
+  const historyRows = React.useMemo(()=>{
+    const out: any[] = [];
+    for (const s of pendingCash.sessions as any[]) {
+      out.push({ _kind: "PENDING", _id: s.id, _note: "Session open queued offline", opened_at: s.opened_at, register: (s as any).register_name ?? "—", float: null, expected: null, closing: null, variance: null, _status: "PENDING_SYNC" });
+    }
+    for (const a of pendingCash.actions as any[]) {
+      const pl: any = a.payload ?? {};
+      out.push({ _kind: "PENDING", _id: a.id, _note: (a.kind === "CLOSE" ? "Close queued offline" : "Approval queued offline") + ` · session ${String(pl.session_id ?? "").slice(0, 8)}`, opened_at: a.created_at ?? a.queued_at ?? new Date().toISOString(), register: "—", float: null, expected: null, closing: a.kind === "CLOSE" ? pl.closing_cash : null, variance: null, _status: "PENDING_SYNC" });
+    }
+    for (const s of history.data) {
+      out.push({ _kind: "SERVER", _id: s.id, _note: null, opened_at: s.opened_at, register: s.cash_registers?.name ?? s.register_id.slice(0, 8), float: s.opening_float, expected: s.status === "CLOSED" || s.status === "APPROVED" ? s.expected_cash : null, closing: s.closing_cash, variance: s.cash_variance, _status: s.status, _raw: s });
+    }
+    return out;
+  }, [pendingCash.sessions, pendingCash.actions, history.data]);
 
   return (
     <div className="space-y-6">
@@ -393,6 +422,9 @@ export default function CashPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {pendingCash.total > 0 && (
+            <Badge variant="warning">{pendingCash.total} pending sync</Badge>
+          )}
           <Select value={branchId} onChange={(e) => setBranchId(e.target.value)} className="w-[220px]">
             <option value="">Select branch</option>
             {branches.map((b) => (
@@ -454,12 +486,13 @@ export default function CashPage() {
                     </div>
                     <div className="rounded-md border bg-muted/20 p-3">
                       <p className="text-xs text-muted-foreground">Expected cash now</p>
-                      <p className="text-lg font-bold">{fmt(summary?.expected ?? 0)}</p>
+                      <p className="text-lg font-bold">{fmt((summary?.expected ?? 0) + pendingIn - pendingOut)}</p>
+                      {(pendingIn - pendingOut) !== 0 && <p className="text-xs text-amber-600">incl. {fmt(pendingIn - pendingOut)} pending offline</p>}
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-3 text-sm">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Cash in</span><span className="font-medium">{fmt(summary?.cashIn ?? 0)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Cash out</span><span className="font-medium">{fmt(summary?.cashOut ?? 0)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Cash in</span><span className="font-medium">{fmt((summary?.cashIn ?? 0) + pendingIn)}{pendingIn > 0 && <span className="text-xs text-amber-600"> +{fmt(pendingIn)} pnd</span>}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Cash out</span><span className="font-medium">{fmt((summary?.cashOut ?? 0) + pendingOut)}{pendingOut > 0 && <span className="text-xs text-amber-600"> +{fmt(pendingOut)} pnd</span>}</span></div>
                     <div className="flex justify-between"><span className="text-muted-foreground">Refunds</span><span className="font-medium">{fmt(summary?.refunds ?? 0)}</span></div>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -481,6 +514,11 @@ export default function CashPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
+                  {pendingCash.sessions.length > 0 && (
+                    <p className="text-sm text-amber-700 flex items-center gap-2">
+                      A session open is queued offline and will appear here once it syncs.
+                    </p>
+                  )}
                   <p className="text-sm text-amber-700 flex items-center gap-2">
                     No active cash session for this branch. Open a session before cash sales.
                   </p>
@@ -503,7 +541,7 @@ export default function CashPage() {
               <CardTitle className="text-base">Session History</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              {history.data.length === 0 ? (
+              {historyRows.length === 0 ? (
                 <div className="px-4 py-10 text-center text-muted-foreground">
                   <p>No cash sessions yet</p>
                   <p className="text-sm">Sessions you open and close will be listed here.</p>
@@ -525,24 +563,27 @@ export default function CashPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {history.data.map((s) => (
-                          <tr key={s.id} className="border-b">
-                            <td className="p-3 text-xs">{new Date(s.opened_at).toLocaleString()}</td>
-                            <td className="p-3">{s.cash_registers?.name ?? s.register_id.slice(0, 8)}</td>
-                            <td className="p-3">{fmt(s.opening_float)}</td>
-                            <td className="p-3">{s.status === "CLOSED" || s.status === "APPROVED" ? fmt(s.expected_cash) : "—"}</td>
-                            <td className="p-3">{s.closing_cash != null ? fmt(s.closing_cash) : "—"}</td>
+                        {historyRows.slice((page - 1) * perPage, page * perPage).map((s: any) => (
+                          <tr key={s._id} className={s._kind === "PENDING" ? "border-b bg-amber-50/50" : "border-b"}>
+                            <td className="p-3 text-xs">
+                              {new Date(s.opened_at).toLocaleString()}
+                              {s._kind === "PENDING" && <div className="text-[11px] text-amber-600">{s._note}</div>}
+                            </td>
+                            <td className="p-3">{s.register}</td>
+                            <td className="p-3">{s.float != null ? fmt(s.float) : "—"}</td>
+                            <td className="p-3">{s.expected != null ? fmt(s.expected) : "—"}</td>
+                            <td className="p-3">{s.closing != null ? fmt(s.closing) : "—"}</td>
                             <td className="p-3">
-                              {s.cash_variance != null ? (
-                                <span className={Math.abs(s.cash_variance) > 0 ? "text-amber-600 font-medium" : ""}>{fmt(s.cash_variance)}</span>
+                              {s.variance != null ? (
+                                <span className={Math.abs(s.variance) > 0 ? "text-amber-600 font-medium" : ""}>{fmt(s.variance)}</span>
                               ) : "—"}
                             </td>
                             <td className="p-3">
-                              <Badge variant={STATUS_BADGE[s.status] as any}>{STATUS_LABEL[s.status]}</Badge>
+                              <Badge variant={STATUS_BADGE[s._status] as any}>{STATUS_LABEL[s._status]}</Badge>
                             </td>
                             <td className="p-3 text-right">
-                              {s.status === "APPROVAL_REQUIRED" && (
-                                <Button size="sm" variant="outline" onClick={() => setApproveTarget(s)}>
+                              {s._kind === "SERVER" && s._raw.status === "APPROVAL_REQUIRED" && (
+                                <Button size="sm" variant="outline" onClick={() => setApproveTarget(s._raw)}>
                                   <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
                                 </Button>
                               )}
@@ -555,7 +596,7 @@ export default function CashPage() {
                   {history.count > perPage && (
                     <div className="flex items-center justify-between border-t p-3">
                       <span className="text-sm text-muted-foreground">
-                        {history.count} session{history.count !== 1 ? "s" : ""} · page {page}
+                        {historyRows.length} session{historyRows.length !== 1 ? "s" : ""} · page {page}
                       </span>
                       <div className="flex gap-2">
                         <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
@@ -586,7 +627,7 @@ export default function CashPage() {
           <div className="space-y-3">
             <div className="space-y-2">
               <Label htmlFor="register">Cash Register</Label>
-              {registers.length === 0 ? (
+              {mergedRegisters.length === 0 ? (
                 <div className="flex items-center gap-2">
                   <p className="text-sm text-amber-700 text-pretty">No registers yet — {branchId ? "create one" : "select a branch"} first.</p>
                   {branchId && (
@@ -598,9 +639,9 @@ export default function CashPage() {
               ) : (
                 <Select id="register" value={openForm.register_id} onChange={(e) => setOpenForm((f) => ({ ...f, register_id: e.target.value }))}>
                   <option value="">Select register</option>
-                  {registers.map((r) => (
+                  {mergedRegisters.map((r) => (
                     <option key={r.id} value={r.id}>
-                      {r.name} ({r.code})
+                      {r.label}
                     </option>
                   ))}
                 </Select>

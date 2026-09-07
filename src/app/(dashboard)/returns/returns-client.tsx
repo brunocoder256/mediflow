@@ -16,6 +16,7 @@ import { Search, Plus, Eye, RotateCcw, Truck, ScanLine, Wifi, WifiOff, RefreshCw
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { queueReturnCreate, getReturnsPendingCount } from "@/lib/offline/sync";
 import { db } from "@/lib/offline/db";
+import { usePendingReturns, useMediflowSynced } from "@/lib/offline/pending-overlay";
 
 type ReturnType = 'SALES' | 'PURCHASE';
 const reasons = ["Damaged","Expired","Near Expiry","Wrong Product","Wrong Quantity","Wrong Batch","Quality Issue","Customer Return","Supplier Error","Recall","Duplicate Sale","Pricing Error","Packaging Issue","Delivery Discrepancy","Other"];
@@ -148,10 +149,29 @@ export default function ReturnsPage(){
   },[debouncedQ, statusFilter, reasonFilter, refundFilter, branchFilter, dateFrom, dateTo, page, typeFilter]);
   React.useEffect(()=>{ fetchAll(); },[fetchAll]);
 
+  useMediflowSynced(()=>{ fetchAll(); });
+
+  // Overlay queued (unsynced) returns on top — applied client-side so the type/search/status filters see them.
+  const pendingReturns = usePendingReturns();
+  const displayUnified = React.useMemo(()=>{
+    const pending = (pendingReturns as any[]).filter(r=>{
+      if(typeFilter!=='all'){ const want = typeFilter==='sales' ? 'SALES' : 'PURCHASE'; if(r._type!==want) return false; }
+      if(statusFilter!=='all'){ const want = statusFilter.toUpperCase(); if(!String(r.status ?? '').toUpperCase().includes(want)) return false; }
+      if(debouncedQ){
+        const s=debouncedQ.toLowerCase();
+        const hay=[r.return_number, r._orig, r._counterparty, r.reason].filter(Boolean).join(' ').toLowerCase();
+        if(!hay.includes(s)) return false;
+      }
+      return true;
+    });
+    return [...pending, ...unified];
+  },[pendingReturns, unified, typeFilter, statusFilter, debouncedQ]);
+
   const openDetail=async(row:any)=>{
     setShowDetail(row);
     setDetailTab("overview");
     setDetailData(null);
+    if(row.pendingSync){ setDetailData({ ...row }); return; }
     try{
       if(row._type==='SALES'){
         const r=await fetch(`/api/returns?id=${row.id}`); const j=await r.json(); if(r.ok) setDetailData({ ...j, _type:'SALES' });
@@ -343,10 +363,10 @@ export default function ReturnsPage(){
       <Card><CardContent className="p-0">
         {err && <div className="p-3 text-sm text-destructive">{err}</div>}
         {loading ? <div className="p-6 space-y-2">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
-        : unified.length===0 ? <div className="py-12 text-center space-y-1"><p className="text-muted-foreground">No returns yet. Sales and supplier returns will appear here.</p><p className="text-xs text-muted-foreground">Try changing search or date range.</p></div>
+        : displayUnified.length===0 ? <div className="py-12 text-center space-y-1"><p className="text-muted-foreground">No returns yet. Sales and supplier returns will appear here.</p><p className="text-xs text-muted-foreground">Try changing search or date range.</p></div>
         : <>
           <div className="hidden lg:block overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Return #</TableHead><TableHead>Type</TableHead><TableHead>Original</TableHead><TableHead>Counterparty</TableHead><TableHead>Date</TableHead><TableHead>Items</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Value</TableHead><TableHead>Reason</TableHead><TableHead>Status</TableHead><TableHead>Refund/Credit</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
-            {unified.filter(Boolean).slice((page-1)*perPage, page*perPage).map((r:any)=>{
+            {displayUnified.filter(Boolean).slice((page-1)*perPage, page*perPage).map((r:any)=>{
               const qty=(r.return_items?? r.purchase_return_items??[]).reduce((a:any,it:any)=>a+Number(it.quantity),0);
               const itemsCount=(r.return_items?? r.purchase_return_items??[]).length;
               return (
@@ -365,7 +385,7 @@ export default function ReturnsPage(){
                   <TableCell className="text-xs">{r?.branch_id?.slice(0,6)}</TableCell>
                   <TableCell className="text-right" onClick={e=>e.stopPropagation()}>
                     <Button variant="ghost" size="icon" onClick={()=>openDetail(r)}><Eye className="h-4 w-4"/></Button>
-                    {r?.status==='pending' && <Button variant="ghost" size="icon" onClick={()=>handleStatus(r,'approve')} title="Approve"><CheckCircle className="h-4 w-4"/></Button>}
+                    {r?.status==='pending' && !r.pendingSync && <Button variant="ghost" size="icon" onClick={()=>handleStatus(r,'approve')} title="Approve"><CheckCircle className="h-4 w-4"/></Button>}
                   </TableCell>
                 </TableRow>
               );
@@ -373,7 +393,7 @@ export default function ReturnsPage(){
           </TableBody></Table></div>
 
           <div className="lg:hidden p-3 grid gap-3">
-            {unified.filter(Boolean).slice((page-1)*perPage, page*perPage).map((r:any)=>{
+            {displayUnified.filter(Boolean).slice((page-1)*perPage, page*perPage).map((r:any)=>{
               const qty=(r.return_items?? r.purchase_return_items??[]).reduce((a:any,it:any)=>a+Number(it.quantity),0);
               return (
                 <Card key={r.id} className="cursor-pointer" onClick={()=>openDetail(r)}><CardContent className="p-3 space-y-2">
@@ -382,7 +402,7 @@ export default function ReturnsPage(){
                   <div className="text-xs">{r?.reason ?? ''} • {qty} units • {r?.refund_status ?? r?.credit_status ?? ''}</div>
                   <div className="flex gap-2" onClick={e=>e.stopPropagation()}>
                     <Button size="sm" variant="outline" className="flex-1" onClick={()=>openDetail(r)}><Eye className="h-4 w-4 mr-1"/>View</Button>
-                    {r?._type==='SALES' && <Button size="sm" variant="outline" onClick={()=>handleStatus(r,'approve')}><CheckCircle className="h-4 w-4"/></Button>}
+                    {r?._type==='SALES' && !r.pendingSync && <Button size="sm" variant="outline" onClick={()=>handleStatus(r,'approve')}><CheckCircle className="h-4 w-4"/></Button>}
                   </div>
                 </CardContent></Card>
               );
@@ -476,10 +496,10 @@ export default function ReturnsPage(){
           {!detailData ? <div className="space-y-3"><Skeleton className="h-24 w-full"/><Skeleton className="h-64 w-full"/></div> : (
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
-                {(detailData.status==='pending' || detailData.status==='draft') && <><Button size="sm" onClick={()=>handleStatus(showDetail,'approve')} disabled={submitting}>Approve</Button><Button size="sm" variant="outline" onClick={()=>handleStatus(showDetail,'reject')} disabled={submitting}>Reject</Button><Button size="sm" variant="ghost" onClick={()=>handleStatus(showDetail,'cancel')} disabled={submitting}>Cancel</Button></>}
-                {detailData.status==='approved' && <Button size="sm" onClick={()=>handleStatus(showDetail,'completed')} disabled={submitting}>Post / Complete</Button>}
+                {(detailData.status==='pending' || detailData.status==='draft') && !detailData.pendingSync && <><Button size="sm" onClick={()=>handleStatus(showDetail,'approve')} disabled={submitting}>Approve</Button><Button size="sm" variant="outline" onClick={()=>handleStatus(showDetail,'reject')} disabled={submitting}>Reject</Button><Button size="sm" variant="ghost" onClick={()=>handleStatus(showDetail,'cancel')} disabled={submitting}>Cancel</Button></>}
+                {detailData.status==='approved' && !detailData.pendingSync && <Button size="sm" onClick={()=>handleStatus(showDetail,'completed')} disabled={submitting}>Post / Complete</Button>}
                 {detailData.status==='completed' && <><Button size="sm" variant="outline" onClick={()=>window.print()}><Printer className="h-4 w-4 mr-1"/>Print</Button><Button size="sm" variant="outline" onClick={()=>exportReturns('print')}><FileText className="h-4 w-4 mr-1"/>Export</Button></>}
-                <Button size="sm" variant="outline" onClick={()=>{window.open(detailData._type==='SALES'? `/sales?id=${detailData.sale_id}` : `/purchases?id=${detailData.purchase_order_id}`,'_blank')}}>View Original {detailData._type==='SALES'?'Sale':'Purchase'}</Button>
+                {!detailData.pendingSync && <Button size="sm" variant="outline" onClick={()=>{window.open(detailData._type==='SALES'? `/sales?id=${detailData.sale_id}` : `/purchases?id=${detailData.purchase_order_id}`,'_blank')}}>View Original {detailData._type==='SALES'?'Sale':'Purchase'}</Button>}
               </div>
 
               <div className="grid md:grid-cols-2 gap-4">

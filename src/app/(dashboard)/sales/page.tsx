@@ -12,6 +12,7 @@ import { Search, Eye, Printer, RotateCcw, Download, FileText, RefreshCw, Shoppin
 import { Receipt as ReceiptComp, printReceipt } from "@/components/receipt";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useOnlineStatus } from "@/hooks/use-online-status";
+import { usePendingSales, useMediflowSynced } from "@/lib/offline/pending-overlay";
 
 type Sale = { id:string; sale_number:string; sold_at:string; cashier_id:string; customer_id:string|null; total:number; subtotal:number; discount:number; tax:number; status:string; branch_id:string; profiles?:{full_name:string}; customers?:{name:string; phone:string}; sale_items?: any[] };
 
@@ -19,6 +20,7 @@ function formatUGX(n:number){ return `UGX ${Number(n).toLocaleString('en-UG')}`;
 
 function statusBadge(s:string){
   const v=s?.toUpperCase();
+  if(v==='PENDING_SYNC') return <Badge variant="warning">Pending Sync</Badge>;
   if(v==='COMPLETED') return <Badge variant="success">Completed</Badge>;
   if(v==='HELD') return <Badge variant="warning">Held</Badge>;
   if(v==='VOIDED') return <Badge variant="destructive">Voided</Badge>;
@@ -29,6 +31,7 @@ function statusBadge(s:string){
 
 export default function SalesPage(){
   const { isOnline } = useOnlineStatus();
+  const pendingSales = usePendingSales();
   const [loading,setLoading]=React.useState(true);
   const [sales,setSales]=React.useState<Sale[]>([]);
   const [count,setCount]=React.useState(0);
@@ -103,6 +106,16 @@ export default function SalesPage(){
 
   React.useEffect(()=>{ fetchData(); fetchKpi(); },[fetchData, fetchKpi]);
 
+  // After the global offline-sync flush, refetch so synced pending sales appear.
+  useMediflowSynced(()=>{ fetchData(); fetchKpi(); });
+
+  const isDefaultFilters = !debouncedQ && status==="all" && paymentMethod==="all" && branchFilter==="all" &&
+    !dateFrom && !dateTo && !productFilter && !amountMin && !amountMax && !customerSearch;
+  const mergedSales = React.useMemo(
+    ()=> isDefaultFilters ? [...(pendingSales as any[]), ...sales] : sales,
+    [pendingSales, sales, isDefaultFilters]
+  );
+
   // load branches/categories
   React.useEffect(()=>{
     fetch("/api/settings").then(r=>r.json()).then(j=>{ if(j.branches) setBranches(j.branches); }).catch(()=>{});
@@ -111,7 +124,12 @@ export default function SalesPage(){
 
   const openDetail=async(id:string)=>{
     // optimistic: find in list for header
-    const found=sales.find(s=>s.id===id);
+    const found=mergedSales.find(s=>s.id===id);
+    if(found && (found as any).pendingSync){
+      setDetail(found);
+      setDetailTab("overview");
+      return;
+    }
     setDetail(found ? {...found, _loading:true} : {_loading:true, id});
     setDetailTab("overview");
     try{
@@ -154,6 +172,7 @@ export default function SalesPage(){
         </div>
         <div className="flex flex-wrap gap-2 items-center">
           <Badge variant={isOnline?"success":"warning"}>{isOnline?"Online":"Offline"}</Badge>
+          {pendingSales.length>0 && <Badge variant="warning">{pendingSales.length} pending sync</Badge>}
           <Button variant="outline" size="sm" onClick={()=>{fetchData(); fetchKpi();}}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
           <Button variant="outline" size="sm" onClick={()=>exportSales('csv')}><Download className="h-4 w-4 mr-1"/>CSV</Button>
           <Button variant="outline" size="sm" onClick={()=>exportSales('print')}><Printer className="h-4 w-4 mr-1"/>Print</Button>
@@ -204,12 +223,12 @@ export default function SalesPage(){
       {/* List */}
       <Card><CardContent className="p-0">
         {loading ? <div className="p-6 space-y-4">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
-        : sales.length===0 ? <div className="py-12 text-center space-y-2"><p className="text-muted-foreground">No sales found</p><p className="text-xs text-muted-foreground">Try adjusting search or date range. POS sales appear here after completion.</p><Button variant="outline" size="sm" onClick={()=>window.location.href='/pos'}>Go to POS</Button></div>
+        : mergedSales.length===0 ? <div className="py-12 text-center space-y-2"><p className="text-muted-foreground">No sales found</p><p className="text-xs text-muted-foreground">Try adjusting search or date range. POS sales appear here after completion.</p><Button variant="outline" size="sm" onClick={()=>window.location.href='/pos'}>Go to POS</Button></div>
         : <>
           <div className="hidden lg:block overflow-x-auto">
             <Table><TableHeader><TableRow><TableHead>Sale #</TableHead><TableHead>Date</TableHead><TableHead>Customer</TableHead><TableHead className="text-center">Items</TableHead><TableHead className="text-right">Total</TableHead><TableHead>Payment</TableHead><TableHead>Status</TableHead><TableHead>Cashier</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
             <TableBody>
-              {sales.map(s=>(
+              {mergedSales.map(s=>(
                 <TableRow key={s.id} className="hover:bg-muted/40 cursor-pointer" onClick={()=>openDetail(s.id)}>
                   <TableCell className="font-mono text-xs font-medium">{s.sale_number}<div className="text-[10px] text-muted-foreground">{s.id.slice(0,6)}</div></TableCell>
                   <TableCell className="text-xs">{new Date(s.sold_at).toLocaleString()}</TableCell>
@@ -218,7 +237,7 @@ export default function SalesPage(){
                   <TableCell className="text-right font-mono text-xs">{formatUGX(Number(s.total))}<div className="text-[10px] text-muted-foreground">Sub {formatUGX(Number(s.subtotal))}</div></TableCell>
                   <TableCell className="text-xs"><Badge variant="outline">{(s as any).payments?.[0]?.payment_method ?? '—'}</Badge></TableCell>
                   <TableCell>{statusBadge(s.status)}</TableCell>
-                  <TableCell className="text-xs">{(s as any).profiles?.full_name ?? s.cashier_id.slice(0,8)}</TableCell>
+                  <TableCell className="text-xs">{(s as any).profiles?.full_name ?? (s.cashier_id ? s.cashier_id.slice(0,8) : '—')}</TableCell>
                   <TableCell className="text-xs">{branches.find(b=>b.id===s.branch_id)?.code ?? s.branch_id.slice(0,6)}</TableCell>
                   <TableCell className="text-right" onClick={e=>e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
@@ -234,11 +253,11 @@ export default function SalesPage(){
 
           {/* Mobile cards */}
           <div className="lg:hidden p-3 grid gap-3">
-            {sales.map(s=>(
+            {mergedSales.map(s=>(
               <Card key={s.id} className="cursor-pointer" onClick={()=>openDetail(s.id)}><CardContent className="p-3 space-y-2">
                 <div className="flex justify-between"><span className="font-mono text-xs">{s.sale_number}</span>{statusBadge(s.status)}</div>
                 <div className="flex justify-between text-xs"><span>{new Date(s.sold_at).toLocaleDateString()} • {s.customers?.name ?? 'Walk-in'}</span><span className="font-bold">{formatUGX(Number(s.total))}</span></div>
-                <div className="text-xs text-muted-foreground">{(s as any).sale_items?.length ?? 0} items • {(s as any).profiles?.full_name ?? s.cashier_id.slice(0,8)} • {branches.find(b=>b.id===s.branch_id)?.code ?? ''}</div>
+                <div className="text-xs text-muted-foreground">{(s as any).sale_items?.length ?? 0} items • {(s as any).profiles?.full_name ?? (s.cashier_id ? s.cashier_id.slice(0,8) : '—')} • {branches.find(b=>b.id===s.branch_id)?.code ?? ''}</div>
                 <div className="flex gap-1" onClick={e=>e.stopPropagation()}>
                   <Button size="sm" variant="outline" className="flex-1" onClick={()=>openDetail(s.id)}><Eye className="h-4 w-4 mr-1"/>View</Button>
                   {s.status==='COMPLETED' && <Button size="sm" variant="outline" onClick={()=>voidSale(s.id)}><RotateCcw className="h-4 w-4"/></Button>}
@@ -248,7 +267,7 @@ export default function SalesPage(){
           </div>
 
           <div className="flex items-center justify-between p-3 border-t">
-            <span className="text-xs text-muted-foreground">Page {page} of {totalPages} • {count} total</span>
+            <span className="text-xs text-muted-foreground">Page {page} of {totalPages} • {count} total{pendingSales.length>0 ? ` • ${pendingSales.length} pending sync` : ''}</span>
             <div className="flex gap-2"><Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}><ArrowLeft className="h-4 w-4 mr-1"/>Prev</Button><Button variant="outline" size="sm" disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)}>Next<ArrowRight className="h-4 w-4 ml-1"/></Button></div>
           </div>
         </>}
@@ -266,7 +285,7 @@ export default function SalesPage(){
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" onClick={()=>printReceipt()}><Printer className="h-4 w-4 mr-1"/>Print</Button>
                 <Button size="sm" variant="outline" onClick={()=>window.open(`/customers?id=${detail.customer_id}`,'_blank')} disabled={!detail.customer_id}><User className="h-4 w-4 mr-1"/>View Customer</Button>
-                <Button size="sm" variant="outline" onClick={()=>window.location.href=`/returns?sale_id=${detail.id}`}>Create Return</Button>
+                {!detail.pendingSync && <Button size="sm" variant="outline" onClick={()=>window.location.href=`/returns?sale_id=${detail.id}`}>Create Return</Button>}
                 {detail.status==='COMPLETED' && <Button size="sm" variant="destructive" onClick={()=>voidSale(detail.id)}><RotateCcw className="h-4 w-4 mr-1"/>Void Sale</Button>}
               </div>
 
@@ -274,7 +293,7 @@ export default function SalesPage(){
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Summary</CardTitle></CardHeader><CardContent className="text-sm space-y-1">
                   <div className="flex justify-between"><span>Sale #</span><span className="font-mono">{detail.sale_number}</span></div>
                   <div className="flex justify-between"><span>Date</span><span>{new Date(detail.sold_at).toLocaleString()}</span></div>
-                  <div className="flex justify-between"><span>Cashier</span><span>{detail.profiles?.full_name ?? detail.cashier_id?.slice(0,8)}</span></div>
+                  <div className="flex justify-between"><span>Cashier</span><span>{detail.profiles?.full_name ?? (detail.cashier_id ? detail.cashier_id.slice(0,8) : '—')}</span></div>
                   <div className="flex justify-between"><span>Branch</span><span>{branches.find(b=>b.id===detail.branch_id)?.name ?? detail.branch_id?.slice(0,8)}</span></div>
                   <div className="flex justify-between"><span>Customer</span><span>{detail.customers?.name ?? detail.customer_id?.slice(0,8) ?? 'Walk-in'}</span></div>
                   <div className="flex justify-between"><span>Status</span>{statusBadge(detail.status)}</div>

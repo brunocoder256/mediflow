@@ -399,6 +399,390 @@ export function usePendingStock(): PendingBatchRow[] {
   }, [products, receives]);
 }
 
+// ---------------------------------------------------------------------------
+// Sales (queued POS sales in syncQueue)
+// ---------------------------------------------------------------------------
+
+export interface PendingSaleRow {
+  id: string;
+  operation_id?: string | null;
+  sale_number: string;
+  sold_at: string;
+  cashier_id: string;
+  customer_id: string | null;
+  total: number;
+  subtotal: number;
+  discount: number;
+  tax: number;
+  status: string;
+  branch_id: string;
+  sale_items: any[];
+  payments: Array<{ payment_method: string; amount: number; reference?: string }>;
+  pendingSync: true;
+}
+
+const pendingSalesQuery = () =>
+  db.syncQueue
+    .where("status")
+    .equals("pending")
+    .filter((e) => e.table_name === "sales")
+    .toArray();
+
+export function usePendingSales(): PendingSaleRow[] {
+  const rows = useLiveRows(pendingSalesQuery);
+  return React.useMemo(
+    () =>
+      rows
+        .map((q: any): PendingSaleRow | null => {
+          if (!q) return null;
+          const p = q.payload ?? {};
+          const payments: any[] = Array.isArray(p.payments) ? p.payments : [];
+          const total = payments.reduce((s: number, pm: any) => s + Number(pm.amount ?? 0), 0);
+          return {
+            id: q.id,
+            operation_id: q.operation_id ?? null,
+            sale_number: "PENDING…",
+            sold_at: q.created_at ?? new Date().toISOString(),
+            cashier_id: "",
+            customer_id: p.customer_id ?? null,
+            total,
+            subtotal: total,
+            discount: 0,
+            tax: 0,
+            status: "PENDING_SYNC",
+            branch_id: p.branch_id ?? "",
+            sale_items: Array.isArray(p.items) ? p.items : [],
+            payments: payments.map((pm: any) => ({
+              payment_method: pm.method ?? "CASH",
+              amount: Number(pm.amount ?? 0),
+              reference: pm.reference,
+            })),
+            pendingSync: true,
+          };
+        })
+        .filter((r): r is PendingSaleRow => !!r),
+    [rows]
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Returns (queued sales / purchase returns in cachedReturns)
+// ---------------------------------------------------------------------------
+
+export interface PendingReturnRow {
+  id: string;
+  operation_id?: string | null;
+  return_number: string;
+  return_type: "SALES" | "PURCHASE";
+  sale_id?: string | null;
+  purchase_order_id?: string | null;
+  supplier_id?: string | null;
+  branch_id: string;
+  status: string;
+  total: number;
+  reason?: string | null;
+  refund_status?: string;
+  credit_status?: string;
+  created_at: string;
+  _type: "SALES" | "PURCHASE";
+  _orig?: string | null;
+  _counterparty?: string;
+  return_items: any[];
+  purchase_return_items: any[];
+  pendingSync: true;
+}
+
+const pendingReturnsQuery = () =>
+  db.cachedReturns.where("sync_status").equals("pending").toArray();
+
+export function usePendingReturns(): PendingReturnRow[] {
+  const rows = useLiveRows(pendingReturnsQuery);
+  return React.useMemo(
+    () =>
+      rows
+        .map((c: any): PendingReturnRow | null => {
+          if (!c) return null;
+          const p = c.payload ?? {};
+          const items: any[] = Array.isArray(p.items) ? p.items : [];
+          const isSales = c.return_type === "SALES";
+          const itemsMapped = items.map((it: any) => ({
+            ...it,
+            quantity: Number(it.quantity ?? 0),
+            batch_id: it.batch_id ?? null,
+            reason: it.reason_category ?? it.reason ?? null,
+            inventory_destination: it.inventory_destination ?? it.condition ?? null,
+          }));
+          return {
+            id: c.id,
+            operation_id: c.operation_id ?? null,
+            return_number: "PENDING…",
+            return_type: c.return_type,
+            sale_id: c.sale_id ?? null,
+            purchase_order_id: c.purchase_order_id ?? null,
+            supplier_id: c.supplier_id ?? null,
+            branch_id: c.branch_id ?? "",
+            status: "pending",
+            total: Number(c.total ?? 0),
+            reason: itemsMapped[0]?.reason ?? "Pending sync",
+            refund_status: isSales ? "PENDING" : undefined,
+            credit_status: isSales ? undefined : "PENDING",
+            created_at: c.created_at ?? new Date().toISOString(),
+            _type: c.return_type,
+            _orig: isSales ? (c.sale_id ?? null) : (c.purchase_order_id ?? null),
+            _counterparty: isSales ? (p.customer_name ?? "Walk-in") : (p.supplier_name ?? "Supplier"),
+            return_items: isSales ? itemsMapped : [],
+            purchase_return_items: isSales ? [] : itemsMapped.map((it: any) => ({ ...it, unit_cost: Number(it.unit_cost ?? 0) })),
+            pendingSync: true,
+          };
+        })
+        .filter((r): r is PendingReturnRow => !!r),
+    [rows]
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Expenses (queued expense creates in cachedExpenses)
+// ---------------------------------------------------------------------------
+
+export interface PendingExpenseRow {
+  id: string;
+  operation_id?: string | null;
+  expense_number: string;
+  expense_date: string;
+  category: string;
+  category_id?: string | null;
+  supplier_id?: string | null;
+  description: string;
+  amount: number;
+  tax_amount: number;
+  total_amount: number;
+  payment_method: string;
+  payment_status: string;
+  approval_status: string;
+  posting_status: string;
+  branch_id: string;
+  reference_number?: string | null;
+  notes?: string | null;
+  created_by?: string;
+  expense_categories?: { name: string } | null;
+  suppliers?: { name: string } | null;
+  branches?: { name: string } | null;
+  pendingSync: true;
+}
+
+const pendingExpensesQuery = () =>
+  db.cachedExpenses.where("sync_status").equals("pending").toArray();
+
+export function usePendingExpenses(): PendingExpenseRow[] {
+  const rows = useLiveRows(pendingExpensesQuery);
+  return React.useMemo(
+    () =>
+      rows
+        .map((c: any): PendingExpenseRow | null => {
+          if (!c) return null;
+          const p = c.payload ?? {};
+          const amount = Number(c.amount ?? p.amount ?? 0);
+          const tax = Number(c.total_amount ?? amount) - amount || Number(p.tax_amount ?? 0);
+          return {
+            id: c.id,
+            operation_id: c.operation_id ?? null,
+            expense_number: "PENDING…",
+            expense_date: c.expense_date ?? new Date().toISOString().slice(0, 10),
+            category: c.category ?? p.category ?? "",
+            category_id: c.category_id ?? p.category_id ?? null,
+            supplier_id: c.supplier_id ?? p.supplier_id ?? null,
+            description: p.description ?? "",
+            amount,
+            tax_amount: tax,
+            total_amount: Number(c.total_amount ?? amount + tax),
+            payment_method: p.payment_method ?? "CASH",
+            payment_status: "UNPAID",
+            approval_status: "DRAFT",
+            posting_status: "UNPOSTED",
+            branch_id: c.branch_id ?? "",
+            reference_number: p.reference_number ?? null,
+            notes: p.notes ?? null,
+            created_by: "",
+            expense_categories: { name: c.category ?? p.category ?? "" },
+            suppliers: null,
+            branches: null,
+            pendingSync: true,
+          };
+        })
+        .filter((r): r is PendingExpenseRow => !!r),
+    [rows]
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cash (queued registers / sessions / movements / session actions)
+// ---------------------------------------------------------------------------
+
+export interface PendingCashRegisterRow {
+  id: string;
+  operation_id?: string | null;
+  name: string;
+  code: string;
+  branch_id: string;
+  created_at: string;
+  pendingSync: true;
+}
+
+export interface PendingCashSessionRow {
+  id: string;
+  operation_id?: string | null;
+  register_id: string;
+  branch_id: string;
+  cashier_id: string;
+  status: string;
+  opening_float: number;
+  expected_cash: number | null;
+  closing_cash: number | null;
+  cash_variance: number | null;
+  opened_at: string;
+  closed_at: string | null;
+  notes: string | null;
+  cash_registers?: { name: string; code: string } | null;
+  pendingSync: true;
+}
+
+export interface PendingCashMovementRow {
+  id: string;
+  operation_id?: string | null;
+  session_id: string;
+  branch_id: string;
+  type: string;
+  direction: "IN" | "OUT";
+  amount: number;
+  reason?: string | null;
+  created_at: string;
+  pendingSync: true;
+}
+
+export interface PendingCashActionRow {
+  id: string;
+  operation_id?: string | null;
+  action: "close" | "approve" | string;
+  session_id: string;
+  branch_id: string;
+  created_at: string;
+  label: string;
+  pendingSync: true;
+}
+
+export interface PendingCashState {
+  registers: PendingCashRegisterRow[];
+  sessions: PendingCashSessionRow[];
+  movements: PendingCashMovementRow[];
+  actions: PendingCashActionRow[];
+  total: number;
+}
+
+const pendingCashRegistersQuery = () =>
+  db.cachedCashRegisters.where("sync_status").equals("pending").toArray();
+
+const pendingCashSessionsQuery = () =>
+  db.cachedCashSessions.where("sync_status").equals("pending").toArray();
+
+const pendingCashMovementsQuery = () =>
+  db.cachedCashMovements.where("sync_status").equals("pending").toArray();
+
+const pendingCashActionsQuery = () =>
+  db.syncQueue
+    .where("status")
+    .equals("pending")
+    .filter((e) => e.table_name === "cash_sessions" && e.operation === "update")
+    .toArray();
+
+export function usePendingCash(): PendingCashState {
+  const regRows = useLiveRows(pendingCashRegistersQuery);
+  const sesRows = useLiveRows(pendingCashSessionsQuery);
+  const movRows = useLiveRows(pendingCashMovementsQuery);
+  const actRows = useLiveRows(pendingCashActionsQuery);
+
+  return React.useMemo(() => {
+    const registers: PendingCashRegisterRow[] = regRows.map((c: any) => ({
+      id: c.id,
+      operation_id: c.operation_id ?? null,
+      name: c.name ?? (c.payload?.name ?? "Register"),
+      code: c.code ?? (c.payload?.code ?? ""),
+      branch_id: c.branch_id ?? "",
+      created_at: c.created_at ?? new Date().toISOString(),
+      pendingSync: true,
+    }));
+    const sessions: PendingCashSessionRow[] = sesRows.map((c: any) => ({
+      id: c.id,
+      operation_id: c.operation_id ?? null,
+      register_id: c.register_id ?? "",
+      branch_id: c.branch_id ?? "",
+      cashier_id: "",
+      status: "PENDING_SYNC",
+      opening_float: Number(c.opening_float ?? 0),
+      expected_cash: null,
+      closing_cash: null,
+      cash_variance: null,
+      opened_at: c.opened_at ?? c.created_at ?? new Date().toISOString(),
+      closed_at: null,
+      notes: "Session open queued offline",
+      cash_registers: null,
+      pendingSync: true,
+    }));
+    const movements: PendingCashMovementRow[] = movRows.map((c: any) => ({
+      id: c.id,
+      operation_id: c.operation_id ?? null,
+      session_id: c.session_id ?? "",
+      branch_id: c.branch_id ?? "",
+      type: c.type ?? "CASH_IN",
+      direction: c.direction === "OUT" ? "OUT" : "IN",
+      amount: Number(c.amount ?? 0),
+      reason: c.reason ?? null,
+      created_at: c.created_at ?? new Date().toISOString(),
+      pendingSync: true,
+    }));
+    const actions: PendingCashActionRow[] = actRows.map((q: any) => {
+      const p = q.payload ?? {};
+      const action = p.action ?? "close";
+      return {
+        id: q.id,
+        operation_id: q.operation_id ?? null,
+        action,
+        session_id: p.session_id ?? "",
+        branch_id: p.branch_id ?? "",
+        created_at: q.created_at ?? new Date().toISOString(),
+        label: action === "approve" ? "Session approval queued" : action === "close" ? "Session close queued" : "Session update queued",
+        pendingSync: true,
+      };
+    });
+    return {
+      registers,
+      sessions,
+      movements,
+      actions,
+      total: registers.length + sessions.length + movements.length + actions.length,
+    };
+  }, [regRows, sesRows, movRows, actRows]);
+}
+
+// ---------------------------------------------------------------------------
+// Shared: re-run a data fetch whenever the global queue flush completes
+// ---------------------------------------------------------------------------
+
+export function useMediflowSynced(cb: () => void) {
+  const cbRef = React.useRef(cb);
+  cbRef.current = cb;
+  React.useEffect(() => {
+    const handler = () => {
+      try {
+        cbRef.current();
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener("mediflow:synced", handler);
+    return () => window.removeEventListener("mediflow:synced", handler);
+  }, []);
+}
+
 export function isPendingRow(row: any): boolean {
   return !!(row && (row.pendingSync === true || row.sync_status === "pending_view"));
 }

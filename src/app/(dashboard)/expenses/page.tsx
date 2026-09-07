@@ -14,11 +14,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Search, Plus, DollarSign, Eye, Edit, Trash2, Download, Filter, Wifi, WifiOff, RefreshCw, Receipt, Building2, Users, Calendar, CreditCard, FileText, History, Undo2, Copy, Printer, Paperclip, AlertTriangle, TrendingUp } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { queueExpenseCreate, getExpensePendingCount } from "@/lib/offline/sync";
+import { usePendingExpenses, useMediflowSynced } from "@/lib/offline/pending-overlay";
 
 type Expense = { id:string; expense_number?:string; expense_date:string; category:string; category_id?:string; supplier_id?:string; description:string; amount:number; tax_amount?:number; total_amount?:number; payment_method:string; payment_status:string; approval_status:string; posting_status:string; branch_id:string; reference_number?:string; notes?:string; created_by?:string; suppliers?:{name:string}; branches?:{name:string}; expense_categories?:{name:string; code:string} };
 
 export default function ExpensesPage(){
   const {isOnline}=useOnlineStatus();
+  const pendingExpenses = usePendingExpenses();
   const [loading,setLoading]=React.useState(true);
   const [q,setQ]=React.useState("");
   const [debouncedQ,setDebouncedQ]=React.useState("");
@@ -111,6 +113,10 @@ export default function ExpensesPage(){
   },[branchFilter, catFilter, supplierFilter, payMethodFilter, approvalFilter, paymentStatusFilter, debouncedQ, dateFrom, dateTo, amountMin, amountMax, page]);
   React.useEffect(()=>{ fetchAll(); },[fetchAll]);
 
+  useMediflowSynced(()=>{ fetchAll(); });
+
+  const mergedData = React.useMemo(()=> [...(pendingExpenses as any[]), ...data], [pendingExpenses, data]);
+
   const addLine=()=> setForm({...form, lines:[...form.lines, {category_id:form.category_id ?? "", description:"", amount:0, tax_amount:0}]});
   const updateLine=(i:number, patch:any)=> setForm({...form, lines: form.lines.map((l,idx)=> idx===i ? {...l, ...patch}: l)});
   const removeLine=(i:number)=> setForm({...form, lines: form.lines.filter((_,idx)=>idx!==i)});
@@ -161,6 +167,7 @@ export default function ExpensesPage(){
   const openDetail=async(p:Expense)=>{
     setShowDetail(p);
     setDetailTab("overview");
+    if((p as any).pendingSync){ setDetailData({ ...(p as any) }); return; }
     const r=await fetch(`/api/expenses?id=${p.id}`);
     const j=await r.json();
     setDetailData(j);
@@ -269,10 +276,10 @@ export default function ExpensesPage(){
       {/* List */}
       <Card><CardContent className="p-0">
         {loading ? <div className="p-6 space-y-3">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
-        : data.length===0 ? <div className="py-12 text-center text-muted-foreground">No expenses — create operating expense (Rent, Utilities...) • Inventory purchases go via Purchases</div>
+        : mergedData.length===0 ? <div className="py-12 text-center text-muted-foreground">No expenses — create operating expense (Rent, Utilities...) • Inventory purchases go via Purchases</div>
         : <>
           <div className="hidden lg:block overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Expense #</TableHead><TableHead>Date</TableHead><TableHead>Category</TableHead><TableHead>Payee</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Method</TableHead><TableHead>Approval</TableHead><TableHead>Payment</TableHead><TableHead>Created By</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
-            {data.map(e=>(
+            {mergedData.map((e:any)=>(
               <TableRow key={e.id} className="hover:bg-muted/40">
                 <TableCell className="font-mono text-xs cursor-pointer underline" onClick={()=>openDetail(e)}>{e.expense_number ?? e.id.slice(0,8)}</TableCell>
                 <TableCell className="text-xs">{new Date(e.expense_date).toLocaleDateString()}</TableCell>
@@ -286,18 +293,18 @@ export default function ExpensesPage(){
                 <TableCell className="text-xs">{e.created_by?.slice(0,6) ?? "—"}</TableCell>
                 <TableCell className="text-right space-x-1">
                   <Button variant="ghost" size="icon" onClick={()=>openDetail(e)} title="View"><Eye className="h-4 w-4"/></Button>
-                  {(e.approval_status==="DRAFT"||e.approval_status==="REJECTED") && <Button variant="ghost" size="icon" onClick={()=>{ setShowEdit(e); setEditForm({description:e.description, amount:String(e.amount), tax_amount:String((e as any).tax_amount??0), notes:(e as any).notes ?? "", reference_number:(e as any).reference_number ?? ""}); }} title="Edit"><Edit className="h-4 w-4"/></Button>}
-                  <Button variant="ghost" size="icon" onClick={()=>handleDuplicate(e.id)} title="Duplicate"><Copy className="h-4 w-4"/></Button>
-                  {(e.approval_status==="DRAFT") && <Button variant="ghost" size="icon" onClick={()=>handleAction(e.id,'submit')} title="Submit"><FileText className="h-4 w-4"/></Button>}
-                  {(e.approval_status==="PENDING_APPROVAL") && <Button variant="ghost" size="icon" onClick={()=>handleAction(e.id,'approve')} title="Approve"><Receipt className="h-4 w-4"/></Button>}
-                  {(e.approval_status==="APPROVED" && e.payment_status==="UNPAID") && <Button variant="ghost" size="icon" onClick={()=>handleAction(e.id,'pay', {payment_account_id: cashAccounts[0]?.id})} title="Mark Paid"><CreditCard className="h-4 w-4"/></Button>}
+                  {((e.approval_status==="DRAFT"||e.approval_status==="REJECTED") && !(e as any).pendingSync) && <Button variant="ghost" size="icon" onClick={()=>{ setShowEdit(e); setEditForm({description:e.description, amount:String(e.amount), tax_amount:String((e as any).tax_amount??0), notes:(e as any).notes ?? "", reference_number:(e as any).reference_number ?? ""}); }} title="Edit"><Edit className="h-4 w-4"/></Button>}
+                  {!(e as any).pendingSync && <Button variant="ghost" size="icon" onClick={()=>handleDuplicate(e.id)} title="Duplicate"><Copy className="h-4 w-4"/></Button>}
+                  {((e.approval_status==="DRAFT") && !(e as any).pendingSync) && <Button variant="ghost" size="icon" onClick={()=>handleAction(e.id,'submit')} title="Submit"><FileText className="h-4 w-4"/></Button>}
+                  {((e.approval_status==="PENDING_APPROVAL") && !(e as any).pendingSync) && <Button variant="ghost" size="icon" onClick={()=>handleAction(e.id,'approve')} title="Approve"><Receipt className="h-4 w-4"/></Button>}
+                  {((e.approval_status==="APPROVED" && e.payment_status==="UNPAID") && !(e as any).pendingSync) && <Button variant="ghost" size="icon" onClick={()=>handleAction(e.id,'pay', {payment_account_id: cashAccounts[0]?.id})} title="Mark Paid"><CreditCard className="h-4 w-4"/></Button>}
                   {(e.posting_status==="POSTED" && e.approval_status!=="REVERSED") && <Button variant="ghost" size="icon" onClick={()=>setShowReverse(e)} title="Reverse"><Undo2 className="h-4 w-4"/></Button>}
                 </TableCell>
               </TableRow>
             ))}
           </TableBody></Table></div>
           <div className="lg:hidden p-3 grid gap-3">
-            {data.map(e=>(
+            {mergedData.map((e:any)=>(
               <Card key={e.id} className="border cursor-pointer" onClick={()=>openDetail(e)}>
                 <CardContent className="p-3 space-y-2">
                   <div className="flex justify-between items-start"><span className="font-mono text-xs">{e.expense_number ?? e.id.slice(0,8)} • {new Date(e.expense_date).toLocaleDateString()}</span>{badgeApproval(e.approval_status ?? "DRAFT")}</div>
@@ -306,15 +313,15 @@ export default function ExpensesPage(){
                   <div className="flex justify-between text-xs text-muted-foreground"><span>{(e as any).suppliers?.name ?? "—"} • {(e as any).branches?.name ?? e.branch_id.slice(0,6)}</span>{badgePayment(e.payment_status ?? "UNPAID")}</div>
                   <div className="flex gap-2" onClick={ev=>ev.stopPropagation()}>
                     <Button size="sm" variant="outline" className="flex-1" onClick={()=>openDetail(e)}><Eye className="h-4 w-4 mr-1"/>View</Button>
-                    {(e.approval_status==="DRAFT") && <Button size="sm" variant="outline" onClick={()=>handleAction(e.id,'submit')}>Submit</Button>}
-                    {(e.approval_status==="PENDING_APPROVAL") && <Button size="sm" onClick={()=>handleAction(e.id,'approve')}>Approve</Button>}
+                    {(e.approval_status==="DRAFT" && !(e as any).pendingSync) && <Button size="sm" variant="outline" onClick={()=>handleAction(e.id,'submit')}>Submit</Button>}
+                    {(e.approval_status==="PENDING_APPROVAL" && !(e as any).pendingSync) && <Button size="sm" onClick={()=>handleAction(e.id,'approve')}>Approve</Button>}
                   </div>
                 </CardContent>
               </Card>
             ))}
           </div>
           <div className="flex items-center justify-between p-3 border-t">
-            <span className="text-xs text-muted-foreground">Page {page} of {totalPages} • {count} total • Operating Expenses feed P&L: Net = Gross - Expenses</span>
+            <span className="text-xs text-muted-foreground">Page {page} of {totalPages} • {count} total{pendingExpenses.length>0 ? ` • ${pendingExpenses.length} pending sync` : ''} • Operating Expenses feed P&L: Net = Gross - Expenses</span>
             <div className="flex gap-2"><Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>Prev</Button><Button variant="outline" size="sm" disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)}>Next</Button></div>
           </div>
         </>}
@@ -441,13 +448,13 @@ export default function ExpensesPage(){
                       </CardContent></Card>
                       <Card className="md:col-span-2"><CardContent className="p-3 text-xs">Created: {detailData.created_by?.slice(0,8)} @ {new Date(detailData.created_at).toLocaleString()} • Submitted: {detailData.submitted_by?.slice(0,8) ?? "—"} • Approved: {detailData.approved_by?.slice(0,8) ?? "—"} • Paid: {detailData.paid_by?.slice(0,8) ?? "—"} • ReversalOf: {detailData.reversal_of ?? "—"} • Idempotency: {detailData.idempotency_key?.slice(0,8) ?? "—"}</CardContent></Card>
                       <div className="flex flex-wrap gap-2 md:col-span-2">
-                        {(detailData.approval_status==="DRAFT"||detailData.approval_status==="REJECTED") && <Button size="sm" onClick={()=>{ setShowEdit(detailData); setEditForm({description:detailData.description, amount:String(detailData.amount), tax_amount:String(detailData.tax_amount??0), notes:detailData.notes ?? "", reference_number:detailData.reference_number ?? ""}); }}>Edit</Button>}
-                        {detailData.approval_status==="DRAFT" && <Button size="sm" onClick={()=>handleAction(detailData.id,'submit')}>Submit</Button>}
-                        {detailData.approval_status==="PENDING_APPROVAL" && <><Button size="sm" onClick={()=>handleAction(detailData.id,'approve')}>Approve</Button><Button size="sm" variant="outline" onClick={()=>setShowReject(detailData)}>Reject</Button></>}
-                        {(detailData.approval_status==="APPROVED" && detailData.payment_status==="UNPAID") && <Button size="sm" onClick={()=>handleAction(detailData.id,'pay')}>Mark Paid</Button>}
-                        {(detailData.approval_status==="DRAFT"||detailData.approval_status==="PENDING_APPROVAL") && <Button size="sm" variant="destructive" onClick={()=>handleAction(detailData.id,'cancel')}>Cancel</Button>}
+                        {(detailData.approval_status==="DRAFT"||detailData.approval_status==="REJECTED") && !detailData.pendingSync && <Button size="sm" onClick={()=>{ setShowEdit(detailData); setEditForm({description:detailData.description, amount:String(detailData.amount), tax_amount:String(detailData.tax_amount??0), notes:detailData.notes ?? "", reference_number:detailData.reference_number ?? ""}); }}>Edit</Button>}
+                        {detailData.approval_status==="DRAFT" && !detailData.pendingSync && <Button size="sm" onClick={()=>handleAction(detailData.id,'submit')}>Submit</Button>}
+                        {detailData.approval_status==="PENDING_APPROVAL" && !detailData.pendingSync && <><Button size="sm" onClick={()=>handleAction(detailData.id,'approve')}>Approve</Button><Button size="sm" variant="outline" onClick={()=>setShowReject(detailData)}>Reject</Button></>}
+                        {(detailData.approval_status==="APPROVED" && detailData.payment_status==="UNPAID") && !detailData.pendingSync && <Button size="sm" onClick={()=>handleAction(detailData.id,'pay')}>Mark Paid</Button>}
+                        {(detailData.approval_status==="DRAFT"||detailData.approval_status==="PENDING_APPROVAL") && !detailData.pendingSync && <Button size="sm" variant="destructive" onClick={()=>handleAction(detailData.id,'cancel')}>Cancel</Button>}
                         {detailData.posting_status==="POSTED" && <Button size="sm" variant="destructive" onClick={()=>setShowReverse(detailData)}><Undo2 className="h-4 w-4 mr-1"/>Reverse</Button>}
-                        <Button size="sm" variant="outline" onClick={()=>handleDuplicate(detailData.id)}><Copy className="h-4 w-4 mr-1"/>Duplicate</Button>
+                        {!detailData.pendingSync && <Button size="sm" variant="outline" onClick={()=>handleDuplicate(detailData.id)}><Copy className="h-4 w-4 mr-1"/>Duplicate</Button>}
                         <Button size="sm" variant="outline" onClick={handlePrint}><Printer className="h-4 w-4 mr-1"/>Print</Button>
                         <Button size="sm" variant="outline" onClick={()=>{
                           const csv=`Expense #,Date,Category,Amount,Tax,Total\n${detailData.expense_number},${detailData.expense_date},${detailData.category},${detailData.amount},${detailData.tax_amount??0},${detailData.total_amount??detailData.amount}`;
