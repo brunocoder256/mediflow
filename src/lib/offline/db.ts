@@ -208,6 +208,27 @@ interface CachedProduct {
   updated_at?: string;
 }
 
+// Offline disposals (mirror of disposal workflow: PENDING → APPROVED → DISPOSED)
+interface CachedDisposal {
+  id: string;
+  branch_id: string;
+  product_id: string;
+  batch_id?: string | null;
+  type: "EXPIRED" | "DAMAGED" | "OTHER";
+  status: string;
+  quantity: number;
+  unit_cost: number;
+  reason?: string | null;
+  method?: string | null;
+  product_name?: string | null;
+  batch_number?: string | null;
+  payload: Record<string, unknown>;
+  sync_status: "synced" | "pending" | "failed";
+  operation_id?: string | null;
+  server_id?: string | null;
+  created_at: string;
+}
+
 // Generic offline read-cache: stores raw JSON responses keyed by API URL.
 interface DataCacheEntry {
   id: string;
@@ -233,6 +254,7 @@ class MediFlowDB extends Dexie {
   cachedCashSessions!: EntityTable<CachedCashSession, "id">;
   cachedCashMovements!: EntityTable<CachedCashMovement, "id">;
   cachedProducts!: EntityTable<CachedProduct, "id">;
+  cachedDisposals!: EntityTable<CachedDisposal, "id">;
 
   constructor() {
     super("MediFlowDB");
@@ -346,9 +368,30 @@ class MediFlowDB extends Dexie {
     }).upgrade(async (tx) => {
       // v8 cash & product offline
     });
+
+    this.version(9).stores({
+      products: "id, organization_id, barcode",
+      batches: "id, product_id, branch_id, expiry_date",
+      cart: "id, organization_id, branch_id",
+      syncQueue: "id, operation_id, status",
+      pendingSales: "id, operation_id, status",
+      cachedPurchases: "id, branch_id, supplier_id, status, sync_status",
+      cachedSuppliers: "id, name, supplier_code, status, sync_status",
+      cachedReturns: "id, branch_id, return_type, status, sync_status",
+      cachedExpenses: "id, branch_id, expense_number, approval_status, payment_status, sync_status",
+      cachedCustomers: "id, customer_code, name, phone, email, branch_id, sync_status",
+      dataCache: "id, url, cached_at",
+      cachedCashRegisters: "id, branch_id, sync_status",
+      cachedCashSessions: "id, register_id, branch_id, status, sync_status",
+      cachedCashMovements: "id, session_id, branch_id, type, direction, sync_status",
+      cachedProducts: "id, name, sku, barcode, is_active, sync_status",
+      cachedDisposals: "id, branch_id, product_id, type, status, sync_status",
+    }).upgrade(async (tx) => {
+      // v9 disposals offline
+    });
   }
 }
 
 export const db = new MediFlowDB();
 
-export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier, CachedReturn, CachedExpense, CachedCustomer, DataCacheEntry, CachedCashRegister, CachedCashSession, CachedCashMovement, CachedProduct };
+export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier, CachedReturn, CachedExpense, CachedCustomer, DataCacheEntry, CachedCashRegister, CachedCashSession, CachedCashMovement, CachedProduct, CachedDisposal };

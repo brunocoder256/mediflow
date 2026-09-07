@@ -764,6 +764,72 @@ export function usePendingCash(): PendingCashState {
 }
 
 // ---------------------------------------------------------------------------
+// Disposals (queued disposal creates in cachedDisposals)
+// ---------------------------------------------------------------------------
+
+export interface PendingDisposalRow {
+  id: string;
+  operation_id?: string | null;
+  server_id?: string | null;
+  branch_id: string;
+  product_id: string;
+  batch_id?: string | null;
+  type: "EXPIRED" | "DAMAGED" | "OTHER";
+  status: string;
+  quantity: number;
+  unit_cost: number;
+  value: number;
+  reason?: string | null;
+  method?: string | null;
+  product_name?: string | null;
+  batch_number?: string | null;
+  products?: { name?: string } | null;
+  product_batches?: { batch_number?: string | null; expiry_date?: string | null } | null;
+  created_at: string;
+  pendingSync: true;
+}
+
+const pendingDisposalsQuery = () =>
+  db.cachedDisposals.where("sync_status").equals("pending").toArray();
+
+export function usePendingDisposals(): PendingDisposalRow[] {
+  const rows = useLiveRows(pendingDisposalsQuery);
+  return React.useMemo(
+    () =>
+      rows
+        .map((c: any): PendingDisposalRow | null => {
+          if (!c) return null;
+          const p = c.payload ?? {};
+          const qty = Number(c.quantity ?? p.quantity ?? 0);
+          const cost = Number(c.unit_cost ?? p.unit_cost ?? 0);
+          return {
+            id: c.id,
+            operation_id: c.operation_id ?? null,
+            server_id: c.server_id ?? null,
+            branch_id: c.branch_id ?? String(p.branch_id ?? ""),
+            product_id: c.product_id ?? String(p.product_id ?? ""),
+            batch_id: c.batch_id ?? p.batch_id ?? null,
+            type: (c.type ?? p.type ?? "EXPIRED") as any,
+            status: c.status ?? "PENDING",
+            quantity: qty,
+            unit_cost: cost,
+            value: qty * cost,
+            reason: c.reason ?? p.reason ?? null,
+            method: c.method ?? p.method ?? null,
+            product_name: c.product_name ?? null,
+            batch_number: c.batch_number ?? null,
+            products: { name: c.product_name ?? p.product_name ?? null },
+            product_batches: { batch_number: c.batch_number ?? null, expiry_date: p.expiry_date ?? null },
+            created_at: c.created_at ?? new Date().toISOString(),
+            pendingSync: true,
+          };
+        })
+        .filter((r): r is PendingDisposalRow => !!r),
+    [rows]
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Shared: re-run a data fetch whenever the global queue flush completes
 // ---------------------------------------------------------------------------
 

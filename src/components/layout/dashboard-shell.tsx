@@ -24,7 +24,7 @@ export default function DashboardShell({
   // the user visited the POS or Sync Center page.
   React.useEffect(() => {
     const invalidateLists = () => {
-      for (const prefix of ["/api/products", "/api/inventory", "/api/sales", "/api/purchases", "/api/customers", "/api/suppliers", "/api/returns", "/api/purchase-returns", "/api/expenses", "/api/cash"]) {
+      for (const prefix of ["/api/products", "/api/inventory", "/api/sales", "/api/purchases", "/api/customers", "/api/suppliers", "/api/returns", "/api/purchase-returns", "/api/expenses", "/api/cash", "/api/disposals", "/api/stock-movements", "/api/reports"]) {
         void invalidateCache(prefix);
       }
     };

@@ -350,6 +350,74 @@ export async function getProductPendingCount(): Promise<number> {
   } catch { return 0; }
 }
 
+// ---------------------------------------------------------------------------
+// Offline disposals support
+// ---------------------------------------------------------------------------
+
+export async function queueDisposalCreate(payload: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  const id = crypto.randomUUID();
+  await db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "disposals",
+    operation: "create",
+    payload: { ...payload, _localDisposalId: id, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  });
+  try {
+    await db.cachedDisposals.add({
+      id,
+      branch_id: String((payload as any).branch_id ?? ""),
+      product_id: String((payload as any).product_id ?? ""),
+      batch_id: (payload as any).batch_id ?? null,
+      type: ((payload as any).type ?? "EXPIRED") as any,
+      status: "PENDING",
+      quantity: Number((payload as any).quantity ?? 0),
+      unit_cost: Number((payload as any).unit_cost ?? 0),
+      reason: (payload as any).reason ?? null,
+      method: (payload as any).method ?? null,
+      product_name: (payload as any).product_name ?? null,
+      batch_number: (payload as any).batch_number ?? null,
+      payload,
+      sync_status: "pending" as any,
+      operation_id: op,
+      server_id: null,
+      created_at: new Date().toISOString(),
+    } as any);
+  } catch {}
+  return op;
+}
+
+// Queue a disposal action (approve / dispose) for offline replay. Carries the
+// local cached id so the replay engine can link it to the server id once the
+// disposal create syncs.
+export function queueDisposalUpdate(localId: string, action: "approve" | "dispose", extra?: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "disposals",
+    operation: "update",
+    payload: { action, _localDisposalId: localId, _operationId: op, ...(extra ?? {}) },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+export async function getDisposalPendingCount(): Promise<number> {
+  try {
+    const c = await db.cachedDisposals.where("sync_status").equals("pending").count();
+    const q = await db.syncQueue.where("table_name").equals("disposals").count();
+    return Math.max(c, q);
+  } catch { return 0; }
+}
+
 export async function processSyncQueue(): Promise<{
   processed: number;
   failed: number;
@@ -533,6 +601,50 @@ export async function processSyncQueue(): Promise<{
         }
         if (response.ok) {
           try{ const c = await db.cachedProducts.where("operation_id").equals(op).first(); if(c) await db.cachedProducts.update(c.id, { sync_status: "synced" as any }); }catch{}
+        }
+      } else if (entry.table_name === "disposals") {
+        const payload: any = entry.payload;
+        const op = payload._operationId ?? entry.operation_id;
+        const localId = payload._localDisposalId;
+        const clean: any = { ...payload };
+        delete clean._operationId; delete clean._localDisposalId;
+        if (entry.operation === "create") {
+          response = await fetch("/api/disposals", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "create", ...clean }),
+          });
+          const createdJson: any = await response.clone().json().catch(() => ({}));
+          if (response.ok) {
+            const serverId = createdJson?.id ?? createdJson?.data?.id;
+            if (localId && serverId) {
+              try { await db.cachedDisposals.update(localId, { sync_status: "synced" as any, server_id: serverId }); } catch {}
+              // Link queued approve/dispose actions for the same disposal to the real server id.
+              try {
+                const siblings = await db.syncQueue.where("status").equals("pending").toArray();
+                for (const sib of siblings) {
+                  const sp = (sib.payload as any) ?? {};
+                  if ((sib.id !== entry.id) && sp._localDisposalId === localId && !sp.serverDisposalId) {
+                    await db.syncQueue.update(sib.id, { payload: { ...sp, serverDisposalId: serverId } });
+                  }
+                }
+              } catch {}
+            } else if (op) {
+              try { const c = await db.cachedDisposals.where("operation_id").equals(op).first(); if (c) await db.cachedDisposals.update(c.id, { sync_status: "synced" as any }); } catch {}
+            }
+          }
+        } else {
+          const serverId = clean.serverDisposalId;
+          delete clean.serverDisposalId;
+          const action = clean.action ?? "approve";
+          response = await fetch("/api/disposals", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action, id: serverId, ...clean }),
+          });
+          if (response.ok && localId) {
+            try { await db.cachedDisposals.update(localId, { sync_status: "synced" as any }); } catch {}
+          }
         }
       } else {
         response = await fetch("/api/sync", {

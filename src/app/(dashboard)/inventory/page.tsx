@@ -10,12 +10,22 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Search, Download, RefreshCw, AlertTriangle, Clock, XCircle, ArrowUpDown, Package, TrendingUp, Layers, Scan, Truck, ClipboardList, History, WifiOff, Wifi, Eye, Plus, Minus, Trash2 } from "lucide-react";
+import { Search, Download, RefreshCw, AlertTriangle, Clock, XCircle, ArrowUpDown, Package, TrendingUp, Layers, Scan, Truck, ClipboardList, History, WifiOff, Wifi, Eye, Plus, Trash2, Check, Flame } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { cachedFetch } from "@/lib/offline/cached-fetch";
-import { usePendingStock } from "@/lib/offline/pending-overlay";
+import { usePendingStock, usePendingDisposals, useMediflowSynced } from "@/lib/offline/pending-overlay";
 
 type BatchRow = { id:string; product_id:string; branch_id:string; batch_number:string; quantity_available:number; quantity_received:number; purchase_price:number; selling_price:number; expiry_date:string; is_active:boolean; products:{name:string; generic_name?:string; sku?:string; barcode?:string; category_id?:string; reorder_level:number}; branches:{name:string}|null; suppliers?:{name:string}|null };
+
+const DISPOSAL_TYPES = ["EXPIRED","DAMAGED","OTHER"];
+const DISPOSAL_METHODS: Record<string,string> = {
+  INCINERATION:"Incineration",
+  CHEMICAL_DESTRUCTION:"Chemical destruction",
+  RETURN_TO_SUPPLIER:"Return to supplier",
+  LANDFILL_DISPOSAL:"Landfill disposal",
+  SCRAP:"Scrap / salvage",
+  OTHER:"Other",
+};
 
 export default function InventoryPage() {
   const [loading, setLoading] = React.useState(true);
@@ -45,11 +55,44 @@ export default function InventoryPage() {
   const [analyticsMovements, setAnalyticsMovements] = React.useState<any[]>([]);
   const { isOnline } = useOnlineStatus();
   const pendingStockRows = usePendingStock();
+  const pendingDisposals = usePendingDisposals();
+  const [showDisposal, setShowDisposal] = React.useState(false);
+  const [disposalForm, setDisposalForm] = React.useState<{branch_id:string; product_id:string; batch_id:string; type:string; quantity:string; unit_cost:string; reason:string}>({branch_id:"", product_id:"", batch_id:"", type:"EXPIRED", quantity:"", unit_cost:"", reason:""});
+  const [disposeTarget, setDisposeTarget] = React.useState<any|null>(null);
+  const [disposeMethod, setDisposeMethod] = React.useState("INCINERATION");
+  const [pendingDisposalCount, setPendingDisposalCount] = React.useState(0);
   // Merge queued (offline) batches — product opening stock + pending purchase receipts — on top of cached server stock.
   const stockMerge = React.useMemo(()=>{
     const pend = pendingStockRows.filter(r=>!(data.stock as any[]).some(s=>s.id===r.id));
     return [...pend, ...(data.stock ?? [])];
   },[pendingStockRows, data.stock]);
+
+  // Disposals: pending (offline) rows overlay server rows; values auto-calculated.
+  const disposalsMerged = React.useMemo(()=>{
+    const serverIds = new Set((disposals as any[]).map((d:any)=>d.id));
+    return [...pendingDisposals.filter(d=>!serverIds.has(d.id)), ...(disposals ?? [])];
+  },[pendingDisposals, disposals]);
+  const disposalKpis = React.useMemo(()=>{
+    let disposed=0, awaiting=0, units=0;
+    for(const d of disposalsMerged as any[]){
+      const v = Number(d.value ?? (Number(d.quantity)*Number(d.unit_cost)));
+      if(d.status==="DISPOSED") disposed += v; else awaiting += v;
+      units += Number(d.quantity ?? 0);
+    }
+    return { disposed, awaiting, units };
+  },[disposalsMerged]);
+  const productOptions = React.useMemo(()=>{
+    const map = new Map<string,{product_id:string; name:string}>();
+    for(const b of stockMerge as any[]){
+      if(!map.has(b.product_id)) map.set(b.product_id, { product_id:b.product_id, name: b.products?.name || b.product_id.slice(0,8) });
+    }
+    return Array.from(map.values());
+  },[stockMerge]);
+  const batchOptionsForProduct = React.useMemo(()=>
+    disposalForm.product_id
+      ? (stockMerge as any[]).filter((b:any)=>b.product_id===disposalForm.product_id && Number(b.quantity_available)>0).sort((a:any,b:any)=> new Date(a.expiry_date).getTime()-new Date(b.expiry_date).getTime())
+      : [],
+    [stockMerge, disposalForm.product_id]);
 
   // debounce
   React.useEffect(()=>{ const id=setTimeout(()=>setDebounced(searchQuery),300); return ()=>clearTimeout(id); },[searchQuery]);
@@ -72,17 +115,23 @@ export default function InventoryPage() {
     cachedFetch("/api/settings").then((j:any)=>{ if(j.branches) setBranches(j.branches); }).catch(()=>{});
     cachedFetch("/api/categories").then((j:any)=>{ if(Array.isArray(j)) setCategories(j); }).catch(()=>{});
   },[]);
-  // stock counts, transfers, disposals for KPI + analytics
+// stock counts, transfers, disposals for KPI + analytics
+  const loadDisposals = React.useCallback(async ()=>{
+    try { const j:any = await cachedFetch("/api/disposals"); setDisposals(Array.isArray(j)? j : (j?.data ?? [])); } catch { /* offline no cache yet */ }
+  },[]);
   React.useEffect(()=>{
     cachedFetch("/api/stock-counts").then((j:any)=> setStockCounts(j.data ?? j ?? [])).catch(()=>{});
     cachedFetch("/api/transfers").then((j:any)=> setTransfers(Array.isArray(j)? j : j.data ?? [])).catch(()=>{});
-    (async()=>{
-      try{ const {createBrowserClient}=await import("@/lib/supabase/client"); const sb=createBrowserClient();
-        const {data}=await (sb.from("disposals") as any).select("*, products(name), product_batches(batch_number)").order("created_at",{ascending:false}).limit(20);
-        if(data) setDisposals(data);
-      }catch{}
-    })();
+    loadDisposals();
+  },[loadDisposals]);
+  // pending disposals count (offline queued) + auto-refresh after a sync flush
+  React.useEffect(()=>{
+    const load=async()=>{ try{ const { getDisposalPendingCount } = await import("@/lib/offline/sync"); setPendingDisposalCount(await getDisposalPendingCount()); }catch{} };
+    void load();
+    const id=window.setInterval(load,3000);
+    return ()=>window.clearInterval(id);
   },[]);
+  useMediflowSynced(()=>{ fetchData(); loadDisposals(); });
   // aging computed from stock batches received_at
   React.useEffect(()=>{
     if(!stockMerge.length){ setAgingData([]); return; }
@@ -311,6 +360,103 @@ export default function InventoryPage() {
     }catch(e:any){ alert(e.message); }
   };
 
+  const openDisposalDialog = () => {
+    setDisposalForm({
+      branch_id: branchFilter!=="all" ? branchFilter : (branches[0]?.id ?? ""),
+      product_id:"", batch_id:"", type:"EXPIRED", quantity:"", unit_cost:"", reason:"Expired stock",
+    });
+    setShowDisposal(true);
+  };
+
+  const setLocalDisposalStatus = async (id:string, status:string)=>{
+    try{ const { db } = await import("@/lib/offline/db"); await db.cachedDisposals.update(id, { status }); }catch{}
+  };
+
+  const submitDisposal = async ()=>{
+    if(!disposalForm.branch_id) return alert("Select a branch");
+    if(!disposalForm.product_id) return alert("Select a product");
+    const qty = Number(disposalForm.quantity);
+    if(isNaN(qty) || qty<=0) return alert("Quantity must be > 0");
+    const product = productOptions.find((p:any)=>p.product_id===disposalForm.product_id);
+    const batch = (stockMerge as any[]).find((b:any)=>b.id===disposalForm.batch_id);
+    // money auto-calculated: quantity × unit cost stored, valuation/movement/server derive everything else
+    const payload: Record<string, unknown> = {
+      branch_id: disposalForm.branch_id,
+      type: disposalForm.type,
+      product_id: disposalForm.product_id,
+      batch_id: disposalForm.batch_id || null,
+      quantity: qty,
+      unit_cost: Number(disposalForm.unit_cost) || Number(batch?.purchase_price ?? 0) || 0,
+      reason: disposalForm.reason || (disposalForm.type==="EXPIRED" ? "Expired stock" : disposalForm.type==="DAMAGED" ? "Damaged stock" : "Disposal"),
+      product_name: product?.name ?? null,
+      batch_number: batch?.batch_number ?? null,
+    };
+    if(!isOnline){
+      try{
+        const { queueDisposalCreate } = await import("@/lib/offline/sync");
+        await queueDisposalCreate(payload);
+        alert(`OFFLINE — disposal queued: ${qty} u of ${product?.name ?? "product"} (${disposalForm.type}). Batch reduced automatically after sync.`);
+        setShowDisposal(false);
+        fetchData();
+        return;
+      }catch(e:any){ alert(e.message); return; }
+    }
+    try{
+      const r = await fetch("/api/disposals", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ action:"create", ...payload }) });
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(j.error ?? "Failed to create disposal");
+      alert(`Disposal created (${j.status ?? "PENDING"}) — ${qty} u of ${product?.name ?? "product"}. Approve then Dispose to reduce stock & value automatically.`);
+      setShowDisposal(false);
+      fetchData(); loadDisposals();
+    }catch(e:any){ alert(e.message); }
+  };
+
+  const approveDisposalAction = async (row:any)=>{
+    if(row.pendingSync){
+      try{
+        const { queueDisposalUpdate } = await import("@/lib/offline/sync");
+        await queueDisposalUpdate(row.id, "approve");
+        await setLocalDisposalStatus(row.id, "APPROVED");
+        if(!isOnline) alert("OFFLINE — approval queued. Will sync when online.");
+        return;
+      }catch(e:any){ alert(e.message); return; }
+    }
+    try{
+      const r = await fetch("/api/disposals", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ action:"approve", id: row.id }) });
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(j.error ?? "Approval failed");
+      alert("Disposal approved");
+      loadDisposals();
+    }catch(e:any){ alert(e.message); }
+  };
+
+  const disposeDisposal = async (row:any, method:string)=>{
+    // local/pending rows: queue and let the sync engine create → approve → dispose in order
+    if(row.pendingSync){
+      try{
+        const { queueDisposalUpdate } = await import("@/lib/offline/sync");
+        if(row.status!=="APPROVED") await queueDisposalUpdate(row.id, "approve");
+        await queueDisposalUpdate(row.id, "dispose", { method });
+        await setLocalDisposalStatus(row.id, "DISPOSED");
+        if(!isOnline) alert("OFFLINE — disposal queued. Batch will be reduced automatically after sync.");
+        return;
+      }catch(e:any){ alert(e.message); return; }
+    }
+    try{
+      // auto-approve first (reduces manual steps), then dispose → batch reduced + movement + audit
+      if(row.status!=="APPROVED"){
+        const r1 = await fetch("/api/disposals", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ action:"approve", id: row.id }) });
+        const j1 = await r1.json().catch(()=>({}));
+        if(!r1.ok) throw new Error(j1.error ?? "Approval failed");
+      }
+      const r = await fetch("/api/disposals", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ action:"dispose", id: row.id, method }) });
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(j.error ?? "Disposal failed");
+      alert(`Disposed — ${row.quantity} u removed. Inventory value, expired count & reports updated automatically.`);
+      loadDisposals(); fetchData();
+    }catch(e:any){ alert(e.message); }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -318,7 +464,7 @@ export default function InventoryPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={isOnline ? "success":"warning"} className="gap-1">{isOnline ? <Wifi className="h-3 w-3"/> : <WifiOff className="h-3 w-3"/>}{isOnline ? "Online" : "Offline — cached"}</Badge>
           {pendingAdjustments>0 && <Badge variant="warning">{pendingAdjustments} pending sync</Badge>}
-          <Button variant="outline" size="sm" onClick={()=>fetchData()}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
+          <Button variant="outline" size="sm" onClick={()=>{ fetchData(); loadDisposals(); }}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
           <Button variant="outline" size="sm" onClick={handleExport}><Download className="h-4 w-4 mr-2"/>Export CSV</Button>
           <Button size="sm" onClick={()=>setShowAdjustment(true)}><Plus className="h-4 w-4 mr-2"/>Adjustment</Button>
         </div>
@@ -515,19 +661,80 @@ export default function InventoryPage() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle className="text-base flex items-center gap-2"><Trash2 className="h-4 w-4"/>Disposals / Damage</CardTitle><CardDescription>Controlled removal: Damaged / Expired / Lost — audit, not delete</CardDescription></CardHeader>
-          <CardContent>
-            {disposals.length===0 ? <p className="text-sm text-muted-foreground">No disposals • Expired stock handled via disposal workflow</p> :
-              <div className="space-y-2">{disposals.slice(0,5).map((d:any)=><div key={d.id} className="flex justify-between text-sm border rounded p-2"><span>{d.type} • {d.products?.name} • {d.quantity}</span><Badge variant={d.status==="PENDING"?"warning":"secondary"}>{d.status}</Badge></div>)}</div>
+          <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Trash2 className="h-4 w-4"/>Disposals / Damage</CardTitle><CardDescription>Expired/Damaged/Lost → PENDING → APPROVE → DISPOSE. Batch reduced + EXPIRED/DAMAGED movement + audit created automatically</CardDescription></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="border rounded p-2"><p className="text-xs text-muted-foreground">Disposed value</p><p className="font-bold">UGX {disposalKpis.disposed.toLocaleString()}</p></div>
+              <div className="border rounded p-2"><p className="text-xs text-muted-foreground">Awaiting disposal</p><p className="font-bold text-amber-600">UGX {disposalKpis.awaiting.toLocaleString()}</p></div>
+            </div>
+            {pendingDisposalCount>0 && <Badge variant="warning">{pendingDisposalCount} pending sync</Badge>}
+            {!isOnline && <p className="text-xs text-amber-600">Disposals below show last-synced + locally queued. Actions queue offline and dispose automatically on sync.</p>}
+            {disposalsMerged.length===0 ? <p className="text-sm text-muted-foreground">No disposals • Expired stock → New Disposal below</p> :
+              <div className="space-y-2 max-h-56 overflow-auto">
+                {disposalsMerged.slice(0,20).map((d:any)=>(
+                  <div key={d.id} className="flex flex-wrap items-center justify-between gap-2 text-sm border rounded p-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <Badge variant={d.type==="EXPIRED"?"destructive":d.type==="DAMAGED"?"warning":"secondary"}>{d.type}</Badge>
+                        {d.pendingSync && <Badge variant="warning" className="text-[10px]">Pending</Badge>}
+                        <span className="truncate font-medium">{d.products?.name ?? d.product_name ?? d.product_id.slice(0,8)}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">{d.batch_number ?? d.product_batches?.batch_number ?? "—"} • {d.quantity} u @ UGX {Number(d.unit_cost).toLocaleString()} = <span className="font-semibold text-foreground">UGX {Number(d.value ?? Number(d.quantity)*Number(d.unit_cost)).toLocaleString()}</span>{d.method ? ` • ${DISPOSAL_METHODS[d.method] ?? d.method}` : ""}</div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {d.status==="DISPOSED" ? <Badge variant="secondary">Disposed {d.disposed_at ? new Date(d.disposed_at).toLocaleDateString() : (d.disposal_method ? "✓" : "")}</Badge>
+                        : d.status==="APPROVED" ? <Badge variant="outline">Approved</Badge>
+                        : d.status==="CANCELLED" ? <Badge variant="destructive">Cancelled</Badge>
+                        : <Badge variant="warning">{d.status==="PENDING" ? "Pending" : d.status}</Badge>}
+                      {d.status!=="DISPOSED" && d.status!=="CANCELLED" && <>
+                        {(d.status==="PENDING" || d.status==="PENDING_SYNC") && <Button size="sm" variant="outline" onClick={()=>approveDisposalAction(d)}><Check className="h-3 w-3 mr-1"/>Approve</Button>}
+                        <Button size="sm" onClick={()=>{ setDisposeTarget(d); setDisposeMethod(d.method ?? "INCINERATION"); }}><Trash2 className="h-3 w-3 mr-1"/>Dispose</Button>
+                      </>}
+                    </div>
+                  </div>
+                ))}
+              </div>
             }
-            <Button size="sm" variant="outline" className="mt-3" onClick={async()=>{
-              const pid=prompt("Product ID to dispose? (use batch detail Adjust with Damaged reason for now)");
-              if(pid) window.location.href="/inventory";
-            }}>New Disposal</Button>
-            <p className="text-xs text-muted-foreground mt-2">Customer returns: inspect → restock or quarantine. Supplier returns reduce stock.</p>
+            <Button size="sm" className="mt-1" onClick={openDisposalDialog}><Plus className="h-4 w-4 mr-2"/>New Disposal</Button>
+            <p className="text-xs text-muted-foreground mt-1">Removal is automatic: batch qty ↓, EXPIRED/DAMAGED movement (unit cost) recorded, inventory value / expired count / reports update with no manual entry.</p>
           </CardContent>
         </Card>
       </div>
+
+      {/* New Disposal */}
+      <Dialog open={showDisposal} onOpenChange={setShowDisposal}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>New Disposal</DialogTitle><DialogDescription>Expired / Damaged / Lost stock → PENDING → Approve → Dispose. Counts and money are auto-calculated from quantity × unit cost.</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Branch</Label><Select value={disposalForm.branch_id} onChange={e=>setDisposalForm({...disposalForm, branch_id:e.target.value})}><option value="">Select branch</option>{branches.map((b:any)=><option key={b.id} value={b.id}>{b.name}</option>)}</Select></div>
+            <div><Label>Product</Label><Select value={disposalForm.product_id} onChange={e=>{ const pid=e.target.value; const first=(stockMerge as any[]).find((b:any)=>b.product_id===pid && Number(b.quantity_available)>0); setDisposalForm({...disposalForm, product_id:pid, batch_id: first?.id ?? "", unit_cost: first ? String(first.purchase_price) : "", quantity:""}); }}><option value="">Select product</option>{productOptions.map((p:any)=><option key={p.product_id} value={p.product_id}>{p.name}</option>)}</Select></div>
+            <div><Label>Batch (FEFO — earliest first)</Label><Select value={disposalForm.batch_id} onChange={e=>{ const bid=e.target.value; const b=(stockMerge as any[]).find((x:any)=>x.id===bid); setDisposalForm({...disposalForm, batch_id:bid, unit_cost: b ? String(b.purchase_price) : disposalForm.unit_cost}); }} disabled={!disposalForm.product_id}><option value="">Select batch</option>{batchOptionsForProduct.map((b:any)=><option key={b.id} value={b.id}>{b.batch_number} — {b.quantity_available}u · exp {new Date(b.expiry_date).toLocaleDateString()}{new Date(b.expiry_date) <= new Date() ? " (EXPIRED)" : ""}</option>)}</Select></div>
+            <div><Label>Type</Label><Select value={disposalForm.type} onChange={e=>setDisposalForm({...disposalForm, type:e.target.value, reason: e.target.value==="EXPIRED" ? "Expired stock" : e.target.value==="DAMAGED" ? "Damaged stock" : ""})}>{DISPOSAL_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</Select></div>
+            <div className="flex gap-2 items-end">
+              <div className="flex-1"><Label>Quantity (u)</Label><Input type="number" value={disposalForm.quantity} onChange={e=>setDisposalForm({...disposalForm, quantity:e.target.value})} placeholder="0"/></div>
+              {(()=>{ const b=(stockMerge as any[]).find((x:any)=>x.id===disposalForm.batch_id); return b ? <Button variant="outline" size="sm" onClick={()=>setDisposalForm({...disposalForm, quantity:String(b.quantity_available)})}>Max {b.quantity_available}</Button> : null; })()}
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1"><Label>Unit cost (UGX)</Label><Input type="number" value={disposalForm.unit_cost} onChange={e=>setDisposalForm({...disposalForm, unit_cost:e.target.value})} placeholder="0"/></div>
+            </div>
+            <div><Label>Reason</Label><Input value={disposalForm.reason} onChange={e=>setDisposalForm({...disposalForm, reason:e.target.value})} placeholder="e.g. expired medicine, damaged packaging "/></div>
+            {(()=>{ const q=Number(disposalForm.quantity); const c=Number(disposalForm.unit_cost); if(q>0) return <div className="text-sm border rounded p-2 bg-muted/40">Removal value (auto-calculated): <strong>UGX {(q*c).toLocaleString()}</strong>{disposalForm.batch_id ? " — batch stock drops by "+q+" u" : ""}</div>; return null; })()}
+            <div className="flex gap-2 justify-end"><Button variant="outline" onClick={()=>setShowDisposal(false)}>Cancel</Button><Button onClick={submitDisposal} disabled={!disposalForm.branch_id || !disposalForm.product_id || !disposalForm.quantity}>Create {isOnline?"":"& Queue Offline"}</Button></div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dispose confirm → auto-approve if needed, then reduce stock */}
+      <Dialog open={!!disposeTarget} onOpenChange={(o)=>!o && setDisposeTarget(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle><Flame className="h-4 w-4 inline mr-1"/>Dispose Stock</DialogTitle><DialogDescription>Removes {disposeTarget?.quantity ?? 0} u of {disposeTarget?.products?.name ?? disposeTarget?.product_name ?? "product"} — batch quantity reduced, EXPIRED/DAMAGED movement + audit auto-created, value & counts update automatically.</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            {disposeTarget && disposeTarget.status!=="APPROVED" && disposeTarget.status!=="DISPOSED" && <p className="text-xs text-amber-600">Not yet approved — will be approved automatically, then disposed.</p>}
+            <div><Label>Method</Label><Select value={disposeMethod} onChange={e=>setDisposeMethod(e.target.value)}>{Object.entries(DISPOSAL_METHODS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</Select></div>
+            <div className="flex gap-2 justify-end"><Button variant="outline" onClick={()=>setDisposeTarget(null)}>Cancel</Button><Button variant="destructive" onClick={()=>{ const d=disposeTarget; setDisposeTarget(null); if(d) disposeDisposal(d, disposeMethod); }}>Confirm Disposal</Button></div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Supplier traceability */}
       <Card>
