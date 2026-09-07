@@ -639,7 +639,7 @@ export default function CustomersPage(){
                   <Card><CardHeader><CardTitle className="text-sm">Branch & Traceability</CardTitle></CardHeader><CardContent className="text-sm space-y-1">
                     <p><span className="text-muted-foreground">Branches used:</span> {(profile.customer.branch_totals && Object.keys(profile.customer.branch_totals).length) ? Object.entries(profile.customer.branch_totals).map(([bid, tot]:any)=> `${branches.find(b=>b.id===bid)?.code ?? bid.slice(0,6)}: ${formatUGX(Number(tot))}`).join(" • ") : "— (single branch)"}</p>
                     <p className="text-xs text-muted-foreground">One Customer → Multiple Branch Sales. No duplicate customer per branch. Sales → Product → Batch → Inventory Movement → Payment → Receipt → Return → Audit traceable.</p>
-                    <p className="text-xs text-muted-foreground">Patient/Prescription: where MediFlow has Patient module, link via reference — Customer → Patient/Dependent → Prescription → Dispensing → Sale. Currently: not separate module present — placeholder, no duplication.</p>
+                    <p className="text-xs text-muted-foreground">Patient/Prescription: where MediFlow IQ has Patient module, link via reference — Customer → Patient/Dependent → Prescription → Dispensing → Sale. Currently: not separate module present — placeholder, no duplication.</p>
                   </CardContent></Card>
                 </TabsContent>
 

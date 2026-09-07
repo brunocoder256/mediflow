@@ -579,7 +579,7 @@ export default function PosPage(){
           {pendingReceipt && <p className="text-xs text-amber-600 mt-1">This receipt is a local preview. The sale will sync when you are back online — server re-validates stock and FEFO.</p>}
         </div>
         <Receipt
-          organization={{name: orgSettings?.receipt_header?.split('\n')[0] ?? "MediFlow Pharmacy", address:"Kampala Road, Kampala", phone:"+256700123456", registration_number:"REG-2024-001"}}
+          organization={{name: orgSettings?.receipt_header?.split('\n')[0] ?? "MediFlow IQ Pharmacy", address:"Kampala Road, Kampala", phone:"+256700123456", registration_number:"REG-2024-001"}}
           branch={{name: branches.find(b=>b.id===receiptData.branchId)?.name ?? "Main Branch"}}
           receipt_number={receiptData.sale.sale_number}
           sold_at={receiptData.sale.sold_at ?? new Date().toISOString()}
@@ -618,7 +618,7 @@ export default function PosPage(){
       <div className="border-b bg-card">
         <div className="flex flex-wrap gap-1.5 sm:gap-2 items-center justify-between px-2 sm:px-3 py-1.5 sm:py-2">
           <div className="flex items-center gap-2 sm:gap-3">
-            <h1 className="font-bold text-sm sm:text-lg">MediFlow POS</h1>
+            <h1 className="font-bold text-sm sm:text-lg">MediFlow IQ POS</h1>
             <span className="hidden sm:inline-flex items-center gap-1 text-sm text-muted-foreground"><MapPin className="h-4 w-4"/>{branches.find(b=>b.id===branchId)?.name ?? 'Select branch'}</span>
             <span className="hidden md:inline text-xs text-muted-foreground">Cashier — Register 01</span>
             {cashSession ? <Badge variant="secondary">Session OPEN</Badge> : pendingSessionOpen ? <Badge variant="warning">Session queued</Badge> : <Badge variant="destructive">No cash session</Badge>}

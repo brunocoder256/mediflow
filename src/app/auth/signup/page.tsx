@@ -64,7 +64,7 @@ export default function SignupPage() {
         password: data.password,
       });
       if (!signInErr) {
-        toast({ title: "Welcome to MediFlow!", description: "Your 3-day free trial has started.", variant: "success" });
+        toast({ title: "Welcome to MediFlow IQ!", description: "Your 3-day free trial has started.", variant: "success" });
         setTimeout(() => window.location.assign("/dashboard"), 1200);
       } else {
         toast({ title: "Account created!", description: "Sign in with your new password to continue.", variant: "success" });
@@ -93,7 +93,7 @@ export default function SignupPage() {
                   <path d="m9 11 3 3L22 4" />
                 </svg>
               </div>
-              <CardTitle className="text-2xl">Your MediFlow account is ready</CardTitle>
+              <CardTitle className="text-2xl">Your MediFlow IQ account is ready</CardTitle>
               <CardDescription>
                 Your {created.trial_days}-day free trial has started — your dashboard is loading.
               </CardDescription>
@@ -111,7 +111,7 @@ export default function SignupPage() {
               </div>
               <p className="text-sm text-muted-foreground">
                 After the free trial you&apos;ll complete your <span className="font-semibold">UGX 20,000</span> monthly payment
-                and a MediFlow administrator will activate your account permanently.
+                and a MediFlow IQ administrator will activate your account permanently.
               </p>
               <Button onClick={() => window.location.assign("/dashboard")}>Go to Dashboard</Button>
             </CardContent>
@@ -126,7 +126,7 @@ export default function SignupPage() {
       <Toaster />
       <Card>
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Create your MediFlow account</CardTitle>
+          <CardTitle className="text-2xl">Create your MediFlow IQ account</CardTitle>
           <CardDescription>
             Get started with a <span className="font-semibold">3-day free trial</span> — no payment needed today.
           </CardDescription>

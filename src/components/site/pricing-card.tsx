@@ -3,7 +3,7 @@ import { Check, Sparkles } from "lucide-react";
 import { Reveal } from "./reveal";
 
 const INCLUDED = [
-  "Full MediFlow system access",
+  "Full MediFlow IQ system access",
   "Sales & POS",
   "Inventory management",
   "Batch & expiry tracking",
@@ -27,7 +27,7 @@ export function PricingCard() {
           </span>
         </div>
 
-        <h3 className="text-center text-xl font-bold text-slate-900 dark:text-white">MediFlow</h3>
+        <h3 className="text-center text-xl font-bold text-slate-900 dark:text-white">MediFlow IQ</h3>
         <p className="mt-1 text-center text-sm text-slate-500 dark:text-slate-400">
           One connected system for your pharmacy
         </p>

@@ -174,7 +174,7 @@ export default function SuperAdminAccountsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Account Management</h1>
-        <p className="text-muted-foreground">Review MediFlow registrations and manage account access</p>
+        <p className="text-muted-foreground">Review MediFlow IQ registrations and manage account access</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
@@ -230,7 +230,7 @@ export default function SuperAdminAccountsPage() {
           ) : rows.length === 0 ? (
             <div className="py-16 text-center text-muted-foreground">
               <p className="text-lg font-medium">No accounts found</p>
-              <p className="mt-1 text-sm">New MediFlow registrations will appear here when customers create accounts.</p>
+              <p className="mt-1 text-sm">New MediFlow IQ registrations will appear here when customers create accounts.</p>
             </div>
           ) : (
             <>
@@ -401,7 +401,7 @@ export default function SuperAdminAccountsPage() {
         {selected && (
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Approve this MediFlow account?</DialogTitle>
+              <DialogTitle>Approve this MediFlow IQ account?</DialogTitle>
               <DialogDescription>This will automatically create the pharmacy account and let the owner sign in.</DialogDescription>
             </DialogHeader>
             <div className="space-y-1 text-sm">

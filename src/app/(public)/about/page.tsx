@@ -9,7 +9,7 @@ import { Cross, MapPin, Users, HeartHandshake, ShieldCheck, Zap } from "lucide-r
 export const metadata: Metadata = {
   title: "About",
   description:
-    "MediFlow is a modern pharmacy and drug-shop management platform built to help pharmacy businesses in Uganda and across Africa run their daily operations from one connected system.",
+    "MediFlow IQ is a modern pharmacy and drug-shop management platform built to help pharmacy businesses in Uganda and across Africa run their daily operations from one connected system.",
 };
 
 const VALUES = [
@@ -41,7 +41,7 @@ const VALUES = [
     icon: Zap,
     title: "Simple to use",
     description:
-      "A pharmacy owner should understand MediFlow in seconds — not after weeks of training.",
+      "A pharmacy owner should understand MediFlow IQ in seconds — not after weeks of training.",
   },
 ];
 
@@ -51,8 +51,8 @@ export default function AboutPage() {
       <section className="border-b border-slate-200 bg-gradient-to-b from-teal-50 to-white py-16 dark:from-teal-950/30 dark:to-slate-950 dark:border-slate-800">
         <Container className="mx-auto max-w-3xl text-center">
           <SectionHeading
-            eyebrow="About MediFlow"
-            title="MediFlow is a modern pharmacy management platform."
+            eyebrow="About MediFlow IQ"
+            title="MediFlow IQ is a modern pharmacy management platform."
             description="We build software that helps pharmacy businesses — in Uganda, across Africa and beyond — manage sales, stock, purchasing, customers, suppliers, expenses and reports from one connected system."
           />
         </Container>
@@ -75,7 +75,7 @@ export default function AboutPage() {
               One connected system for running your pharmacy.
             </h2>
             <p className="mt-4 text-lg leading-relaxed text-slate-600 dark:text-slate-400">
-              MediFlow exists because pharmacy operations are too often split across paper, spreadsheets and
+              MediFlow IQ exists because pharmacy operations are too often split across paper, spreadsheets and
               disconnected tools. Stock is recorded in one place, sales in another, and nobody has a clear view
               of the whole business.
             </p>

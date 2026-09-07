@@ -1,4 +1,4 @@
-// MediFlow Service Worker — offline-capable PWA shell
+// MediFlow IQ Service Worker — offline-capable PWA shell
 //
 // CACHING POLICY:
 //  - App shell (HTML + hashed static assets): network-first for navigations,
@@ -120,7 +120,7 @@ self.addEventListener("fetch", (event) => {
 
 // Offline navigation fallback. Priority:
 //  1. A previously-cached copy of the exact page requested.
-//  2. A cached copy of the MediFlow app shell (/dashboard or /pos), so the user
+//  2. A cached copy of the MediFlow IQ app shell (/dashboard or /pos), so the user
 //     stays inside the real React app — which is itself offline-capable (reads
 //     from Dexie/IndexedDB, queues writes) — instead of seeing a dead-end page.
 //  3. The static /offline.html page (real HTML content-type, never a download).
@@ -147,7 +147,7 @@ function offlineResponse() {
   return caches.match(OFFLINE_URL).then(function (cached) {
     if (cached) return cached;
     return new Response(
-      '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Offline — MediFlow</title></head><body style="font-family:system-ui;background:#0f766e;color:#fff;margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh"><div style="text-align:center;padding:2rem"><h1 style="margin:0 0 .5rem">You are offline</h1><p>Check your connection and try again.</p><button onclick="location.reload()" style="margin-top:1rem;padding:.6rem 1.4rem;border:0;border-radius:6px;font-size:1rem;cursor:pointer">Retry</button></div></body></html>',
+      '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Offline — MediFlow IQ</title></head><body style="font-family:system-ui;background:#0f766e;color:#fff;margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh"><div style="text-align:center;padding:2rem"><h1 style="margin:0 0 .5rem">You are offline</h1><p>Check your connection and try again.</p><button onclick="location.reload()" style="margin-top:1rem;padding:.6rem 1.4rem;border:0;border-radius:6px;font-size:1rem;cursor:pointer">Retry</button></div></body></html>',
       { headers: { "Content-Type": "text/html; charset=utf-8" } }
     );
   });

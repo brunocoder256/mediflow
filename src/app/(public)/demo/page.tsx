@@ -9,7 +9,7 @@ import { Phone, CheckCircle2, ArrowRight } from "lucide-react";
 export const metadata: Metadata = {
   title: "Demo",
   description:
-    "Request a MediFlow demo or walkthrough. See how the dashboard, POS, inventory and reports work for your pharmacy.",
+    "Request a MediFlow IQ demo or walkthrough. See how the dashboard, POS, inventory and reports work for your pharmacy.",
 };
 
 const DEMO_STEPS = [
@@ -27,8 +27,8 @@ export default function DemoPage() {
         <Container className="mx-auto max-w-3xl text-center">
           <SectionHeading
             eyebrow="Demo"
-            title="See MediFlow in action."
-            description="Book a short walkthrough with the MediFlow team and see exactly how the system works for a pharmacy like yours."
+            title="See MediFlow IQ in action."
+            description="Book a short walkthrough with the MediFlow IQ team and see exactly how the system works for a pharmacy like yours."
           />
           <Reveal className="mt-8">
             <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -69,7 +69,7 @@ export default function DemoPage() {
               ))}
             </ul>
             <p className="mt-6 text-sm text-slate-600 dark:text-slate-400">
-              The walkthrough is free and takes about 15 minutes. Call the MediFlow team to arrange a time.
+              The walkthrough is free and takes about 15 minutes. Call the MediFlow IQ team to arrange a time.
             </p>
           </Reveal>
           <Reveal delay={100}>

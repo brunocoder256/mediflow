@@ -66,7 +66,7 @@ export function SiteFooter() {
         </div>
         <div className="mt-10 flex flex-col items-center justify-between gap-4 border-t border-border pt-6 sm:flex-row">
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            &copy; {new Date().getFullYear()} MediFlow. All rights reserved.
+            &copy; {new Date().getFullYear()} MediFlow IQ. All rights reserved.
           </p>
           <p className="text-xs text-slate-400 dark:text-slate-500">
             Pharmacy Management, Simplified.

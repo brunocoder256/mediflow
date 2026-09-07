@@ -64,14 +64,14 @@ function SuperAdminLogin() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-teal-50 to-white px-4 py-12 dark:from-gray-900 dark:to-gray-950">
       <div className="mb-8 text-center">
         <Link href="/" className="inline-block">
-          <h1 className="text-3xl font-bold tracking-tight text-teal-600 dark:text-teal-400">MediFlow</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-teal-600 dark:text-teal-400">MediFlow IQ</h1>
         </Link>
         <p className="mt-2 text-sm text-[var(--muted-foreground)]">Administration</p>
       </div>
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Super Admin Access</CardTitle>
-          <CardDescription>Manage MediFlow client accounts and access</CardDescription>
+          <CardDescription>Manage MediFlow IQ client accounts and access</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -80,7 +80,7 @@ function SuperAdminLogin() {
               <Input
                 id="email"
                 type="email"
-                placeholder="admin@mediflow.com"
+                placeholder="admin@mediflowiq.com"
                 autoComplete="email"
                 disabled={isLoading}
                 {...register("email")}
@@ -113,7 +113,7 @@ function SuperAdminLogin() {
         </CardContent>
       </Card>
       <p className="mt-8 text-center text-xs text-[var(--muted-foreground)]">
-        &copy; {new Date().getFullYear()} MediFlow. All rights reserved.
+        &copy; {new Date().getFullYear()} MediFlow IQ. All rights reserved.
       </p>
     </div>
   );

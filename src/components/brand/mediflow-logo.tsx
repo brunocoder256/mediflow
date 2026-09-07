@@ -22,8 +22,8 @@ export function MediFlowMark({
 }) {
   return (
     <Image
-      src="/mediflow-logo.png"
-      alt="MediFlow logo"
+      src="/Mediflow IQ logo.png"
+      alt="MediFlow IQ logo"
       width={size}
       height={size}
       className={cn("rounded-lg object-contain", className)}
@@ -50,7 +50,7 @@ export function MediFlowLogo({
             wordmarkClassName,
           )}
         >
-          MediFlow
+          MediFlow IQ
         </span>
       )}
     </>

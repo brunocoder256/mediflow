@@ -34,7 +34,7 @@ import {
 export const metadata: Metadata = {
   title: "Features",
   description:
-    "Explore MediFlow's pharmacy features — sales & POS, inventory with batch and expiry tracking, purchasing, customers, expenses, reports, users and audit.",
+    "Explore MediFlow IQ's pharmacy features — sales & POS, inventory with batch and expiry tracking, purchasing, customers, expenses, reports, users and audit.",
 };
 
 const FEATURE_SECTIONS = [
@@ -158,7 +158,7 @@ export default function FeaturesPage() {
           <SectionHeading
             eyebrow="Features"
             title="Everything your pharmacy needs."
-            description="From the counter to the back office, MediFlow connects sales, stock, purchasing, customers, expenses and reports in one system."
+            description="From the counter to the back office, MediFlow IQ connects sales, stock, purchasing, customers, expenses and reports in one system."
           />
         </Container>
       </section>

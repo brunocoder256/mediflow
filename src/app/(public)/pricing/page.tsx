@@ -10,14 +10,14 @@ import { Check } from "lucide-react";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "MediFlow costs UGX 20,000 per month. One simple price, full access — no complicated plans or hidden fees.",
+    "MediFlow IQ costs UGX 20,000 per month. One simple price, full access — no complicated plans or hidden fees.",
 };
 
 const FAQ_PRICING = [
   {
-    question: "How much does MediFlow cost?",
+    question: "How much does MediFlow IQ cost?",
     answer:
-      "MediFlow currently costs UGX 20,000 per month — one simple price. There are no complicated tiers or hidden fees.",
+      "MediFlow IQ currently costs UGX 20,000 per month — one simple price. There are no complicated tiers or hidden fees.",
   },
   {
     question: "Why is there a one-price model?",
@@ -27,12 +27,12 @@ const FAQ_PRICING = [
   {
     question: "How is payment handled?",
     answer:
-      "After you create your account, a MediFlow administrator verifies your payment and activates your account. Payment details are shared during the registration process.",
+      "After you create your account, a MediFlow IQ administrator verifies your payment and activates your account. Payment details are shared during the registration process.",
   },
   {
-    question: "Can more than one staff member use MediFlow?",
+    question: "Can more than one staff member use MediFlow IQ?",
     answer:
-      "Yes. Your MediFlow account supports multiple users with role-based access and permissions.",
+      "Yes. Your MediFlow IQ account supports multiple users with role-based access and permissions.",
   },
 ];
 
@@ -60,14 +60,14 @@ export default function PricingPage() {
                 What&apos;s included
               </h3>
               <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-                Every account includes the full MediFlow system — sales & POS, inventory with batch and expiry
+                Every account includes the full MediFlow IQ system — sales & POS, inventory with batch and expiry
                 tracking, purchasing & suppliers, customers, expenses, reports & analytics, users & permissions,
                 and audit trail. Updates and improvements are included.
               </p>
               <div className="mt-5 flex flex-col items-center justify-center gap-2 text-sm text-slate-600 dark:text-slate-400 sm:flex-row">
                 <span>Have questions about billing?</span>
                 <Link href="/contact" className="font-semibold text-teal-700 hover:underline dark:text-teal-400">
-                  Contact the MediFlow team →
+                  Contact the MediFlow IQ team →
                 </Link>
               </div>
             </div>

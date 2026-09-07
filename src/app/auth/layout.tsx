@@ -20,7 +20,7 @@ export default function AuthLayout({
         </div>
         <div className="w-full max-w-md">{children}</div>
         <p className="mt-8 text-center text-xs text-[var(--muted-foreground)]">
-          &copy; {new Date().getFullYear()} MediFlow. All rights reserved.
+          &copy; {new Date().getFullYear()} MediFlow IQ. All rights reserved.
         </p>
       </div>
     </ToastProvider>

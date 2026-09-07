@@ -4,13 +4,13 @@ import { Container } from "@/components/site/container";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
-  description: "How MediFlow collects, uses and protects your business and personal data.",
+  description: "How MediFlow IQ collects, uses and protects your business and personal data.",
 };
 
 const SECTIONS = [
   {
     title: "1. Overview",
-    body: "This policy explains how MediFlow handles information collected through the MediFlow pharmacy management system, including registration, account use and support. We are committed to protecting your business data and the privacy of the people in your organization.",
+    body: "This policy explains how MediFlow IQ handles information collected through the MediFlow IQ pharmacy management system, including registration, account use and support. We are committed to protecting your business data and the privacy of the people in your organization.",
   },
   {
     title: "2. Information we collect",
@@ -18,7 +18,7 @@ const SECTIONS = [
   },
   {
     title: "3. How we use information",
-    body: "We use your information to provide and improve the MediFlow service, process your account registration and approval, contact you about your account or payment, and respond to support requests. We do not sell your business data.",
+    body: "We use your information to provide and improve the MediFlow IQ service, process your account registration and approval, contact you about your account or payment, and respond to support requests. We do not sell your business data.",
   },
   {
     title: "4. Account & security",
@@ -26,15 +26,15 @@ const SECTIONS = [
   },
   {
     title: "5. Data storage & access",
-    body: "Business data is stored on secure infrastructure and is only accessible to authorized MediFlow administrators when needed to support or maintain the service. Data is never shared with other customers.",
+    body: "Business data is stored on secure infrastructure and is only accessible to authorized MediFlow IQ administrators when needed to support or maintain the service. Data is never shared with other customers.",
   },
   {
     title: "6. Tenant isolation",
-    body: "Each customer's business data is isolated. Your products, sales, customers, suppliers, expenses, reports, users, inventory, settings and audit logs are visible only to your business and authorized administrators — never to another MediFlow customer.",
+    body: "Each customer's business data is isolated. Your products, sales, customers, suppliers, expenses, reports, users, inventory, settings and audit logs are visible only to your business and authorized administrators — never to another MediFlow IQ customer.",
   },
   {
     title: "7. Patient & clinical information",
-    body: "If you store sensitive clinical information within MediFlow, you remain responsible for handling it in line with applicable laws, professional regulations and your obligations to patients. MediFlow does not collect clinical information itself.",
+    body: "If you store sensitive clinical information within MediFlow IQ, you remain responsible for handling it in line with applicable laws, professional regulations and your obligations to patients. MediFlow IQ does not collect clinical information itself.",
   },
   {
     title: "8. Communications",
@@ -46,7 +46,7 @@ const SECTIONS = [
   },
   {
     title: "10. Cookies & analytics",
-    body: "The MediFlow application uses essential cookies for authentication and session management. We do not use cookies for advertising.",
+    body: "The MediFlow IQ application uses essential cookies for authentication and session management. We do not use cookies for advertising.",
   },
   {
     title: "11. Changes to this policy",
@@ -54,7 +54,7 @@ const SECTIONS = [
   },
   {
     title: "12. Contact",
-    body: "For privacy questions, contact the MediFlow team by phone on 0759327843 or 0768082948.",
+    body: "For privacy questions, contact the MediFlow IQ team by phone on 0759327843 or 0768082948.",
   },
 ];
 

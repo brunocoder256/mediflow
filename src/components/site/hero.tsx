@@ -26,7 +26,7 @@ export function Hero() {
             </span>
           </h1>
           <p className="mt-5 max-w-lg text-lg leading-relaxed text-slate-600 dark:text-slate-400">
-            MediFlow brings sales, inventory, purchasing, customers, suppliers, expenses and reports
+            MediFlow IQ brings sales, inventory, purchasing, customers, suppliers, expenses and reports
             together in one simple pharmacy management system.
           </p>
 
@@ -43,7 +43,7 @@ export function Hero() {
               className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 transition-colors hover:border-teal-300 hover:bg-teal-50/50 hover:text-teal-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               <PlayCircle className="h-4 w-4" />
-              Explore MediFlow
+              Explore MediFlow IQ
             </Link>
           </div>
 

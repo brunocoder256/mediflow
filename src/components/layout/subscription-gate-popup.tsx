@@ -11,7 +11,7 @@ import type { TrialGate } from "@/lib/trial-utils";
  *
  * When the signed-in owner's account is blocked (trial or paid window expired,
  * or account suspended), a dismissible popup is shown on top of the dashboard
- * reminding them to complete the monthly payment with MediFlow and that admin
+ * reminding them to complete the monthly payment with MediFlow IQ and that admin
  * approval is pending. The user can close it, but it reappears after 1 minute
  * until the account is re-activated. The popup polls every 8s and reloads the
  * app automatically the moment the Super Admin approves. Data itself is already
@@ -79,14 +79,14 @@ export function SubscriptionGatePopup({ gate }: { gate: TrialGate | null }) {
         {waitingApproval ? (
           <>
             Unable to load data — <span className="font-semibold">subscription over</span>. To keep working, complete
-            your UGX 20,000/month payment with MediFlow.{" "}
+            your UGX 20,000/month payment with MediFlow IQ.{" "}
             <a href={`tel:${effective.contact_phone_1 ?? "0759327843"}`} className="font-semibold underline">
               {effective.contact_phone_1 ?? "0759327843"}
             </a>
           </>
         ) : (
           <>
-            Unable to load data — account <span className="font-semibold">{effective.status}</span>. Contact MediFlow to
+            Unable to load data — account <span className="font-semibold">{effective.status}</span>. Contact MediFlow IQ to
             reactivate.
           </>
         )}
@@ -114,7 +114,7 @@ export function SubscriptionGatePopup({ gate }: { gate: TrialGate | null }) {
         <p className="mt-2 text-sm text-muted-foreground">
           {effective.organization_name ?? "This account"} can&apos;t access data until the subscription is renewed.
           To keep working, complete your <span className="font-semibold">UGX 20,000/month</span> payment with
-          MediFlow.
+          MediFlow IQ.
         </p>
 
         <div className="mt-5 rounded-md border bg-muted/20 p-4 text-left text-sm">
@@ -126,12 +126,12 @@ export function SubscriptionGatePopup({ gate }: { gate: TrialGate | null }) {
           <p className="mt-2 text-muted-foreground">
             {waitingApproval ? (
               <>
-                Your payment is with the MediFlow administrators. Your dashboard will{" "}
+                Your payment is with the MediFlow IQ administrators. Your dashboard will{" "}
                 <span className="font-medium text-foreground">reload automatically</span> the moment it&apos;s approved.
                 Until then, your data can&apos;t be loaded (subscription over).
               </>
             ) : (
-              "Your account is not active. Contact MediFlow administrators to reactivate it."
+              "Your account is not active. Contact MediFlow IQ administrators to reactivate it."
             )}
           </p>
           <ul className="mt-3 space-y-2">

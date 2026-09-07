@@ -113,8 +113,8 @@ function LoginForm() {
           title: "Account not accessible",
           description:
             trial.status === "none"
-              ? "This account has no organization. Contact MediFlow administration."
-              : `Your organization's account is ${trial.status}. Contact MediFlow administration.`,
+              ? "This account has no organization. Contact MediFlow IQ administration."
+              : `Your organization's account is ${trial.status}. Contact MediFlow IQ administration.`,
           variant: "error",
         });
         return;
@@ -137,7 +137,7 @@ function LoginForm() {
   return (
     <Card>
       <CardHeader className="text-center">
-        <CardTitle className="text-2xl">Sign in to MediFlow</CardTitle>
+        <CardTitle className="text-2xl">Sign in to MediFlow IQ</CardTitle>
         <CardDescription>
           Enter your credentials to access your account
         </CardDescription>

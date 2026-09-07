@@ -97,13 +97,13 @@ export default function TrialExpiredPage() {
             <p className="mt-2 text-muted-foreground">
               {awaitingApproval ? (
                 <>
-                  To keep using MediFlow, finish your monthly payment with MediFlow and the MediFlow
+                  To keep using MediFlow IQ, finish your monthly payment with MediFlow IQ and the MediFlow IQ
                   administrators will activate your account. Your dashboard will{" "}
                   <span className="font-medium text-foreground">reload automatically</span> as soon as your
                   account is approved.
                 </>
               ) : (
-                "Your account is not currently active. Contact MediFlow administrators to reactivate it."
+                "Your account is not currently active. Contact MediFlow IQ administrators to reactivate it."
               )}
             </p>
             <ul className="mt-3 space-y-2">
@@ -120,7 +120,7 @@ export default function TrialExpiredPage() {
                 </a>
               </li>
             </ul>
-            <p className="mt-3 text-xs text-muted-foreground">MediFlow · Pharmacy Management System · UGX 20,000/month</p>
+            <p className="mt-3 text-xs text-muted-foreground">MediFlow IQ · Pharmacy Management System · UGX 20,000/month</p>
           </div>
 
           <div className="mt-6 flex flex-col gap-2">

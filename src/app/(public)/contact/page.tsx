@@ -7,7 +7,7 @@ import { Phone, MessageSquareText, ArrowRight } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Contact",
-  description: "Contact the MediFlow team to ask questions, request a demo or get help with your pharmacy account.",
+  description: "Contact the MediFlow IQ team to ask questions, request a demo or get help with your pharmacy account.",
 };
 
 const CONTACT_PHONES = [
@@ -22,8 +22,8 @@ export default function ContactPage() {
         <Container className="mx-auto max-w-3xl text-center">
           <SectionHeading
             eyebrow="Contact"
-            title="Talk to the MediFlow team."
-            description="Questions about MediFlow, getting started, or your account? Reach out and we will help."
+            title="Talk to the MediFlow IQ team."
+            description="Questions about MediFlow IQ, getting started, or your account? Reach out and we will help."
           />
         </Container>
       </section>
@@ -38,7 +38,7 @@ export default function ContactPage() {
                 </div>
                 <h3 className="mt-4 text-lg font-semibold text-slate-900 dark:text-white">Call us</h3>
                 <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                  Speak directly with the team about starting or renewing your MediFlow account.
+                  Speak directly with the team about starting or renewing your MediFlow IQ account.
                 </p>
                 <ul className="mt-4 space-y-2">
                   {CONTACT_PHONES.map((p) => (
@@ -84,7 +84,7 @@ export default function ContactPage() {
                 </div>
                 <h3 className="mt-4 text-lg font-semibold text-slate-900 dark:text-white">Start or continue</h3>
                 <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                  Ready to run your pharmacy with MediFlow? Create your account or sign in to your existing one.
+                  Ready to run your pharmacy with MediFlow IQ? Create your account or sign in to your existing one.
                 </p>
                 <div className="mt-4 flex flex-col gap-2">
                   <Link

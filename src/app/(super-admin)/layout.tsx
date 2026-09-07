@@ -18,7 +18,7 @@ export default async function SuperAdminLayout({ children }: { children: React.R
         <div className="max-w-md rounded-lg border bg-card p-8 text-center">
           <h1 className="text-xl font-bold">Access denied</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Your account is not authorized to use the MediFlow Administration panel. Please sign out and try the main
+            Your account is not authorized to use the MediFlow IQ Administration panel. Please sign out and try the main
             application.
           </p>
         </div>
@@ -33,7 +33,7 @@ export default async function SuperAdminLayout({ children }: { children: React.R
           <div className="flex items-center gap-4">
             <Link href="/super-admin/accounts" className="flex items-center gap-2">
               <MediFlowMark size={28} />
-              <span className="font-semibold">MediFlow Administration</span>
+              <span className="font-semibold">MediFlow IQ Administration</span>
             </Link>
           </div>
           <div className="flex items-center gap-2 text-sm">

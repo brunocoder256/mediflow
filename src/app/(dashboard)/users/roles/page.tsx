@@ -162,7 +162,7 @@ export default function RolesPage() {
             Back to Users
           </Link>
           <h1 className="text-2xl font-bold">Roles & Permissions</h1>
-          <p className="text-muted-foreground">Define what each role can do across MediFlow modules</p>
+          <p className="text-muted-foreground">Define what each role can do across MediFlow IQ modules</p>
         </div>
         <Button onClick={() => setShowCreate(true)}>
           <Plus className="h-4 w-4 mr-2" />

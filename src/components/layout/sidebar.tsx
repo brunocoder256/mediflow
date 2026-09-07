@@ -61,7 +61,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       <div className="flex h-14 items-center border-b px-4">
         <Link href="/dashboard" className="flex items-center gap-2">
           <MediFlowMark size={28} />
-          {!collapsed && <span className="font-semibold text-lg">MediFlow</span>}
+          {!collapsed && <span className="font-semibold text-lg">MediFlow IQ</span>}
         </Link>
       </div>
 

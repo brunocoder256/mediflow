@@ -89,7 +89,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
           <SheetTitle className="flex items-center gap-3 text-left">
             <MediFlowMark size={36} />
             <div className="flex flex-col">
-              <span className="text-base font-semibold leading-none">MediFlow</span>
+              <span className="text-base font-semibold leading-none">MediFlow IQ</span>
               <span className="text-xs font-normal text-muted-foreground">Pharmacy Management</span>
             </div>
           </SheetTitle>
@@ -121,7 +121,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
           </ul>
         </nav>
         <div className="border-t p-3 shrink-0 bg-muted/20">
-          <p className="text-xs text-muted-foreground text-center">© {new Date().getFullYear()} MediFlow</p>
+          <p className="text-xs text-muted-foreground text-center">© {new Date().getFullYear()} MediFlow IQ</p>
         </div>
       </SheetContent>
     </Sheet>

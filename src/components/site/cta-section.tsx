@@ -15,7 +15,7 @@ export function CtaSection() {
               Ready to take control of your pharmacy?
             </h2>
             <p className="mx-auto mt-3 max-w-xl text-lg text-teal-50">
-              Start your MediFlow registration today.
+              Start your MediFlow IQ registration today.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link

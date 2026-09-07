@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0f766e">
-<title>Reconnecting — MediFlow</title>
+<title>Reconnecting — MediFlow IQ</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -34,7 +34,7 @@
 </head>
 <body>
   <div class="card">
-    <div class="logo">MediFlow</div>
+    <div class="logo">MediFlow IQ</div>
     <h1 id="title">You are offline</h1>
     <p id="msg">Your connection was lost. You can keep using saved pages, or reconnect and come back.</p>
 
@@ -61,7 +61,7 @@
         .then(function (r) {
           if (r.ok) {
             document.getElementById("title").textContent = "Back online";
-            document.getElementById("msg").textContent = "Reconnecting you to MediFlow…";
+            document.getElementById("msg").textContent = "Reconnecting you to MediFlow IQ…";
             document.getElementById("status").textContent = "Connected. Redirecting…";
             location.replace("/dashboard");
           } else {

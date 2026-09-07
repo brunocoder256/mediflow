@@ -1,7 +1,7 @@
 {
-  "name": "MediFlow - Pharmacy Management System",
-  "short_name": "MediFlow",
-  "description": "MediFlow is a modern pharmacy management system for sales, inventory, purchasing, customers, suppliers, expenses and reports.",
+  "name": "MediFlow IQ - Pharmacy Management System",
+  "short_name": "MediFlow IQ",
+  "description": "MediFlow IQ is a modern pharmacy management system for sales, inventory, purchasing, customers, suppliers, expenses and reports.",
   "id": "/",
   "scope": "/",
   "start_url": "/dashboard",

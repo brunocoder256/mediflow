@@ -4,25 +4,25 @@ import { Container } from "@/components/site/container";
 
 export const metadata: Metadata = {
   title: "Terms of Service",
-  description: "Terms of service for using the MediFlow pharmacy management system.",
+  description: "Terms of service for using the MediFlow IQ pharmacy management system.",
 };
 
 const SECTIONS = [
   {
     title: "1. Acceptance of Terms",
-    body: "By creating a MediFlow account, you agree to these terms. If you are registering on behalf of a pharmacy, drug shop or other business, you confirm that you are authorized to represent that business.",
+    body: "By creating a MediFlow IQ account, you agree to these terms. If you are registering on behalf of a pharmacy, drug shop or other business, you confirm that you are authorized to represent that business.",
   },
   {
-    title: "2. The MediFlow service",
-    body: "MediFlow provides pharmacy management software covering sales, inventory, purchasing, customers, suppliers, expenses and reports. Your account is created through a registration and approval process and becomes active after payment verification and administrator approval.",
+    title: "2. The MediFlow IQ service",
+    body: "MediFlow IQ provides pharmacy management software covering sales, inventory, purchasing, customers, suppliers, expenses and reports. Your account is created through a registration and approval process and becomes active after payment verification and administrator approval.",
   },
   {
     title: "3. Account activation & payment",
-    body: "MediFlow is currently offered at UGX 20,000 per month. Account activation is subject to payment confirmation and administrator approval. Paying for a month activates your account for that month; continued access is subject to the current billing arrangement agreed with the MediFlow team.",
+    body: "MediFlow IQ is currently offered at UGX 20,000 per month. Account activation is subject to payment confirmation and administrator approval. Paying for a month activates your account for that month; continued access is subject to the current billing arrangement agreed with the MediFlow IQ team.",
   },
   {
     title: "4. Your responsibilities",
-    body: "You are responsible for keeping your login credentials secure, controlling who on your team has access, and making sure your team uses MediFlow lawfully and in line with professional pharmacy practice. You are responsible for the accuracy of the data you enter.",
+    body: "You are responsible for keeping your login credentials secure, controlling who on your team has access, and making sure your team uses MediFlow IQ lawfully and in line with professional pharmacy practice. You are responsible for the accuracy of the data you enter.",
   },
   {
     title: "5. Account use & user management",
@@ -30,31 +30,31 @@ const SECTIONS = [
   },
   {
     title: "6. Data ownership & privacy",
-    body: "The business data you enter into MediFlow belongs to your business. MediFlow stores this data to provide the service. See the Privacy Policy for details on how data is handled. Doctors' and patients' confidential information must be handled in line with applicable laws and professional obligations.",
+    body: "The business data you enter into MediFlow IQ belongs to your business. MediFlow IQ stores this data to provide the service. See the Privacy Policy for details on how data is handled. Doctors' and patients' confidential information must be handled in line with applicable laws and professional obligations.",
   },
   {
     title: "7. Acceptable use",
-    body: "You may not attempt to access another customer's account or data, interfere with the service, reverse engineer the platform, or use MediFlow for unlawful purposes. Your account may be suspended if it is linked to abuse or fraudulent activity.",
+    body: "You may not attempt to access another customer's account or data, interfere with the service, reverse engineer the platform, or use MediFlow IQ for unlawful purposes. Your account may be suspended if it is linked to abuse or fraudulent activity.",
   },
   {
     title: "8. Service availability",
-    body: "We work to keep MediFlow available and reliable, but we do not guarantee uninterrupted availability. Where offline support is available, syncing is best-effort and subject to your internet connection.",
+    body: "We work to keep MediFlow IQ available and reliable, but we do not guarantee uninterrupted availability. Where offline support is available, syncing is best-effort and subject to your internet connection.",
   },
   {
     title: "9. Changes to the service",
-    body: "MediFlow may improve, add or remove features over time. Changes to the platform will be communicated through the application where practical.",
+    body: "MediFlow IQ may improve, add or remove features over time. Changes to the platform will be communicated through the application where practical.",
   },
   {
     title: "10. Suspension & termination",
-    body: "MediFlow may suspend or terminate an account for non-payment, breach of these terms, fraudulent activity, or at the request of the account owner. We do not silently delete registration records.",
+    body: "MediFlow IQ may suspend or terminate an account for non-payment, breach of these terms, fraudulent activity, or at the request of the account owner. We do not silently delete registration records.",
   },
   {
     title: "11. Limitation of liability",
-    body: "MediFlow is provided as is, to the extent permitted by law. To the maximum extent permitted, MediFlow is not liable for indirect or consequential losses arising from use of the service. Nothing in these terms limits liability that cannot be limited by law.",
+    body: "MediFlow IQ is provided as is, to the extent permitted by law. To the maximum extent permitted, MediFlow IQ is not liable for indirect or consequential losses arising from use of the service. Nothing in these terms limits liability that cannot be limited by law.",
   },
   {
     title: "12. Contact",
-    body: "For questions about these terms, contact the MediFlow team by phone on 0759327843 or 0768082948.",
+    body: "For questions about these terms, contact the MediFlow IQ team by phone on 0759327843 or 0768082948.",
   },
 ];
 

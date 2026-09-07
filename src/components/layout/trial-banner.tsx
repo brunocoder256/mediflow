@@ -43,7 +43,7 @@ export function TrialBanner({ gate }: { gate: TrialGate | null }) {
             <span className="font-semibold">
               {live} day{live !== 1 ? "s" : ""}
             </span>
-            . When it ends, contact MediFlow to keep using the system.
+            . When it ends, contact MediFlow IQ to keep using the system.
           </>
         ) : (
           <>
@@ -54,7 +54,7 @@ export function TrialBanner({ gate }: { gate: TrialGate | null }) {
             {gate && (gate.paid_cycles ?? 0) > 0 && (
               <span className="text-muted-foreground"> · {gate.paid_cycles} cycle{gate.paid_cycles !== 1 ? "s" : ""} remaining</span>
             )}
-            . Renew with MediFlow before this ends to avoid interruption.
+            . Renew with MediFlow IQ before this ends to avoid interruption.
           </>
         )}
       </span>

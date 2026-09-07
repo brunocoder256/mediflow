@@ -34,9 +34,9 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "MediFlow — Pharmacy Management System",
+  title: "MediFlow IQ — Pharmacy Management System",
   description:
-    "MediFlow is a modern pharmacy management system for managing sales, inventory, purchasing, customers, suppliers, expenses and reports from one simple platform. UGX 20,000/month.",
+    "MediFlow IQ is a modern pharmacy management system for managing sales, inventory, purchasing, customers, suppliers, expenses and reports from one simple platform. UGX 20,000/month.",
 };
 
 const PROBLEMS = [
@@ -87,7 +87,7 @@ const HOW_STEPS = [
   {
     step: "02",
     title: "Get approved",
-    description: "MediFlow verifies your account and confirms your monthly payment.",
+    description: "MediFlow IQ verifies your account and confirms your monthly payment.",
   },
   {
     step: "03",
@@ -279,7 +279,7 @@ export default function HomePage() {
           <SectionHeading
             eyebrow="The problem"
             title="Pharmacy management shouldn't be complicated."
-            description="Too many pharmacies juggle paper, spreadsheets and disconnected tools. MediFlow gives you one clear view of the business."
+            description=      "Too many pharmacies juggle paper, spreadsheets and disconnected tools. MediFlow IQ gives you one clear view of the business."
           />
           <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {PROBLEMS.map((p, i) => (
@@ -294,8 +294,8 @@ export default function HomePage() {
         <Container>
           <SectionHeading
             eyebrow="The solution"
-            title="Meet MediFlow. Your pharmacy's connected workspace."
-            description="MediFlow connects the important parts of pharmacy operations instead of forcing staff to work across disconnected systems."
+            title="Meet MediFlow IQ. Your pharmacy's connected workspace."
+            description="MediFlow IQ connects the important parts of pharmacy operations instead of forcing staff to work across disconnected systems."
           />
           <Reveal className="mt-12 mx-auto max-w-4xl">
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-8">
@@ -361,8 +361,8 @@ export default function HomePage() {
         <Container>
           <SectionHeading
             eyebrow="Getting started"
-            title="How MediFlow works."
-            description="A simple path from first visit to running your pharmacy on MediFlow."
+            title="How MediFlow IQ works."
+            description="A simple path from first visit to running your pharmacy on MediFlow IQ."
           />
           <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {HOW_STEPS.map((s, i) => (
@@ -399,11 +399,11 @@ export default function HomePage() {
         </Container>
       </section>
 
-      {/* Why MediFlow */}
+      {/* Why MediFlow IQ */}
       <section className="bg-slate-50/70 py-16 lg:py-24 dark:bg-slate-900/40" id="why">
         <Container>
           <SectionHeading
-            eyebrow="Why MediFlow"
+            eyebrow="Why MediFlow IQ"
             title="More control. Less guesswork."
             description="Outcome-focused benefits for pharmacy owners and their teams."
           />
@@ -482,7 +482,7 @@ export default function HomePage() {
         <Container>
           <SectionHeading
             eyebrow="Product preview"
-            title="A look at the MediFlow dashboard."
+            title="A look at the MediFlow IQ dashboard."
             description="The same connected workspace your team would use every day — sales, stock, expiry and reporting in one place."
           />
           <Reveal className="mt-12 mx-auto max-w-3xl">
@@ -497,7 +497,7 @@ export default function HomePage() {
           <SectionHeading
             eyebrow="Security"
             title="Your business data stays yours."
-            description="MediFlow is built around controlled access, accountability and protected business data."
+            description="MediFlow IQ is built around controlled access, accountability and protected business data."
           />
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {[

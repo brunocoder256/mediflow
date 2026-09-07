@@ -4,11 +4,11 @@ import { ToastProvider } from "@/hooks/use-toast";
 
 export const metadata: Metadata = {
   title: {
-    default: "MediFlow — Pharmacy Management System",
-    template: "%s — MediFlow",
+    default: "MediFlow IQ — Pharmacy Management System",
+    template: "%s — MediFlow IQ",
   },
   description:
-    "MediFlow is a modern pharmacy management system for managing sales, inventory, purchasing, customers, suppliers, expenses and reports from one connected platform.",
+    "MediFlow IQ is a modern pharmacy management system for managing sales, inventory, purchasing, customers, suppliers, expenses and reports from one connected platform.",
   keywords: [
     "pharmacy",
     "drug shop",
@@ -21,22 +21,22 @@ export const metadata: Metadata = {
     "Uganda",
     "Africa",
   ],
-  applicationName: "MediFlow",
+  applicationName: "MediFlow IQ",
   openGraph: {
-    title: "MediFlow — Pharmacy Management System",
+    title: "MediFlow IQ — Pharmacy Management System",
     description:
       "One connected system for running your pharmacy. Manage sales, stock, purchases, customers, suppliers, expenses and reports.",
     type: "website",
     locale: "en_UG",
-    siteName: "MediFlow",
-    images: [{ url: "/mediflow-logo.png", width: 1254, height: 1254, alt: "MediFlow logo" }],
+    siteName: "MediFlow IQ",
+    images: [{ url: "/Mediflow IQ logo.png", width: 1254, height: 1254, alt: "MediFlow IQ logo" }],
   },
   twitter: {
     card: "summary",
-    title: "MediFlow — Pharmacy Management System",
+    title: "MediFlow IQ — Pharmacy Management System",
     description:
       "One connected system for running your pharmacy. Manage sales, stock, purchases, customers, suppliers, expenses and reports.",
-    images: ["/mediflow-logo.png"],
+    images: ["/Mediflow IQ logo.png"],
   },
   robots: {
     index: true,
