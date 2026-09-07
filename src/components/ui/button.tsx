@@ -12,7 +12,9 @@ const buttonVariants = cva(
         destructive:
           "bg-[var(--destructive)] text-[var(--destructive-foreground)] shadow-sm hover:bg-[var(--destructive)]/90 hover:-translate-y-px",
         outline:
-          "border border-[var(--input)] bg-[var(--background)] shadow-sm hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)] hover:-translate-y-px",
+          "border border-[var(--input)] bg-[var(--card)] shadow-sm hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)] hover:-translate-y-px",
+        soft:
+          "bg-[var(--primary)]/10 text-[var(--primary-800)] shadow-sm hover:bg-[var(--primary)]/15 dark:bg-[var(--primary)]/15 dark:text-[var(--primary-800)] dark:hover:bg-[var(--primary)]/25",
         secondary:
           "bg-[var(--secondary)] text-[var(--secondary-foreground)] shadow-sm hover:bg-[var(--secondary)]/80 hover:-translate-y-px",
         ghost:

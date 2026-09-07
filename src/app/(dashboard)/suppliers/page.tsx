@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select } from "@/components/ui/select";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useOnlineStatus } from "@/hooks/use-online-status";
@@ -425,7 +426,7 @@ export default function SuppliersPage(){
       <Card><CardContent className="p-0">
         {err && <div className="p-4 text-sm text-destructive">{err}</div>}
         {loading ? <div className="p-6 space-y-3">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-16 w-full"/>)}</div>
-        : data.length===0 && mergedSuppliers.length===0 ? <div className="py-12 text-center space-y-2"><p className="text-muted-foreground">No suppliers — add your first supplier</p><p className="text-xs text-muted-foreground">After: associate Paracetamol/Amoxicillin/ORS → set preferred → reorder → PO → GRN</p></div>
+        : data.length===0 && mergedSuppliers.length===0 ? <EmptyState icon={Building2} title="No suppliers — add your first supplier" description="After: associate Paracetamol/Amoxicillin/ORS → set preferred → reorder → PO → GRN"><Button onClick={openCreate}><Plus className="h-4 w-4 mr-2"/>Add Supplier</Button></EmptyState>
         : <>
           <div className="hidden lg:block overflow-x-auto">
             <Table><TableHeader><TableRow><TableHead>Supplier</TableHead><TableHead>Contact</TableHead><TableHead>Products</TableHead><TableHead>Open POs</TableHead><TableHead className="text-right">Outstanding</TableHead><TableHead>Payment Terms</TableHead><TableHead>Status</TableHead><TableHead>Last Purchase</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>

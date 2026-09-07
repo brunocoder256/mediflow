@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Eye, Check, Loader2 } from "lucide-react";
+import { Plus, Eye, Check, Loader2, ClipboardList } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PageHeader } from "@/components/ui/page-header";
 
 export default function StockCountsPage(){
   const [loading,setLoading]=React.useState(true);
@@ -47,7 +48,7 @@ export default function StockCountsPage(){
   };
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold">Stock Counts</h1><p className="text-muted-foreground">Variance = Counted - System → ADJUSTMENT_IN/OUT on POST, immutable</p></div><Button onClick={()=>setShow(true)}><Plus className="h-4 w-4 mr-2"/>New Count</Button></div>
+      <PageHeader icon={ClipboardList} title="Stock Counts" description="Variance = Counted - System → ADJUSTMENT_IN/OUT on POST, immutable"><Button onClick={()=>setShow(true)}><Plus className="h-4 w-4 mr-2"/>New Count</Button></PageHeader>
       <Card><CardContent className="p-0">
         {loading ? <div className="p-6"><Skeleton className="h-12 w-full"/></div>
         : data.length===0 ? <div className="py-12 text-center text-muted-foreground">No counts — create a count to reconcile physical stock</div>

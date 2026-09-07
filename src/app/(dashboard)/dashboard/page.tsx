@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
 import {
   ShoppingCart,
   Receipt,
@@ -33,42 +35,6 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-
-interface KpiCardProps {
-  title: string;
-  value: string;
-  icon: React.ComponentType<{ className?: string }>;
-  description?: string;
-  trend?: "up" | "down" | "neutral";
-  trendValue?: string;
-  accent?: string;
-}
-
-function KpiCard({ title, value, icon: Icon, description, trend, trendValue, accent }: KpiCardProps) {
-  return (
-    <Card className="transition-shadow hover:shadow-md">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <Icon className={`h-4 w-4 ${accent ?? "text-muted-foreground"}`} />
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-bold tracking-tight">{value}</div>
-        {description && (
-          <p className="text-xs text-muted-foreground">{description}</p>
-        )}
-        {trend && trendValue && (
-          <p
-            className={`mt-1 text-xs font-medium ${
-              trend === "up" ? "text-green-600" : trend === "down" ? "text-red-600" : "text-muted-foreground"
-            }`}
-          >
-            {trend === "up" ? "↑" : trend === "down" ? "↓" : "→"} {trendValue}
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
 
 function KpiCardSkeleton() {
   return (
@@ -140,34 +106,42 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            {loading ? <Skeleton className="h-8 w-64" /> : (
-              <span>{greeting}{userName ? `, ${userName}` : ""}</span>
-            )}
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            {loading ? <Skeleton className="h-4 w-48 mt-1" /> : (
-              <span>{todayLabel} — here&apos;s what&apos;s happening with your pharmacy today.</span>
-            )}
-          </p>
-        </div>
+      <PageHeader
+        title={
+          loading ? (
+            <Skeleton className="h-8 w-64" />
+          ) : (
+            <span>
+              {greeting}
+              {userName ? `, ${userName}` : ""}
+            </span>
+          )
+        }
+        description={
+          loading ? (
+            <Skeleton className="h-4 w-48 mt-1" />
+          ) : (
+            <span>
+              {todayLabel} — here&apos;s what&apos;s happening with your pharmacy today.
+            </span>
+          )
+        }
+      >
         {!loading && (
-          <div className="flex flex-wrap items-center gap-2">
+          <>
             <Button size="sm" onClick={() => window.location.assign("/pos")}><ShoppingCart className="h-4 w-4 mr-1" /> New Sale</Button>
             <Button size="sm" variant="outline" onClick={() => window.location.assign("/purchases")}><Truck className="h-4 w-4 mr-1" /> Purchases</Button>
             <Button size="sm" variant="outline" onClick={() => window.location.assign("/products")}><PlusCircle className="h-4 w-4 mr-1" /> Add Product</Button>
             <Button size="sm" variant="outline" onClick={() => window.location.assign("/reports")}><BarChart3 className="h-4 w-4 mr-1" /> Reports</Button>
-          </div>
+          </>
         )}
-      </div>
+      </PageHeader>
 
       {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {loading
           ? [...Array(8)].map((_, i) => <KpiCardSkeleton key={i} />)
-          : kpis.map((kpi) => <KpiCard key={kpi.title} {...kpi} />)}
+          : kpis.map((kpi) => <StatCard key={kpi.title} {...kpi} />)}
       </div>
 
       {/* Secondary strip */}

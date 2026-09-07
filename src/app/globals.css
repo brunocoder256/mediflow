@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
+  --background: #f8fafc;
   --foreground: #171717;
   --primary: #0f766e;
   --primary-foreground: #ffffff;
@@ -19,11 +19,17 @@
   --border: #e2e8f0;
   --input: #e2e8f0;
   --ring: #0f766e;
-  --radius: 0.5rem;
+  --radius: 0.625rem;
   --card: #ffffff;
   --card-foreground: #171717;
   --popover: #ffffff;
   --popover-foreground: #171717;
+  --ds-shadow-xs: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+  --ds-shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.05), 0 1px 3px 0 rgb(15 23 42 / 0.04);
+  --ds-shadow: 0 1px 3px 0 rgb(15 23 42 / 0.07), 0 2px 5px -1px rgb(15 23 42 / 0.05);
+  --ds-shadow-md: 0 4px 9px -2px rgb(15 23 42 / 0.09), 0 2px 4px -2px rgb(15 23 42 / 0.05);
+  --ds-shadow-lg: 0 14px 22px -6px rgb(15 23 42 / 0.13), 0 4px 8px -4px rgb(15 23 42 / 0.06);
+  --ds-shadow-xl: 0 24px 40px -10px rgb(15 23 42 / 0.18), 0 8px 14px -8px rgb(15 23 42 / 0.09);
 }
 
 .dark {
@@ -49,6 +55,30 @@
   --card-foreground: #f8fafc;
   --popover: #0f172a;
   --popover-foreground: #f8fafc;
+  --ds-shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.35);
+  --ds-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4), 0 1px 3px 0 rgb(0 0 0 / 0.32);
+  --ds-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.45), 0 2px 5px -1px rgb(0 0 0 / 0.35);
+  --ds-shadow-md: 0 4px 9px -2px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.35);
+  --ds-shadow-lg: 0 14px 22px -6px rgb(0 0 0 / 0.6), 0 4px 8px -4px rgb(0 0 0 / 0.4);
+  --ds-shadow-xl: 0 24px 40px -10px rgb(0 0 0 / 0.7), 0 8px 14px -8px rgb(0 0 0 / 0.4);
+}
+
+@theme {
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.375rem;
+}
+
+@theme inline {
+  --shadow-xs: var(--ds-shadow-xs);
+  --shadow-sm: var(--ds-shadow-sm);
+  --shadow: var(--ds-shadow);
+  --shadow-md: var(--ds-shadow-md);
+  --shadow-lg: var(--ds-shadow-lg);
+  --shadow-xl: var(--ds-shadow-xl);
 }
 
 * {
@@ -64,10 +94,40 @@ body {
   color: var(--foreground);
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
 }
 
 ::selection {
   background-color: rgba(13, 148, 136, 0.18);
+}
+
+/* Subtle custom scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 45%, transparent) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--muted-foreground) 45%, transparent);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--muted-foreground) 65%, transparent);
+}
+
+/* Keyboard focus visible on plain links */
+a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 @layer utilities {
