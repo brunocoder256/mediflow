@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0f766e">
-<title>Offline — MediFlow</title>
+<title>Reconnecting — MediFlow</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -17,36 +17,64 @@
     align-items: center;
     justify-content: center;
   }
-  .card {
-    text-align: center;
-    padding: 2rem;
-    max-width: 420px;
-    width: 100%;
-  }
+  .card { text-align: center; padding: 2rem; max-width: 460px; width: 100%; }
   .logo { font-size: 2rem; font-weight: 700; margin: 0 0 1rem; letter-spacing: 1px; }
-  h1 { font-size: 1.25rem; margin: 0 0 .5rem; }
+  h1 { font-size: 1.2rem; margin: 0 0 .5rem; }
   p { margin: 0 0 1.5rem; opacity: .9; line-height: 1.5; }
-  .retry {
-    background: #fff;
-    color: #0f766e;
-    border: 0;
-    border-radius: 8px;
-    padding: .75rem 1.5rem;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
+  .btn {
+    display: inline-block;
+    background: #fff; color: #0f766e; border: 0; border-radius: 8px;
+    padding: .75rem 1.5rem; font-size: 1rem; font-weight: 600; cursor: pointer;
+    text-decoration: none; margin: 0 .25rem .5rem;
   }
-  .retry:hover { opacity: .9; }
-  .links { margin-top: 1.5rem; font-size: .9rem; }
-  .links a { color: rgba(255,255,255,.85); text-decoration: underline; }
+  .btn:hover { opacity: .9; }
+  .btn.ghost { background: rgba(255,255,255,.15); color: #fff; }
+  .auto { margin-top: 1.25rem; font-size: .85rem; opacity: .85; }
 </style>
 </head>
 <body>
   <div class="card">
     <div class="logo">MediFlow</div>
-    <h1>You are offline</h1>
-    <p>Your connection was lost. Reconnect and press retry to continue using MediFlow.</p>
-    <button class="retry" onclick="location.reload()">Retry</button>
+    <h1 id="title">You are offline</h1>
+    <p id="msg">Your connection was lost. You can keep using saved pages, or reconnect and come back.</p>
+
+    <div>
+      <a class="btn" href="/pos">Open POS</a>
+      <a class="btn ghost" href="/dashboard">Dashboard</a>
+    </div>
+    <div>
+      <a class="btn ghost" href="/inventory">Inventory</a>
+      <a class="btn ghost" href="/sync">Sync Center</a>
+    </div>
+
+    <div class="auto" id="status">Checking connection…</div>
   </div>
+
+  <script>
+    // Automatically send the user back into the app once the server is reachable.
+    function check() {
+      if (navigator.onLine === false) {
+        document.getElementById("status").textContent = "Still offline — will reconnect automatically.";
+        return;
+      }
+      fetch("/api/health", { cache: "no-store" })
+        .then(function (r) {
+          if (r.ok) {
+            document.getElementById("title").textContent = "Back online";
+            document.getElementById("msg").textContent = "Reconnecting you to MediFlow…";
+            document.getElementById("status").textContent = "Connected. Redirecting…";
+            location.replace("/dashboard");
+          } else {
+            document.getElementById("status").textContent = "Still offline — will reconnect automatically.";
+          }
+        })
+        .catch(function () {
+          document.getElementById("status").textContent = "Still offline — will reconnect automatically.";
+        });
+    }
+
+    check();
+    setInterval(check, 3000);
+  </script>
 </body>
 </html>

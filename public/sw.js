@@ -30,7 +30,17 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then((cache) => cache.addAll(SHELL))
+      .then((cache) =>
+        Promise.all(
+          SHELL
+            .map((url) =>
+              cache.add(url).catch(function () {
+                // Ignore a single failed item (e.g. a missing icon). One failing
+                // resource must never abort offline support for the whole app.
+              })
+            )
+        )
+      )
       .then(() => self.skipWaiting())
   );
 });
@@ -86,12 +96,7 @@ self.addEventListener("fetch", (event) => {
           }
           return res;
         })
-        .catch(() =>
-          caches
-            .match(req)
-            .then((cached) => (cached ? cached : caches.match(req.url)))
-            .then((cached) => cached || offlineResponse())
-        )
+        .catch(() => navigationFallback(req))
     );
     return;
   }
@@ -113,10 +118,33 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
+// Offline navigation fallback. Priority:
+//  1. A previously-cached copy of the exact page requested.
+//  2. A cached copy of the MediFlow app shell (/dashboard or /pos), so the user
+//     stays inside the real React app — which is itself offline-capable (reads
+//     from Dexie/IndexedDB, queues writes) — instead of seeing a dead-end page.
+//  3. The static /offline.html page (real HTML content-type, never a download).
+function navigationFallback(req) {
+  var path = new URL(req.url).pathname;
+  return caches
+    .match(req)
+    .then(function (exact) {
+      if (exact) return exact;
+      // Try the app shell so the user lands back in a working offline app.
+      return caches.match("/dashboard").then(function (shell) {
+        if (shell && path !== "/") return shell;
+        return caches.match("/offline.html");
+      });
+    })
+    .then(function (cached) {
+      return cached || offlineResponse();
+    });
+}
+
 // Returns the real offline HTML document. It has a text/html content-type,
 // so the browser renders it instead of downloading it.
 function offlineResponse() {
-  return caches.match(OFFLINE_URL).then((cached) => {
+  return caches.match(OFFLINE_URL).then(function (cached) {
     if (cached) return cached;
     return new Response(
       '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Offline — MediFlow</title></head><body style="font-family:system-ui;background:#0f766e;color:#fff;margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh"><div style="text-align:center;padding:2rem"><h1 style="margin:0 0 .5rem">You are offline</h1><p>Check your connection and try again.</p><button onclick="location.reload()" style="margin-top:1rem;padding:.6rem 1.4rem;border:0;border-radius:6px;font-size:1rem;cursor:pointer">Retry</button></div></body></html>',
