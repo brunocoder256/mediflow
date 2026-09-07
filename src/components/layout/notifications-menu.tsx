@@ -93,7 +93,7 @@ export function NotificationsMenu() {
           )}
         </Button>
       </DropdownMenuTrigger>
-<DropdownMenuContent className="w-[340px] max-w-[calc(100vw-2rem)]" align="end">
+      <DropdownMenuContent className="w-[min(calc(100vw-2rem),360px)] sm:w-[380px]" align="end">
           <DropdownMenuLabel className="flex items-center justify-between gap-2">
             <span>Notifications</span>
             {unread > 0 && (
