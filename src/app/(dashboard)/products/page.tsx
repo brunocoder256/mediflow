@@ -196,6 +196,18 @@ export default function ProductsPage(){
 
   React.useEffect(()=>{ fetchProducts(); },[fetchProducts]);
 
+  // After a global offline-sync flush (DashboardShell dispatches "mediflow:synced"),
+  // refetch so an offline-queued create/update appears without a manual refresh.
+  React.useEffect(()=>{
+    const onSync=()=>{
+      invalidateCache("/api/products");
+      invalidateCache("/api/inventory");
+      fetchProducts();
+    };
+    window.addEventListener("mediflow:synced", onSync);
+    return ()=>window.removeEventListener("mediflow:synced", onSync);
+  },[fetchProducts]);
+
   const totalPages=Math.max(1, Math.ceil(totalCount/perPage));
 
   async function submitAdd(){

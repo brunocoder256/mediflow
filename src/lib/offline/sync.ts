@@ -609,12 +609,12 @@ export async function processSyncQueue(): Promise<{
 }
 
 // Auto-sync when coming back online
-export function setupAutoSync(onUpdate?: () => void) {
+export function setupAutoSync(onUpdate?: (result: { processed: number; failed: number; pending: number }) => void) {
   if (typeof window === "undefined") return () => {};
   const handler = async () => {
     if (navigator.onLine) {
-      await processSyncQueue();
-      onUpdate?.();
+      const result = await processSyncQueue();
+      onUpdate?.(result);
     }
   };
   window.addEventListener("online", handler);
