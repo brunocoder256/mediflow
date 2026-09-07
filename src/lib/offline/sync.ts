@@ -355,7 +355,11 @@ export async function processSyncQueue(): Promise<{
   failed: number;
   pending: number;
 }> {
-  const pending = await db.syncQueue.where("status").equals("pending").toArray();
+  const pending = (await db.syncQueue.where("status").equals("pending").toArray())
+    // Replay in the order work was queued — critical for offline POS + cash:
+    // a queued session open must reach the server before the cash sales /
+    // movements recorded against it, otherwise they'd fail with "no cash session".
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
   let processed = 0;
   let failed = 0;

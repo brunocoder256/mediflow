@@ -15,6 +15,7 @@ import { processSyncQueue, setupAutoSync, queuePosSale } from "@/lib/offline/syn
 import { cachedFetch } from "@/lib/offline/cached-fetch";
 import { readUserContext, writeUserContext, getCachedCashierName } from "@/lib/offline/user-context";
 import { rankProducts, matchesProduct, type PosSearchable } from "@/lib/pos-search";
+import { usePendingCash } from "@/lib/offline/pending-overlay";
 
 type Product = {
   id: string;
@@ -134,6 +135,9 @@ export default function PosPage(){
   const [showHeld,setShowHeld]=React.useState(false);
   const [showCustomer,setShowCustomer]=React.useState(false);
   const [showClear,setShowClear]=React.useState(false);
+  const pendingCash = usePendingCash();
+  const pendingSessionOpen = pendingCash.sessions.some((s:any)=> s.branch_id===branchId);
+  const hasOpenSession = !!cashSession || pendingSessionOpen;
 
   const fetchProducts = React.useCallback(async (bId:string)=>{
     if(!bId) return;
@@ -389,14 +393,14 @@ export default function PosPage(){
       if(sum < totalAfterSaleDisc - 0.01) return false;
       if(splitPayments.some(p=> !p.amount || Number(p.amount)<=0)) return false;
       if(splitPayments.some(p=> p.method!=='CASH' && !p.reference.trim())) return false;
-      if(splitPayments.some(p=> p.method==='CASH') && !cashSession) return false;
+      if(splitPayments.some(p=> p.method==='CASH') && !hasOpenSession) return false;
       if(splitPayments.length===0) return false;
       return true;
     }
     if(paymentMethod==='CASH'){
       const recv=Number(amountReceived||0);
       if(!amountReceived || recv < totalAfterSaleDisc - 0.01) return false;
-      if(!cashSession) return false;
+      if(!hasOpenSession) return false;
     }
     if(paymentMethod!=='CASH' && !paymentRef.trim()) return false;
     return true;
@@ -492,13 +496,31 @@ export default function PosPage(){
       payments: paymentsForPayload,
       operation_id: op
     };
-    // Offline queue
+    // Offline queue — build a local pending receipt so the cashier sees & prints it now.
     if(!isOnline){
       try{
         await queuePosSale(payload as any, op);
         setPendingCount(await db.syncQueue.where("status").equals("pending").count());
+        const now=new Date().toISOString();
+        const localSale:any = {
+          id: `pending-${op}`,
+          sale_number: `PENDING-${op.slice(0,8).toUpperCase()}`,
+          sold_at: now,
+          status: "PENDING_SYNC",
+          total: totalAfterSaleDisc,
+          subtotal,
+          branch_id: branchId,
+          customer_id: selectedCustomer?.id ?? null,
+          operation_id: op,
+        };
+        const localItems = cart.map((c:any)=>{
+          const lineDisc = c.discount_type==='percent' ? Math.round(c.quantity*c.unit_price*c.discount/100*100)/100 : c.discount;
+          const lineTotal = Math.round((c.quantity*c.unit_price - lineDisc)*100)/100;
+          return { product_id:c.product_id, name:c.name, quantity:c.quantity, qty:c.quantity, unit_price:c.unit_price, discount: lineDisc, tax:0, batch_id:null, subtotal: lineTotal };
+        });
+        const paySummary = (splitMode && splitPayments.length) ? splitPayments.map(p=>`${p.method}:${formatUGX(Number(p.amount))}${p.reference?`(${p.reference})`:''}`).join(' + ') : paymentMethod;
+        setReceiptData({ sale: localSale, items: localItems, total: totalAfterSaleDisc, subtotal, discount: saleDiscount, branchId, paymentMethod: paySummary, change, customer: selectedCustomer?.name, offlinePending: true });
         setCart([]); setSaleDiscount(0); setShowPay(false); setShowMobilePay(false); setAmountReceived(""); setPaymentRef(""); setSplitPayments([]); setSplitMode(false);
-        alert('OFFLINE — sale queued with operation_id ' + op + '. Will sync when online. Server validates stock & prevents duplicates.');
       }catch(e:any){ alert('Queue failed: '+e.message); }
       setBusy(false);
       return;
@@ -517,7 +539,7 @@ export default function PosPage(){
       // server returns allocations in items
       const saleItems = j.items ?? cart.map(c=>({ ...c, batch_id: null }));
       const paySummary = splitMode && splitPayments.length ? splitPayments.map(p=>`${p.method}:${formatUGX(Number(p.amount))}${p.reference?`(${p.reference})`:''}`).join(' + ') : paymentMethod;
-      setReceiptData({ sale: j.sale, items: saleItems, total: j.saleTotal ?? totalAfterSaleDisc, subtotal: j.saleSubtotal ?? subtotal, branchId, paymentMethod: paySummary, change, customer: selectedCustomer?.name });
+      setReceiptData({ sale: j.sale, items: saleItems, total: j.saleTotal ?? totalAfterSaleDisc, subtotal: j.saleSubtotal ?? subtotal, discount: saleDiscount, branchId, paymentMethod: paySummary, change, customer: selectedCustomer?.name });
       setCart([]); setSaleDiscount(0); setShowPay(false); setShowMobilePay(false); setAmountReceived(""); setPaymentRef(""); setSplitPayments([]); setSplitMode(false);
       // refresh products (stock)
       fetchProducts(branchId);
@@ -548,11 +570,13 @@ export default function PosPage(){
   };
 
   if(receiptData){
+    const pendingReceipt = !!receiptData.offlinePending;
     return (
       <div className="max-w-md mx-auto p-4 space-y-4">
         <div className="text-center py-2">
-          <p className="text-sm font-semibold text-green-600 flex items-center justify-center gap-2">✓ Sale Completed</p>
-          <p className="text-xs text-muted-foreground">Receipt #{receiptData.sale.sale_number}</p>
+          <p className={`text-sm font-semibold flex items-center justify-center gap-2 ${pendingReceipt ? "text-amber-600" : "text-green-600"}`}>{pendingReceipt ? <>✓ Sale queued offline</> : <>✓ Sale Completed</>}</p>
+          <p className="text-xs text-muted-foreground">Receipt #{receiptData.sale.sale_number}{pendingReceipt ? ` · will sync automatically` : ''}</p>
+          {pendingReceipt && <p className="text-xs text-amber-600 mt-1">This receipt is a local preview. The sale will sync when you are back online — server re-validates stock and FEFO.</p>}
         </div>
         <Receipt
           organization={{name: orgSettings?.receipt_header?.split('\n')[0] ?? "MediFlow Pharmacy", address:"Kampala Road, Kampala", phone:"+256700123456", registration_number:"REG-2024-001"}}
@@ -561,9 +585,9 @@ export default function PosPage(){
           sold_at={receiptData.sale.sold_at ?? new Date().toISOString()}
           cashier={cashierName}
           customer={receiptData.customer}
-          items={receiptData.items.map((it:any)=>({ name: it.name ?? products.find(p=>p.id===it.product_id)?.name ?? it.product_id.slice(0,8), quantity: it.quantity ?? it.qty, unit_price: it.unit_price, discount: it.discount ?? 0, tax: it.tax ?? 0, subtotal: it.subtotal ?? Math.round((it.quantity??it.qty)*it.unit_price - (it.discount??0)) }))}
+          items={receiptData.items.map((it:any)=>({ name: it.name ?? products.find(p=>p.id===it.product_id)?.name ?? it.product_id.slice(0,8), quantity: it.quantity ?? it.qty, unit_price: it.unit_price, discount: it.discount ?? 0, tax: it.tax ?? 0, subtotal: it.subtotal ?? Math.round(((it.quantity??it.qty))*it.unit_price - (it.discount??0)) }))}
           subtotal={receiptData.subtotal}
-          discount={saleDiscount}
+          discount={receiptData.discount ?? 0}
           tax={0}
           total={receiptData.total}
           payment_method={receiptData.paymentMethod}
@@ -597,7 +621,7 @@ export default function PosPage(){
             <h1 className="font-bold text-sm sm:text-lg">MediFlow POS</h1>
             <span className="hidden sm:inline-flex items-center gap-1 text-sm text-muted-foreground"><MapPin className="h-4 w-4"/>{branches.find(b=>b.id===branchId)?.name ?? 'Select branch'}</span>
             <span className="hidden md:inline text-xs text-muted-foreground">Cashier — Register 01</span>
-            {cashSession ? <Badge variant="secondary">Session OPEN</Badge> : <Badge variant="destructive">No cash session</Badge>}
+            {cashSession ? <Badge variant="secondary">Session OPEN</Badge> : pendingSessionOpen ? <Badge variant="warning">Session queued</Badge> : <Badge variant="destructive">No cash session</Badge>}
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <div className={`inline-flex items-center gap-1 sm:gap-1.5 rounded-full px-2 sm:px-3 py-0.5 sm:py-1 text-[10px] sm:text-xs font-medium ${!isOnline ? 'bg-amber-100 text-amber-800' : syncing ? 'bg-yellow-100 text-yellow-800' : syncError ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-700'}`}>
@@ -621,10 +645,10 @@ export default function PosPage(){
           </div>
         </div>
         {/* cash session banner */}
-        {paymentMethod==='CASH' && !cashSession && branchId && (
+        {paymentMethod==='CASH' && !hasOpenSession && branchId && (
           <div className="bg-amber-50 border-t border-amber-200 text-amber-800 text-sm px-4 py-2 flex flex-wrap items-center justify-between gap-2">
-            <span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0"/> No active cash session for this branch — open a session before cash sales.</span>
-            <Button size="sm" variant="outline" onClick={()=> window.location.href='/cash'}>Open Cash Session</Button>
+            <span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0"/> {pendingSessionOpen ? "A session open is queued offline — cash sales will be recorded and sync with the session." : "No active cash session for this branch — open a session before cash sales."}</span>
+            {!pendingSessionOpen && <Button size="sm" variant="outline" onClick={()=> window.location.href='/cash'}>Open Cash Session</Button>}
           </div>
         )}
         {failedCount>0 && (
@@ -890,7 +914,7 @@ export default function PosPage(){
                       <Button variant="ghost" size="icon" onClick={()=> setSplitPayments(a=> a.filter(x=>x.id!==sp.id))} disabled={splitPayments.length<=1}><Trash2 className="h-4 w-4"/></Button>
                     </div>
                     {sp.method!=='CASH' && <Input placeholder="Reference (required)" value={sp.reference} onChange={e=> setSplitPayments(a=> a.map(x=> x.id===sp.id ? {...x, reference:e.target.value}:x))}/>}
-                    {sp.method==='CASH' && !cashSession && <p className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle className="h-3 w-3"/> No cash session</p>}
+                    {sp.method==='CASH' && !hasOpenSession && <p className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle className="h-3 w-3"/> {pendingSessionOpen ? "Session queued offline" : "No cash session"}</p>}
                   </div>
                 ))}
                 <Button variant="outline" size="sm" onClick={()=> setSplitPayments(a=> [...a, {id:crypto.randomUUID(), method:'MOBILE_MONEY', amount:'', reference:''}])}><Plus className="h-4 w-4 mr-1"/>Add payment</Button>
@@ -913,7 +937,7 @@ export default function PosPage(){
                     <label className="text-sm font-medium">Amount Received</label>
                     <Input type="number" value={amountReceived} onChange={e=>setAmountReceived(e.target.value)} placeholder="UGX" autoFocus/>
                     <div className="flex justify-between text-sm"><span>Change</span><span className="font-bold text-green-600">{formatUGX(change)}</span></div>
-                    {!cashSession && <p className="text-sm text-amber-600 flex items-center gap-1"><AlertTriangle className="h-4 w-4"/> No open cash session</p>}
+                    {!hasOpenSession && <p className="text-sm text-amber-600 flex items-center gap-1"><AlertTriangle className="h-4 w-4"/> {pendingSessionOpen ? "Session open queued offline — sale will sync with it" : "No open cash session"}</p>}
                     {amountReceived && Number(amountReceived) < totalAfterSaleDisc && <p className="text-sm text-destructive">Received must be ≥ Total</p>}
                   </div>
                 ) : (
