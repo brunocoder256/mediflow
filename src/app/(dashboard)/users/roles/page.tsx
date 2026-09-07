@@ -11,8 +11,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Plus, Search, ChevronDown, ChevronRight, Copy } from "lucide-react";
+import { ArrowLeft, Plus, Search, ChevronDown, ChevronRight, Copy, UsersRound } from "lucide-react";
 import { PERMISSION_CATALOG } from "@/lib/permissions-catalog";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type RoleRow = {
   id: string;
@@ -155,20 +157,17 @@ export default function RolesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-1">
-          <Link href="/users" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-            <ArrowLeft className="h-4 w-4" />
-            Back to Users
-          </Link>
-          <h1 className="text-2xl font-bold">Roles & Permissions</h1>
-          <p className="text-muted-foreground">Define what each role can do across MediFlow IQ modules</p>
-        </div>
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Create Role
-        </Button>
-      </div>
+      {/* Breadcrumb */}
+        <Link href="/users" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-4 w-4" />
+          Back to Users
+        </Link>
+        <PageHeader icon={UsersRound} title="Roles & Permissions" description="Define what each role can do across MediFlow IQ modules">
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Create Role
+          </Button>
+        </PageHeader>
 
       <Card>
         <CardContent className="p-4">
@@ -224,7 +223,7 @@ export default function RolesPage() {
             </Card>
           ))}
           {filtered.length === 0 && (
-            <div className="py-12 text-center text-muted-foreground">No roles found</div>
+            <EmptyState icon={UsersRound} title="No roles found" description="Create a role to start defining what team members can do."/>
           )}
         </div>
       )}

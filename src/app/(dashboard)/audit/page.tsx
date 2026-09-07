@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select } from "@/components/ui/select";
 import { Search, Download, FileText, ScrollText } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type Log = { id:string; action:string; entity_type:string; entity_id:string|null; user_name:string; created_at:string; old_values:any; new_values:any };
 
@@ -49,7 +50,7 @@ export default function AuditPage(){
       <Card><CardContent className="p-4"><div className="flex flex-col gap-4 md:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input placeholder="Search action / entity / user" value={q} onChange={e=>{setQ(e.target.value); setPage(1);}} className="pl-9"/></div><Select value={type} onChange={e=>{setType(e.target.value); setPage(1);}} className="w-full md:w-[180px]"><option value="all">All Types</option><option value="sale">Sales</option><option value="inventory">Inventory</option><option value="auth">Auth</option><option value="security">Security</option><option value="system">System</option></Select></div></CardContent></Card>
       <Card><CardContent className="p-0">
         {loading ? <div className="p-6 space-y-3">{[...Array(7)].map((_,i)=><div key={i} className="flex gap-4"><Skeleton className="h-10 w-10"/><div className="flex-1 space-y-2"><Skeleton className="h-4 w-48"/><Skeleton className="h-3 w-64"/></div><Skeleton className="h-6 w-20"/></div>)}</div>
-        : data.length===0 ? <div className="py-12 text-center text-muted-foreground">No audit logs — perform a sale, purchase, or stock operation to generate trail</div>
+        : data.length===0 ? <EmptyState icon={ScrollText} title="No audit logs" description="Perform a sale, purchase, or stock operation to generate trail."/>
         : <><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Time</TableHead><TableHead>User</TableHead><TableHead>Action</TableHead><TableHead>Entity</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Details</TableHead></TableRow></TableHeader><TableBody>
           {data.map(l=>(
             <React.Fragment key={l.id}>

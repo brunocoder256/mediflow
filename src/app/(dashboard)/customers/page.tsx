@@ -11,6 +11,9 @@ import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatCard } from "@/components/ui/stat-card";
 import { Search, Plus, Eye, Edit, Trash2, Ban, RefreshCw, UserCircle, Building2, Users, Phone, Mail, MapPin, Calendar, CreditCard, Receipt, RotateCcw, FileText, Activity, Heart, StickyNote, Download, Upload, Filter, X, ChevronLeft, ChevronRight, AlertTriangle, Check, Printer, ArrowLeftRight, Shield, ShoppingCart } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { db } from "@/lib/offline/db";
@@ -379,28 +382,22 @@ export default function CustomersPage(){
   return (
     <div className="space-y-6 pb-16">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2"><UserCircle className="h-6 w-6"/>Customers</h1>
-          <p className="text-muted-foreground text-sm">Customer 360 — WHO they are, WHAT they bought, WHAT they owe, WHERE they shop. POS ↔ Sales ↔ Payments ↔ Credit ↔ Returns ↔ Loyalty ↔ Audit ↔ Branch</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {pendingCount>0 && <Badge variant="warning">{pendingCount} pending sync</Badge>}
-          <Button variant="outline" size="sm" onClick={()=>setShowImport(true)}><Upload className="h-4 w-4 mr-2"/>Import</Button>
-          <Button variant="outline" size="sm" onClick={downloadTemplate}><Download className="h-4 w-4 mr-2"/>Template</Button>
-          <Button variant="outline" size="sm" onClick={exportCsv}><Download className="h-4 w-4 mr-2"/>Export CSV</Button>
-          <Button onClick={()=>{ setEditing(null); setForm({ display_name:"", company_name:"", first_name:"", last_name:"", customer_type:"INDIVIDUAL", phone:"", alternate_phone:"", email:"", address:"", city:"", branch_id:"", credit_limit:"0", tax_id:"", external_reference:"", notes:"", preferred_contact:"PHONE", sms_opt_in:false, email_opt_in:false, marketing_opt_in:false, contact_person:"" }); setDupWarn([]); setShowDupPrompt(false); setShowAdd(true); }}><Plus className="h-4 w-4 mr-2"/>New Customer</Button>
-        </div>
-      </div>
+      <PageHeader icon={UserCircle} title="Customers" description="Customer 360 — WHO they are, WHAT they bought, WHAT they owe, WHERE they shop. POS ↔ Sales ↔ Payments ↔ Credit ↔ Returns ↔ Loyalty ↔ Audit ↔ Branch">
+        {pendingCount>0 && <Badge variant="warning">{pendingCount} pending sync</Badge>}
+        <Button variant="outline" size="sm" onClick={()=>setShowImport(true)}><Upload className="h-4 w-4 mr-2"/>Import</Button>
+        <Button variant="outline" size="sm" onClick={downloadTemplate}><Download className="h-4 w-4 mr-2"/>Template</Button>
+        <Button variant="outline" size="sm" onClick={exportCsv}><Download className="h-4 w-4 mr-2"/>Export CSV</Button>
+        <Button onClick={()=>{ setEditing(null); setForm({ display_name:"", company_name:"", first_name:"", last_name:"", customer_type:"INDIVIDUAL", phone:"", alternate_phone:"", email:"", address:"", city:"", branch_id:"", credit_limit:"0", tax_id:"", external_reference:"", notes:"", preferred_contact:"PHONE", sms_opt_in:false, email_opt_in:false, marketing_opt_in:false, contact_person:"" }); setDupWarn([]); setShowDupPrompt(false); setShowAdd(true); }}><Plus className="h-4 w-4 mr-2"/>New Customer</Button>
+      </PageHeader>
 
       {/* KPI */}
       <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><Users className="h-3 w-3"/>Total Customers</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{kpi?.total ?? "—"}</div><div className="text-xs text-muted-foreground">{totalCount} in current filter</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><Check className="h-3 w-3"/>Active</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{kpi?.active ?? "—"}</div><div className="text-xs text-muted-foreground">Inactive {kpi?.inactive ?? 0} • Blocked {kpi?.blocked ?? 0}</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><Calendar className="h-3 w-3"/>New This Month</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{kpi?.newThisMonth ?? 0}</div><div className="text-xs text-muted-foreground">Joined this month</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><CreditCard className="h-3 w-3"/>With Credit</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{kpi?.withCredit ?? 0}</div><div className="text-xs text-muted-foreground">Have outstanding</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><Receipt className="h-3 w-3"/>Outstanding</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{kpi ? formatUGX(kpi.outstandingTotal) : "—"}</div><div className="text-xs text-muted-foreground">AR total</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><AlertTriangle className="h-3 w-3"/>Overdue</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{kpi ? formatUGX(kpi.overdueTotal) : "—"}</div><div className="text-xs text-muted-foreground">Over 30d</div></CardContent></Card>
+        <StatCard icon={Users} title="Total Customers" value={kpi?.total ?? "—"} description={`${totalCount} in current filter`}/>
+        <StatCard icon={Check} title="Active" value={kpi?.active ?? "—"} description={`Inactive ${kpi?.inactive ?? 0} • Blocked ${kpi?.blocked ?? 0}`}/>
+        <StatCard icon={Calendar} title="New This Month" value={kpi?.newThisMonth ?? 0} description="Joined this month"/>
+        <StatCard icon={CreditCard} title="With Credit" value={kpi?.withCredit ?? 0} description="Have outstanding"/>
+        <StatCard icon={Receipt} title="Outstanding" value={kpi ? formatUGX(kpi.outstandingTotal) : "—"} description="AR total"/>
+        <StatCard icon={AlertTriangle} title="Overdue" value={kpi ? formatUGX(kpi.overdueTotal) : "—"} description="Over 30d"/>
       </div>
 
       {/* Filters */}
@@ -424,7 +421,7 @@ export default function CustomersPage(){
       {/* List */}
       <Card><CardContent className="p-0">
         {loading ? <div className="p-6 space-y-3">{[...Array(6)].map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
-        : data.length===0 && mergedCustomers.length===0 ? <div className="py-12 text-center space-y-2"><UserCircle className="h-10 w-10 mx-auto text-muted-foreground"/><p className="font-medium">No customers</p><p className="text-sm text-muted-foreground">Add your first customer — POS can create fast without losing cart</p><Button onClick={()=>setShowAdd(true)}><Plus className="h-4 w-4 mr-2"/>Add Customer</Button></div>
+        : data.length===0 && mergedCustomers.length===0 ? <EmptyState icon={UserCircle} title="No customers" description="Add your first customer — POS can create fast without losing the cart." action={<Button onClick={()=>setShowAdd(true)}><Plus className="h-4 w-4 mr-2"/>Add Customer</Button>}/>
         : <>
           {/* Desktop table */}
           <div className="hidden lg:block overflow-x-auto">

@@ -4,7 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { RefreshCw, Clock, Cloud, CloudOff, Wifi, WifiOff, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
+import { RefreshCw, Clock, Cloud, CloudOff, Wifi, WifiOff, AlertTriangle, CheckCircle2, CloudSync } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { db } from "@/lib/offline/db";
 import { processSyncQueue } from "@/lib/offline/sync";
@@ -54,16 +56,15 @@ export default function SyncPage(){
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><h1 className="text-2xl font-bold">Sync Center</h1><p className="text-muted-foreground">ONLINE / OFFLINE / SYNCING / SYNC_ERROR — queue survives offline POS</p></div>
+      <PageHeader icon={CloudSync} title="Sync Center" description="ONLINE / OFFLINE / SYNCING / SYNC_ERROR — queue survives offline POS">
         <div className="flex gap-2"><Button variant="outline" onClick={load}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button><Button onClick={handleSync} disabled={syncing || !isOnline}>{syncing ? "Syncing..." : "Sync Now"}</Button></div>
-      </div>
+      </PageHeader>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">State</CardTitle>{state==="ONLINE"?<Wifi className="h-4 w-4 text-green-500"/>:state==="OFFLINE"?<WifiOff className="h-4 w-4 text-red-500"/>:<Clock className="h-4 w-4 text-yellow-500"/>}</CardHeader><CardContent><div className="flex items-center gap-2">{state==="ONLINE"?<Cloud className="h-5 w-5 text-green-500"/>:<CloudOff className="h-5 w-5 text-red-500"/>}<span className="text-lg font-bold">{state}</span></div><p className="text-xs text-muted-foreground mt-1">{isOnline ? "Connected" : "Offline — sales will queue"}</p></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Pending</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{pending}</div><p className="text-xs text-muted-foreground">Will sync when online. Operation_id ensures idempotency.</p></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Syncing</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{processing}</div><p className="text-xs text-muted-foreground">In-flight, locked batches</p></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Failed</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-destructive">{failed}</div><p className="text-xs text-muted-foreground">Conflicts require review</p></CardContent></Card>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <StatCard icon={state==="ONLINE"?Wifi:state==="OFFLINE"?WifiOff:Clock} accent={state==="ONLINE"?"text-green-500":state==="OFFLINE"?"text-red-500":"text-yellow-500"} title="State" value={<span className="flex items-center gap-2">{state==="ONLINE"?<Cloud className="h-5 w-5 text-green-500"/>:<CloudOff className="h-5 w-5 text-red-500"/>}<span className="text-lg font-bold">{state}</span></span>} description={isOnline ? "Connected" : "Offline — sales will queue"}/>
+        <StatCard title="Pending" value={pending} description="Will sync when online. Operation_id ensures idempotency."/>
+        <StatCard title="Syncing" value={processing} description="In-flight, locked batches"/>
+        <StatCard title="Failed" value={<span className="text-destructive">{failed}</span>} description="Conflicts require review"/>
       </div>
 
       {failed>0 && (

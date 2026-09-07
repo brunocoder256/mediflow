@@ -10,6 +10,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
 import { Search, Download, RefreshCw, AlertTriangle, Clock, XCircle, ArrowUpDown, Package, TrendingUp, Layers, Scan, Truck, ClipboardList, History, WifiOff, Wifi, Eye, Plus, Trash2, Check, Flame } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { cachedFetch } from "@/lib/offline/cached-fetch";
@@ -459,27 +461,22 @@ export default function InventoryPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><h1 className="text-2xl font-bold flex items-center gap-2"><Layers className="h-6 w-6"/>Inventory</h1><p className="text-muted-foreground">Perpetual inventory — PRODUCT → BATCH → LOCATION → QUANTITY. Single source: product_batches + stock_movements</p></div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={isOnline ? "success":"warning"} className="gap-1">{isOnline ? <Wifi className="h-3 w-3"/> : <WifiOff className="h-3 w-3"/>}{isOnline ? "Online" : "Offline — cached"}</Badge>
-          {pendingAdjustments>0 && <Badge variant="warning">{pendingAdjustments} pending sync</Badge>}
-          <Button variant="outline" size="sm" onClick={()=>{ fetchData(); loadDisposals(); }}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
-          <Button variant="outline" size="sm" onClick={handleExport}><Download className="h-4 w-4 mr-2"/>Export CSV</Button>
-          <Button size="sm" onClick={()=>setShowAdjustment(true)}><Plus className="h-4 w-4 mr-2"/>Adjustment</Button>
-        </div>
-      </div>
+      <PageHeader icon={Layers} title="Inventory" description="Perpetual inventory — PRODUCT → BATCH → LOCATION → QUANTITY. Single source: product_batches + stock_movements">
+        <Badge variant={isOnline ? "success":"warning"} className="gap-1">{isOnline ? <Wifi className="h-3 w-3"/> : <WifiOff className="h-3 w-3"/>}{isOnline ? "Online" : "Offline — cached"}</Badge>
+        {pendingAdjustments>0 && <Badge variant="warning">{pendingAdjustments} pending sync</Badge>}
+        <Button variant="outline" size="sm" onClick={()=>{ fetchData(); loadDisposals(); }}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
+        <Button variant="outline" size="sm" onClick={handleExport}><Download className="h-4 w-4 mr-2"/>Export CSV</Button>
+        <Button size="sm" onClick={()=>setShowAdjustment(true)}><Plus className="h-4 w-4 mr-2"/>Adjustment</Button>
+      </PageHeader>
 
       {error && <Card><CardContent className="p-4 text-sm text-destructive">Failed to load: {error} <Button variant="link" onClick={fetchData}>Retry</Button></CardContent></Card>}
 
       {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp className="h-4 w-4"/>Total Value</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">UGX {totalValue.toLocaleString()}</div><p className="text-xs text-muted-foreground">{totalUnits.toLocaleString()} units • {stockMerge.length} batches • FEFO cost preserved</p></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><AlertTriangle className="h-4 w-4"/>Low Stock</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-amber-600">{data.lowStock.length}</div><p className="text-xs text-muted-foreground">≤ reorder level • {data.kpi?.pendingReceipts ?? 0} pending receipts</p><Button variant="link" size="sm" className="p-0 h-auto" onClick={()=>setActiveTab("low-stock")}>View</Button></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><Clock className="h-4 w-4"/>Expiring</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-amber-600">{data.expiring.length} <span className="text-sm font-normal">({expiringQty} units)</span></div><p className="text-xs text-muted-foreground">≤{expiryThreshold}d • Value UGX {expiringValue.toLocaleString()}</p>
-          <div className="flex gap-1 mt-1 text-xs"><Badge variant="outline">7d: {data.buckets?.exp7?.length ?? 0}</Badge><Badge variant="outline">30d: {data.buckets?.exp30?.length ?? 0}</Badge><Badge variant="outline">60d: {data.buckets?.exp60?.length ?? 0}</Badge><Badge variant="outline">90d: {data.buckets?.exp90?.length ?? 0}</Badge></div>
-        </CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><XCircle className="h-4 w-4"/>Expired / Transfers</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-destructive">{data.expired.length} <span className="text-sm font-normal">({expiredQty} units blocked)</span></div><p className="text-xs text-muted-foreground">Not sellable (POS excluded) • Pending transfers: {data.kpi?.pendingTransfers ?? 0}</p></CardContent></Card>
+        <StatCard icon={TrendingUp} title="Total Value" value={`UGX ${totalValue.toLocaleString()}`} description={`${totalUnits.toLocaleString()} units • ${stockMerge.length} batches • FEFO cost preserved`}/>
+        <StatCard icon={AlertTriangle} accent="text-amber-600" title="Low Stock" value={<span className="text-amber-600">{data.lowStock.length}</span>} description={<>≤ reorder level • {data.kpi?.pendingReceipts ?? 0} pending receipts{" "}<Button variant="link" size="sm" className="p-0 h-auto" onClick={()=>setActiveTab("low-stock")}>View</Button></>} />
+        <StatCard icon={Clock} accent="text-amber-600" title="Expiring" value={`${data.expiring.length} (${expiringQty} units)`} description={`≤${expiryThreshold}d • Value UGX ${expiringValue.toLocaleString()}`} />
+        <StatCard icon={XCircle} accent="text-destructive" title="Expired / Transfers" value={<span className="text-destructive">{data.expired.length} <span className="text-base">({expiredQty} units blocked)</span></span>} description={`Not sellable (POS excluded) • Pending transfers: ${data.kpi?.pendingTransfers ?? 0}`}/>
       </div>
 
       {/* Extra KPIs row */}

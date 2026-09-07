@@ -15,6 +15,8 @@ import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Plus, Search, Eye, Edit, Trash2, Upload, Download, Barcode, Package, AlertTriangle, Clock, Shield, FileText, TrendingUp, Layers, ShoppingCart, Truck, History, Users, Filter, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { productTypes, dosageForms, strengthUnits, routes, classifications } from "@/lib/validations/products";
 
@@ -393,17 +395,11 @@ export default function ProductsPage(){
           You are offline. Product changes (add, edit, deactivate) will be saved locally and synced automatically when you reconnect. You can continue viewing the last-synced catalog.
         </div>
       )}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2"><Package className="h-6 w-6"/>Products</h1>
-          <p className="text-muted-foreground">Pharmacy Product Master & Catalog — single source of truth for POS, Inventory, Purchases, Reports</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={()=>setShowImport(true)}><Upload className="h-4 w-4 mr-2"/>Import</Button>
-          <Button variant="outline" onClick={downloadTemplate}><Download className="h-4 w-4 mr-2"/>Template</Button>
-          <Button onClick={()=>{ setEditingId(null); setAddStep(1); setShowAdd(true); }}><Plus className="h-4 w-4 mr-2"/>Add Product</Button>
-        </div>
-      </div>
+      <PageHeader icon={Package} title="Products" description="Pharmacy Product Master & Catalog — single source of truth for POS, Inventory, Purchases, Reports">
+        <Button variant="outline" onClick={()=>setShowImport(true)}><Upload className="h-4 w-4 mr-2"/>Import</Button>
+        <Button variant="outline" onClick={downloadTemplate}><Download className="h-4 w-4 mr-2"/>Template</Button>
+        <Button onClick={()=>{ setEditingId(null); setAddStep(1); setShowAdd(true); }}><Plus className="h-4 w-4 mr-2"/>Add Product</Button>
+      </PageHeader>
 
       <Card>
         <CardContent className="p-4 space-y-4">
@@ -449,7 +445,7 @@ export default function ProductsPage(){
           {loading ? (
             <div className="p-6 space-y-4">{[...Array(6)].map((_,i)=><div key={i} className="flex gap-4"><Skeleton className="h-12 w-12"/><div className="flex-1 space-y-2"><Skeleton className="h-4 w-48"/><Skeleton className="h-3 w-32"/></div><Skeleton className="h-8 w-20"/></div>)}</div>
           ) : products.length===0 && pendingProducts.length===0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center"><Package className="h-12 w-12 text-muted-foreground mb-3"/><p className="font-medium">No products found</p><p className="text-sm text-muted-foreground">Adjust search/filters or add your first product</p><Button className="mt-4" onClick={()=>setShowAdd(true)}>Add Product</Button></div>
+            <EmptyState icon={Package} title="No products found" description="Adjust search/filters or add your first product." action={<Button onClick={()=>setShowAdd(true)}>Add Product</Button>}/>
           ) : (
             <>
               {/* Desktop table */}

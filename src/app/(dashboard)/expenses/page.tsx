@@ -11,6 +11,9 @@ import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatCard } from "@/components/ui/stat-card";
 import { Search, Plus, DollarSign, Eye, Edit, Trash2, Download, Filter, Wifi, WifiOff, RefreshCw, Receipt, Building2, Users, Calendar, CreditCard, FileText, History, Undo2, Copy, Printer, Paperclip, AlertTriangle, TrendingUp } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { queueExpenseCreate, getExpensePendingCount } from "@/lib/offline/sync";
@@ -229,22 +232,19 @@ export default function ExpensesPage(){
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><h1 className="text-2xl font-bold flex items-center gap-2"><DollarSign className="h-6 w-6"/>Expenses</h1><p className="text-muted-foreground text-sm">Operating costs → Expense Account → Payment Account → Ledger • Expense ≠ Purchase • Expense ≠ Supplier Bill • Expense ≠ Payment</p></div>
-        <div className="flex flex-wrap gap-2 items-center">
-          <Badge variant={isOnline?"success":"warning"} className="gap-1">{isOnline ? <Wifi className="h-3 w-3"/> : <WifiOff className="h-3 w-3"/>}{isOnline?"Online":"Offline"}</Badge>
-          {pendingCount>0 && <Badge variant="warning">{pendingCount} pending sync</Badge>}
-          <Button variant="outline" size="sm" onClick={fetchAll}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
-          <Button onClick={()=>setShowCreate(true)}><Plus className="h-4 w-4 mr-2"/>New Expense</Button>
-        </div>
-      </div>
+      <PageHeader icon={DollarSign} title="Expenses" description="Operating costs → Expense Account → Payment Account → Ledger • Expense ≠ Purchase • Expense ≠ Supplier Bill • Expense ≠ Payment">
+        <Badge variant={isOnline?"success":"warning"} className="gap-1">{isOnline ? <Wifi className="h-3 w-3"/> : <WifiOff className="h-3 w-3"/>}{isOnline?"Online":"Offline"}</Badge>
+        {pendingCount>0 && <Badge variant="warning">{pendingCount} pending sync</Badge>}
+        <Button variant="outline" size="sm" onClick={fetchAll}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
+        <Button onClick={()=>setShowCreate(true)}><Plus className="h-4 w-4 mr-2"/>New Expense</Button>
+      </PageHeader>
 
       {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><DollarSign className="h-4 w-4"/>Total Expenses</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">UGX {(kpi?.total ?? summary?.total ?? 0).toLocaleString()}</div><p className="text-xs text-muted-foreground">{count} transactions • Respects branch/date</p></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Calendar className="h-4 w-4"/>Today / Week / Month</CardTitle></CardHeader><CardContent><div className="text-sm">Today: <strong>UGX {(kpi?.todayTotal ?? 0).toLocaleString()}</strong></div><div className="text-xs text-muted-foreground">Week: UGX {(kpi?.weekTotal ?? 0).toLocaleString()} • Month: UGX {(kpi?.monthTotal ?? 0).toLocaleString()}</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><AlertTriangle className="h-4 w-4"/>Pending / Approved Unpaid</CardTitle></CardHeader><CardContent><div className="text-sm">Pending: <strong>UGX {(kpi?.pendingApproval ?? 0).toLocaleString()}</strong></div><div className="text-xs text-muted-foreground">Approved unpaid: UGX {(kpi?.approvedUnpaid ?? 0).toLocaleString()}</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><TrendingUp className="h-4 w-4"/>Largest Category / Petty</CardTitle></CardHeader><CardContent><div className="text-sm truncate">Top: <strong>{kpi?.largestCategory ?? "—"}</strong> UGX {(kpi?.largestValue ?? 0).toLocaleString()}</div><div className="text-xs text-muted-foreground">Petty balance: {kpi?.pettyBalance!=null ? `UGX ${Number(kpi.pettyBalance).toLocaleString()}` : "—"}</div></CardContent></Card>
+        <StatCard icon={DollarSign} title="Total Expenses" value={`UGX ${(kpi?.total ?? summary?.total ?? 0).toLocaleString()}`} description={`${count} transactions • Respects branch/date`}/>
+        <StatCard icon={Calendar} title="Today / Week / Month" value={`UGX ${(kpi?.todayTotal ?? 0).toLocaleString()}`} description={`Week UGX ${(kpi?.weekTotal ?? 0).toLocaleString()} • Month UGX ${(kpi?.monthTotal ?? 0).toLocaleString()}`}/>
+        <StatCard icon={AlertTriangle} title="Pending / Approved Unpaid" value={`UGX ${(kpi?.pendingApproval ?? 0).toLocaleString()}`} description={`Pending approval • Approved unpaid UGX ${(kpi?.approvedUnpaid ?? 0).toLocaleString()}`}/>
+        <StatCard icon={TrendingUp} title="Largest Category / Petty" value={kpi?.largestCategory ?? "—"} description={`UGX ${(kpi?.largestValue ?? 0).toLocaleString()} • Petty ${kpi?.pettyBalance!=null ? `UGX ${Number(kpi.pettyBalance).toLocaleString()}` : "—"}`}/>
       </div>
 
       {/* Filters */}
@@ -276,7 +276,7 @@ export default function ExpensesPage(){
       {/* List */}
       <Card><CardContent className="p-0">
         {loading ? <div className="p-6 space-y-3">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
-        : mergedData.length===0 ? <div className="py-12 text-center text-muted-foreground">No expenses — create operating expense (Rent, Utilities...) • Inventory purchases go via Purchases</div>
+        : mergedData.length===0 ? <EmptyState icon={Receipt} title="No expenses yet" description="Create an operating expense (Rent, Utilities, ...) — inventory purchases go via Purchases."/>
         : <>
           <div className="hidden lg:block overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Expense #</TableHead><TableHead>Date</TableHead><TableHead>Category</TableHead><TableHead>Payee</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Method</TableHead><TableHead>Approval</TableHead><TableHead>Payment</TableHead><TableHead>Created By</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
             {mergedData.map((e:any)=>(

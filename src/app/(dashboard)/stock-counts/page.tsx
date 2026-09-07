@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Eye, Check, Loader2, ClipboardList } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export default function StockCountsPage(){
   const [loading,setLoading]=React.useState(true);
@@ -51,7 +52,7 @@ export default function StockCountsPage(){
       <PageHeader icon={ClipboardList} title="Stock Counts" description="Variance = Counted - System → ADJUSTMENT_IN/OUT on POST, immutable"><Button onClick={()=>setShow(true)}><Plus className="h-4 w-4 mr-2"/>New Count</Button></PageHeader>
       <Card><CardContent className="p-0">
         {loading ? <div className="p-6"><Skeleton className="h-12 w-full"/></div>
-        : data.length===0 ? <div className="py-12 text-center text-muted-foreground">No counts — create a count to reconcile physical stock</div>
+        : data.length===0 ? <EmptyState icon={ClipboardList} title="No counts" description="Create a count to reconcile physical stock."/>
         : <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Branch</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Variance</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
           {data.map((c:any)=>(
             <TableRow key={c.id}><TableCell>{c.name}</TableCell><TableCell className="font-mono text-xs">{c.branch_id.slice(0,8)}</TableCell><TableCell>{badge(c.status)}</TableCell><TableCell className="text-right">{c.variance_total ?? 0}</TableCell><TableCell className="text-right space-x-1"><Button variant="ghost" size="icon" title="Approve" onClick={()=>fetch(`/api/stock-counts`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"approve", id:c.id})}).then(()=>fetchData())}><Check className="h-4 w-4"/></Button><Button variant="ghost" size="icon" title="View details" onClick={()=>openView(c.id)}><Eye className="h-4 w-4"/></Button></TableCell></TableRow>

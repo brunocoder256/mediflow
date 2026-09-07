@@ -13,6 +13,9 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Search, Plus, Eye, RotateCcw, Truck, ScanLine, Wifi, WifiOff, RefreshCw, Download, Printer, FileText, AlertTriangle, CheckCircle, XCircle, Clock, Package, Building2, Users, History, DollarSign, Layers, CreditCard, Undo2 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatCard } from "@/components/ui/stat-card";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { queueReturnCreate, getReturnsPendingCount } from "@/lib/offline/sync";
 import { db } from "@/lib/offline/db";
@@ -320,25 +323,22 @@ export default function ReturnsPage(){
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><h1 className="text-2xl font-bold flex items-center gap-2"><Undo2 className="h-6 w-6"/>Returns</h1><p className="text-sm text-muted-foreground">Business transaction — never DELETE sale. Validates max returnable = sold − already returned • Batch-aware • Inventory movement • Refund/Credit separate</p></div>
-        <div className="flex flex-wrap gap-2 items-center">
-          <Badge variant={isOnline?"success":"warning"} className="gap-1">{isOnline? <Wifi className="h-3 w-3"/>:<WifiOff className="h-3 w-3"/>}{isOnline?"Online":"Offline"}</Badge>
-          {pendingCount>0 && <Badge variant="warning">{pendingCount} pending sync</Badge>}
-          <Button variant="outline" size="sm" onClick={fetchAll}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
-          <div className="flex gap-1"><Button variant="outline" size="sm" onClick={()=>exportReturns('csv')}><Download className="h-4 w-4 mr-1"/>CSV</Button><Button variant="outline" size="sm" onClick={()=>exportReturns('excel')}><FileText className="h-4 w-4 mr-1"/>Excel</Button><Button variant="outline" size="sm" onClick={()=>exportReturns('print')}><Printer className="h-4 w-4 mr-1"/>Print</Button></div>
-          <Button onClick={()=>setShowNew(true)}><Plus className="h-4 w-4 mr-2"/>New Return</Button>
-        </div>
-      </div>
+      <PageHeader icon={Undo2} title="Returns" description="Business transaction — never DELETE sale. Validates max returnable = sold − already returned • Batch-aware • Inventory movement • Refund/Credit separate">
+        <Badge variant={isOnline?"success":"warning"} className="gap-1">{isOnline? <Wifi className="h-3 w-3"/>:<WifiOff className="h-3 w-3"/>}{isOnline?"Online":"Offline"}</Badge>
+        {pendingCount>0 && <Badge variant="warning">{pendingCount} pending sync</Badge>}
+        <Button variant="outline" size="sm" onClick={fetchAll}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
+        <div className="flex gap-1"><Button variant="outline" size="sm" onClick={()=>exportReturns('csv')}><Download className="h-4 w-4 mr-1"/>CSV</Button><Button variant="outline" size="sm" onClick={()=>exportReturns('excel')}><FileText className="h-4 w-4 mr-1"/>Excel</Button><Button variant="outline" size="sm" onClick={()=>exportReturns('print')}><Printer className="h-4 w-4 mr-1"/>Print</Button></div>
+        <Button onClick={()=>setShowNew(true)}><Plus className="h-4 w-4 mr-2"/>New Return</Button>
+      </PageHeader>
 
       {/* Dashboard KPIs */}
-      <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><Clock className="h-3 w-3"/>Returns Today</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{kpi?.sales?.returnsToday ?? kpi?.returnsToday ?? 0}</div><div className="text-xs text-muted-foreground">Sales + Purchase</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><Users className="h-3 w-3"/>Sales Returns</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{unified.filter((r:any)=>r?._type==='SALES').length}</div><div className="text-xs text-muted-foreground">{kpi?.sales?.total ?? 0} sale returns total</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><Truck className="h-3 w-3"/>Purchase Returns</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{unified.filter((r:any)=>r?._type==='PURCHASE').length}</div><div className="text-xs text-muted-foreground">{kpi?.purchase?.total ?? 0} supplier</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><AlertTriangle className="h-3 w-3"/>Pending Approval</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{(kpi?.sales?.pendingApproval ?? 0)+(kpi?.purchase?.pendingApproval ?? 0)}</div><div className="text-xs text-muted-foreground">Require manager</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><DollarSign className="h-3 w-3"/>Pending Refund/Credit</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{(kpi?.sales?.pendingRefund ?? 0)+(kpi?.purchase?.pendingCredit ?? 0)}</div><div className="text-xs text-muted-foreground">Finance queue</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><Layers className="h-3 w-3"/>Returned Value</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">UGX {Number(((kpi?.sales?.returnedValue ?? 0)+(kpi?.purchase?.totalValue ?? 0)).toFixed(0)).toLocaleString()}</div><div className="text-xs text-muted-foreground">This period</div></CardContent></Card>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <StatCard icon={Clock} title="Returns Today" value={kpi?.sales?.returnsToday ?? kpi?.returnsToday ?? 0} description="Sales + Purchase"/>
+        <StatCard icon={Users} title="Sales Returns" value={unified.filter((r:any)=>r?._type==='SALES').length} description={`${kpi?.sales?.total ?? 0} sale returns total`}/>
+        <StatCard icon={Truck} title="Purchase Returns" value={unified.filter((r:any)=>r?._type==='PURCHASE').length} description={`${kpi?.purchase?.total ?? 0} supplier`}/>
+        <StatCard icon={AlertTriangle} title="Pending Approval" value={(kpi?.sales?.pendingApproval ?? 0)+(kpi?.purchase?.pendingApproval ?? 0)} description="Require manager"/>
+        <StatCard icon={DollarSign} title="Pending Refund/Credit" value={(kpi?.sales?.pendingRefund ?? 0)+(kpi?.purchase?.pendingCredit ?? 0)} description="Finance queue"/>
+        <StatCard icon={Layers} title="Returned Value" value={`UGX ${Number(((kpi?.sales?.returnedValue ?? 0)+(kpi?.purchase?.totalValue ?? 0)).toFixed(0)).toLocaleString()}`} description="This period"/>
       </div>
       {kpi?.sales?.byReason && <Card><CardContent className="p-3 flex flex-wrap gap-2 text-xs">{Object.entries(kpi.sales.byReason as any).slice(0,6).map(([k,v]:any)=><Badge key={k} variant="outline">{k}: {(v as any).count} (UGX {Number((v as any).value).toLocaleString()})</Badge>)}<span className="text-muted-foreground">— Damaged/Expired/Wrong Product/Quality help ops</span></CardContent></Card>}
 
@@ -363,7 +363,7 @@ export default function ReturnsPage(){
       <Card><CardContent className="p-0">
         {err && <div className="p-3 text-sm text-destructive">{err}</div>}
         {loading ? <div className="p-6 space-y-2">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
-        : displayUnified.length===0 ? <div className="py-12 text-center space-y-1"><p className="text-muted-foreground">No returns yet. Sales and supplier returns will appear here.</p><p className="text-xs text-muted-foreground">Try changing search or date range.</p></div>
+        : displayUnified.length===0 ? <EmptyState icon={Undo2} title="No returns yet" description="Sales and supplier returns will appear here. Try changing search or date range."/>
         : <>
           <div className="hidden lg:block overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Return #</TableHead><TableHead>Type</TableHead><TableHead>Original</TableHead><TableHead>Counterparty</TableHead><TableHead>Date</TableHead><TableHead>Items</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Value</TableHead><TableHead>Reason</TableHead><TableHead>Status</TableHead><TableHead>Refund/Credit</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
             {displayUnified.filter(Boolean).slice((page-1)*perPage, page*perPage).map((r:any)=>{

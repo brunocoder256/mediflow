@@ -8,7 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Building2, MapPin, Receipt, Save, Plus, Pencil, Trash2, Power, ChevronDown, ChevronUp } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { Building2, MapPin, Receipt, Save, Plus, Pencil, Trash2, Power, ChevronDown, ChevronUp, Settings2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 type Branch = { id: string; name: string; code: string; phone?: string | null; address?: string | null; is_active: boolean };
@@ -118,7 +119,7 @@ export default function SettingsPage(){
 
   return (
     <div className="space-y-6">
-      <div><h1 className="text-2xl font-bold">Settings</h1><p className="text-muted-foreground">Organization, branches, tax, receipt — RLS isolated, audited</p></div>
+      <PageHeader icon={Settings2} title="Settings" description="Organization, branches, tax, receipt — RLS isolated, audited"/>
 
       <Card>
         <CardHeader><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10"><Building2 className="h-5 w-5 text-primary"/></div><div><CardTitle>Organization</CardTitle><CardDescription>{data?.organization?.name}</CardDescription></div></div></CardHeader>

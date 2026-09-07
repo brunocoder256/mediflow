@@ -10,6 +10,9 @@ import { Select } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Search, Eye, Printer, RotateCcw, Download, FileText, RefreshCw, ShoppingCart, CreditCard, TrendingUp, Calendar, User, MapPin, Package, DollarSign, Receipt, AlertTriangle, ArrowLeft, ArrowRight, Plus } from "lucide-react";
 import { Receipt as ReceiptComp, printReceipt } from "@/components/receipt";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatCard } from "@/components/ui/stat-card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { usePendingSales, useMediflowSynced } from "@/lib/offline/pending-overlay";
@@ -165,29 +168,23 @@ export default function SalesPage(){
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2"><ShoppingCart className="h-6 w-6"/>Sales History</h1>
-          <p className="text-sm text-muted-foreground">Server-authoritative transactions • FEFO & batch traceable • Audit-logged • Offline-safe via operation_id</p>
-        </div>
-        <div className="flex flex-wrap gap-2 items-center">
-          <Badge variant={isOnline?"success":"warning"}>{isOnline?"Online":"Offline"}</Badge>
-          {pendingSales.length>0 && <Badge variant="warning">{pendingSales.length} pending sync</Badge>}
-          <Button variant="outline" size="sm" onClick={()=>{fetchData(); fetchKpi();}}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
-          <Button variant="outline" size="sm" onClick={()=>exportSales('csv')}><Download className="h-4 w-4 mr-1"/>CSV</Button>
-          <Button variant="outline" size="sm" onClick={()=>exportSales('print')}><Printer className="h-4 w-4 mr-1"/>Print</Button>
-          <Button size="sm" onClick={()=>window.location.href='/pos'}><Plus className="h-4 w-4 mr-1"/>New Sale (POS)</Button>
-        </div>
-      </div>
+      <PageHeader icon={ShoppingCart} title="Sales History" description="Server-authoritative transactions • FEFO & batch traceable • Audit-logged • Offline-safe via operation_id">
+        <Badge variant={isOnline?"success":"warning"}>{isOnline?"Online":"Offline"}</Badge>
+        {pendingSales.length>0 && <Badge variant="warning">{pendingSales.length} pending sync</Badge>}
+        <Button variant="outline" size="sm" onClick={()=>{fetchData(); fetchKpi();}}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
+        <Button variant="outline" size="sm" onClick={()=>exportSales('csv')}><Download className="h-4 w-4 mr-1"/>CSV</Button>
+        <Button variant="outline" size="sm" onClick={()=>exportSales('print')}><Printer className="h-4 w-4 mr-1"/>Print</Button>
+        <Button size="sm" onClick={()=>window.location.href='/pos'}><Plus className="h-4 w-4 mr-1"/>New Sale (POS)</Button>
+      </PageHeader>
 
       {/* KPI Cards */}
-      <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><Calendar className="h-3 w-3"/>Today Sales</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatUGX(kpi?.today?.total ?? 0)}</div><div className="text-xs text-muted-foreground">{kpi?.today?.count ?? 0} txns • Avg {formatUGX(Math.round(kpi?.today?.avg ?? 0))}</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><Receipt className="h-3 w-3"/>Transactions</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{kpi?.total?.completed ?? 0}</div><div className="text-xs text-muted-foreground">Completed • Held {kpi?.total?.held ?? 0}</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><DollarSign className="h-3 w-3"/>Gross</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatUGX(kpi?.gross ?? 0)}</div><div className="text-xs text-muted-foreground">Discount {formatUGX(kpi?.today?.discount ?? 0)} • Tax {formatUGX(kpi?.today?.tax ?? 0)}</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><TrendingUp className="h-3 w-3"/>Paid</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatUGX(kpi?.paid ?? 0)}</div><div className="text-xs text-muted-foreground">Via payments table</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><AlertTriangle className="h-3 w-3"/>Voided</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{kpi?.total?.voided ?? 0}</div><div className="text-xs text-muted-foreground">Refunded {kpi?.total?.refunded ?? 0}</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-xs flex items-center gap-1"><MapPin className="h-3 w-3"/>Branch</CardTitle></CardHeader><CardContent><div className="text-sm font-bold truncate">{branches.find(b=>b.id===branchFilter)?.name ?? 'All Branches'}</div><div className="text-xs text-muted-foreground">{count} records (page {page}/{totalPages})</div></CardContent></Card>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <StatCard icon={Calendar} title="Today Sales" value={formatUGX(kpi?.today?.total ?? 0)} description={`${kpi?.today?.count ?? 0} txns • Avg ${formatUGX(Math.round(kpi?.today?.avg ?? 0))}`}/>
+        <StatCard icon={Receipt} title="Transactions" value={kpi?.total?.completed ?? 0} description={`Completed • Held ${kpi?.total?.held ?? 0}`}/>
+        <StatCard icon={DollarSign} title="Gross" value={formatUGX(kpi?.gross ?? 0)} description={`Discount ${formatUGX(kpi?.today?.discount ?? 0)} • Tax ${formatUGX(kpi?.today?.tax ?? 0)}`}/>
+        <StatCard icon={TrendingUp} title="Paid" value={formatUGX(kpi?.paid ?? 0)} description="Via payments table"/>
+        <StatCard icon={AlertTriangle} title="Voided" value={kpi?.total?.voided ?? 0} description={`Refunded ${kpi?.total?.refunded ?? 0}`}/>
+        <StatCard icon={MapPin} title="Branch" value={<span className="truncate text-lg font-bold">{branches.find(b=>b.id===branchFilter)?.name ?? 'All Branches'}</span>} description={`${count} records (page ${page}/${totalPages})`}/>
       </div>
 
       {/* Filters */}
@@ -223,7 +220,7 @@ export default function SalesPage(){
       {/* List */}
       <Card><CardContent className="p-0">
         {loading ? <div className="p-6 space-y-4">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
-        : mergedSales.length===0 ? <div className="py-12 text-center space-y-2"><p className="text-muted-foreground">No sales found</p><p className="text-xs text-muted-foreground">Try adjusting search or date range. POS sales appear here after completion.</p><Button variant="outline" size="sm" onClick={()=>window.location.href='/pos'}>Go to POS</Button></div>
+        : mergedSales.length===0 ? <EmptyState icon={ShoppingCart} title="No sales found" description="Try adjusting search or date range. POS sales appear here after completion." action={<Button variant="outline" size="sm" onClick={()=>window.location.href='/pos'}>Go to POS</Button>}/>
         : <>
           <div className="hidden lg:block overflow-x-auto">
             <Table><TableHeader><TableRow><TableHead>Sale #</TableHead><TableHead>Date</TableHead><TableHead>Customer</TableHead><TableHead className="text-center">Items</TableHead><TableHead className="text-right">Total</TableHead><TableHead>Payment</TableHead><TableHead>Status</TableHead><TableHead>Cashier</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>

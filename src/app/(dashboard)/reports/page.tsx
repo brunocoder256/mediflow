@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { PageHeader } from "@/components/ui/page-header";
 import { BarChart3, TrendingUp, Package, Users, Download, FileText, DollarSign, AlertTriangle, Building2, ShoppingCart, Truck, Printer, Calendar, Clock, XCircle, Receipt, CreditCard, UserCircle, Boxes, Activity, Scale, WifiOff } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts";
 import { useOnlineStatus } from "@/hooks/use-online-status";
@@ -217,21 +218,15 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6 pb-10">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2"><BarChart3 className="h-6 w-6" />Reports</h1>
-          <p className="text-sm text-muted-foreground">Executive reporting & BI — branch-scoped, server-authoritative</p>
-          <p className="text-xs text-muted-foreground mt-1" suppressHydrationWarning>
-            Last synchronized: {mounted && syncTime ? new Date(syncTime).toLocaleString() : 'Never'} {mounted && generatedAt ? <span>• Generated: {new Date(generatedAt).toLocaleString()}</span> : null}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="gap-1"><Building2 className="h-3 w-3" />{branches.find(b => b.id === branchFilter)?.name ?? 'All Branches'}</Badge>
-          <Button variant="outline" size="sm" onClick={exportCsv}><Download className="h-4 w-4 mr-1" />CSV</Button>
-          <Button variant="outline" size="sm" onClick={exportXlsx}><FileText className="h-4 w-4 mr-1" />Excel</Button>
-          <Button variant="outline" size="sm" onClick={printReport}><Printer className="h-4 w-4 mr-1" />Print/PDF</Button>
-        </div>
-      </div>
+      <PageHeader icon={BarChart3} title="Reports" description="Executive reporting & BI — branch-scoped, server-authoritative">
+        <Badge variant="outline" className="gap-1"><Building2 className="h-3 w-3" />{branches.find(b => b.id === branchFilter)?.name ?? 'All Branches'}</Badge>
+        <Button variant="outline" size="sm" onClick={exportCsv}><Download className="h-4 w-4 mr-1" />CSV</Button>
+        <Button variant="outline" size="sm" onClick={exportXlsx}><FileText className="h-4 w-4 mr-1" />Excel</Button>
+        <Button variant="outline" size="sm" onClick={printReport}><Printer className="h-4 w-4 mr-1" />Print/PDF</Button>
+      </PageHeader>
+      <p className="-mt-4 text-xs text-muted-foreground" suppressHydrationWarning>
+        Last synchronized: {mounted && syncTime ? new Date(syncTime).toLocaleString() : 'Never'} {mounted && generatedAt ? <span>• Generated: {new Date(generatedAt).toLocaleString()}</span> : null}
+      </p>
 
       {(!isOnline || viewingCached) && (
         <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex items-center gap-2">

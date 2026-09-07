@@ -10,6 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Plus, ArrowRight, Check, Truck, Package, X, Search, Send, Ban } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -71,10 +73,9 @@ export default function TransfersPage(){
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><h1 className="text-2xl font-bold">Transfers</h1><p className="text-muted-foreground">Branch to branch — stock leaves on SHIP, arrives on RECEIVE, audited</p></div>
+      <PageHeader icon={Truck} title="Transfers" description="Branch to branch — stock leaves on SHIP, arrives on RECEIVE, audited">
         {caps.canManage && <Button onClick={()=>setShow(true)}><Plus className="h-4 w-4 mr-2"/>New Transfer</Button>}
-      </div>
+      </PageHeader>
 
       <Card><CardContent className="p-4"><div className="flex gap-4">
         <Select value={status} onChange={e=>setStatus(e.target.value)} className="w-[180px]">
@@ -91,9 +92,7 @@ export default function TransfersPage(){
 
       <Card><CardContent className="p-0">
         {loading ? <div className="p-6"><Skeleton className="h-12 w-full"/></div>
-        : data.length===0 ? <div className="py-12 text-center text-muted-foreground">
-            No transfers for this filter. {caps.canManage ? "Create a transfer between your branches to move stock." : "You do not have transfer permissions — ask a manager to create one."}
-          </div>
+        : data.length===0 ? <EmptyState icon={Package} title="No transfers for this filter" description={caps.canManage ? "Create a transfer between your branches to move stock." : "You do not have transfer permissions — ask a manager to create one."}/>
         : <Table><TableHeader><TableRow>
             <TableHead>Transfer #</TableHead>
             <TableHead>Route</TableHead>

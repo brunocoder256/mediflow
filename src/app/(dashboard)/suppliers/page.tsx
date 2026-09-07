@@ -9,7 +9,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select } from "@/components/ui/select";
+import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { StatCard } from "@/components/ui/stat-card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useOnlineStatus } from "@/hooks/use-online-status";
@@ -381,28 +383,25 @@ export default function SuppliersPage(){
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><h1 className="text-2xl font-bold flex items-center gap-2"><Building2 className="h-6 w-6"/>Suppliers</h1><p className="text-sm text-muted-foreground">Complete supplier relationship: identity → products → orders → deliveries → batches → returns → balance → payments → pricing → reliability. Transaction-derived balances.</p></div>
-        <div className="flex flex-wrap gap-2">
-          <Badge variant={isOnline?"success":"warning"} className="gap-1">{isOnline ? <Wifi className="h-3 w-3"/> : <WifiOff className="h-3 w-3"/>}{isOnline ? "Online" : "Offline — Saved locally"}</Badge>
-          {pendingSuppliers>0 && <Badge variant="warning">{pendingSuppliers} pending sync</Badge>}
-          <Button variant="outline" size="sm" onClick={fetchData}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
-          <div className="flex gap-1">
-            <Button variant="outline" size="sm" onClick={()=>exportSuppliers('csv')}><Download className="h-4 w-4 mr-1"/>CSV</Button>
-            <Button variant="outline" size="sm" onClick={()=>exportSuppliers('excel')} title="Excel .xls (SheetJS compatible)"><FileSpreadsheet className="h-4 w-4 mr-1"/>Excel</Button>
-            <Button variant="outline" size="sm" onClick={()=>exportSuppliers('pdf')}><FileArchive className="h-4 w-4 mr-1"/>PDF</Button>
-            <Button variant="outline" size="sm" onClick={()=>exportSuppliers('print')}><Printer className="h-4 w-4 mr-1"/>Print</Button>
-          </div>
-          <Button onClick={openCreate}><Plus className="h-4 w-4 mr-2"/>Add Supplier</Button>
+      <PageHeader icon={Building2} title="Suppliers" description="Complete supplier relationship: identity → products → orders → deliveries → batches → returns → balance → payments → pricing → reliability. Transaction-derived balances.">
+        <Badge variant={isOnline?"success":"warning"} className="gap-1">{isOnline ? <Wifi className="h-3 w-3"/> : <WifiOff className="h-3 w-3"/>}{isOnline ? "Online" : "Offline — Saved locally"}</Badge>
+        {pendingSuppliers>0 && <Badge variant="warning">{pendingSuppliers} pending sync</Badge>}
+        <Button variant="outline" size="sm" onClick={fetchData}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
+        <div className="flex gap-1">
+          <Button variant="outline" size="sm" onClick={()=>exportSuppliers('csv')}><Download className="h-4 w-4 mr-1"/>CSV</Button>
+          <Button variant="outline" size="sm" onClick={()=>exportSuppliers('excel')} title="Excel .xls (SheetJS compatible)"><FileSpreadsheet className="h-4 w-4 mr-1"/>Excel</Button>
+          <Button variant="outline" size="sm" onClick={()=>exportSuppliers('pdf')}><FileArchive className="h-4 w-4 mr-1"/>PDF</Button>
+          <Button variant="outline" size="sm" onClick={()=>exportSuppliers('print')}><Printer className="h-4 w-4 mr-1"/>Print</Button>
         </div>
-      </div>
+        <Button onClick={openCreate}><Plus className="h-4 w-4 mr-2"/>Add Supplier</Button>
+      </PageHeader>
 
       {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Users className="h-4 w-4"/>Total Suppliers</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{count}</div><p className="text-xs text-muted-foreground">{kpi.active} active • {kpi.total - kpi.active} inactive/suspended</p></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><DollarSign className="h-4 w-4"/>Outstanding Balance</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">UGX {kpi.outstanding.toLocaleString()}</div><p className="text-xs text-muted-foreground">{kpi.overdue} over credit limit • Purchases − Payments − Returns</p></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Truck className="h-4 w-4"/>Open POs</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{kpi.withOpenPO}</div><p className="text-xs text-muted-foreground">Suppliers with DRAFT/Ordered/Partial deliveries</p></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Package className="h-4 w-4"/>Supplier Products</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{data.reduce((a,s:any)=>a+Number(s.products_count??0),0)}</div><p className="text-xs text-muted-foreground">Avg {(data.length? (data.reduce((a,s:any)=>a+Number(s.products_count??0),0)/data.length).toFixed(1): "0")} products per supplier</p></CardContent></Card>
+        <StatCard icon={Users} title="Total Suppliers" value={count} description={`${kpi.active} active • ${kpi.total - kpi.active} inactive/suspended`}/>
+        <StatCard icon={DollarSign} title="Outstanding Balance" value={`UGX ${kpi.outstanding.toLocaleString()}`} description={`${kpi.overdue} over credit limit • Purchases − Payments − Returns`}/>
+        <StatCard icon={Truck} title="Open POs" value={kpi.withOpenPO} description="Suppliers with DRAFT/Ordered/Partial deliveries"/>
+        <StatCard icon={Package} title="Supplier Products" value={data.reduce((a,s:any)=>a+Number(s.products_count??0),0)} description={`Avg ${(data.length? (data.reduce((a,s:any)=>a+Number(s.products_count??0),0)/data.length).toFixed(1): "0")} products per supplier`}/>
       </div>
 
       {/* Filters */}

@@ -40,6 +40,7 @@ import {
   ShoppingCart,
   LogIn,
 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 type SessionRow = {
   id: string;
@@ -411,36 +412,25 @@ export default function CashPage() {
           You are offline. Cash actions you take now (open sessions, movements, close, approval) will be saved locally and synced automatically when you reconnect.
         </div>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Banknote className="h-6 w-6" /> Cash Management
-          </h1>
-          <p className="text-sm text-muted-foreground flex items-center gap-1">
-            <MapPin className="h-3.5 w-3.5" />{" "}
-            {branches.find((b) => b.id === branchId)?.name ?? "Select branch"} · Open a session, then take cash sales in POS.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {pendingCash.total > 0 && (
-            <Badge variant="warning">{pendingCash.total} pending sync</Badge>
-          )}
-          <Select value={branchId} onChange={(e) => setBranchId(e.target.value)} className="w-[220px]">
-            <option value="">Select branch</option>
-            {branches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name} ({b.code})
-              </option>
-            ))}
-          </Select>
-          <Button variant="outline" size="sm" onClick={() => refresh(branchId)} disabled={!branchId}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-          <Button size="sm" disabled={openBtnDisabled} onClick={() => setShowOpen(true)}>
-            <LogIn className="h-4 w-4 mr-1" /> Open Cash Session
-          </Button>
-        </div>
-      </div>
+      <PageHeader icon={Banknote} title="Cash Management" description={<span className="inline-flex flex-wrap items-center gap-1"><MapPin className="h-3.5 w-3.5" />{branches.find((b) => b.id === branchId)?.name ?? "Select branch"}· Open a session, then take cash sales in POS.</span>}>
+        {pendingCash.total > 0 && (
+          <Badge variant="warning">{pendingCash.total} pending sync</Badge>
+        )}
+        <Select value={branchId} onChange={(e) => setBranchId(e.target.value)} className="w-[220px]">
+          <option value="">Select branch</option>
+          {branches.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name} ({b.code})
+            </option>
+          ))}
+        </Select>
+        <Button variant="outline" size="sm" onClick={() => refresh(branchId)} disabled={!branchId}>
+          <RefreshCw className="h-4 w-4" />
+        </Button>
+        <Button size="sm" disabled={openBtnDisabled} onClick={() => setShowOpen(true)}>
+          <LogIn className="h-4 w-4 mr-1" /> Open Cash Session
+        </Button>
+      </PageHeader>
 
       {loading ? (
         <div className="space-y-3">

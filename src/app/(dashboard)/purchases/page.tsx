@@ -11,6 +11,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Search, Plus, Eye, Truck, Trash2, Wifi, WifiOff, RefreshCw, Download, CreditCard, Undo2, Layers, TrendingUp, Package, Building2, Users, FileText, History } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatCard } from "@/components/ui/stat-card";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { queuePurchaseCreate, queuePurchaseReceive, getPurchasePendingCount } from "@/lib/offline/sync";
 import { usePendingPurchases } from "@/lib/offline/pending-overlay";
@@ -234,22 +237,19 @@ export default function PurchasesPage(){
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><h1 className="text-2xl font-bold flex items-center gap-2"><Truck className="h-6 w-6"/>Purchases</h1><p className="text-muted-foreground text-sm">SUPPLIER → PO → Approval → Delivery → GRN → Batch+Expiry → Inventory → Payable → Payment. PO ≠ Stock • GRN = Stock • Bill = Owed • Payment = Paid</p></div>
-        <div className="flex flex-wrap gap-2">
-          <Badge variant={isOnline?"success":"warning"} className="gap-1">{isOnline ? <Wifi className="h-3 w-3"/> : <WifiOff className="h-3 w-3"/>}{isOnline?"Online":"Offline — Saved locally"}</Badge>
-          {pendingCount>0 && <Badge variant="warning">{pendingCount} pending sync</Badge>}
-          <Button variant="outline" size="sm" onClick={fetchAll}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
-          <Button onClick={()=>setShowCreate(true)}><Plus className="h-4 w-4 mr-2"/>New Purchase Order</Button>
-        </div>
-      </div>
+      <PageHeader icon={Truck} title="Purchases" description="SUPPLIER → PO → Approval → Delivery → GRN → Batch+Expiry → Inventory → Payable → Payment. PO ≠ Stock • GRN = Stock • Bill = Owed • Payment = Paid">
+        <Badge variant={isOnline?"success":"warning"} className="gap-1">{isOnline ? <Wifi className="h-3 w-3"/> : <WifiOff className="h-3 w-3"/>}{isOnline?"Online":"Offline — Saved locally"}</Badge>
+        {pendingCount>0 && <Badge variant="warning">{pendingCount} pending sync</Badge>}
+        <Button variant="outline" size="sm" onClick={fetchAll}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
+        <Button onClick={()=>setShowCreate(true)}><Plus className="h-4 w-4 mr-2"/>New Purchase Order</Button>
+      </PageHeader>
 
       {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><TrendingUp className="h-4 w-4"/>Purchases This Period</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">UGX {(kpi?.totalThisPeriod ?? 0).toLocaleString()}</div><p className="text-xs text-muted-foreground">{kpi?.totalCount ?? 0} orders • {new Date().toLocaleDateString(undefined,{month:'long'})}</p></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><FileText className="h-4 w-4"/>Pending POs</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{kpi?.pendingPOs ?? 0}</div><p className="text-xs text-muted-foreground">Draft + Ordered awaiting delivery</p></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Package className="h-4 w-4"/>Pending Receipts / Partial</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{kpi?.pendingReceipts ?? 0} <span className="text-sm font-normal text-muted-foreground">({kpi?.partially ?? 0} partial)</span></div><p className="text-xs text-muted-foreground">Outstanding quantities</p></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><CreditCard className="h-4 w-4"/>Unpaid / Returns</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">UGX {(kpi?.unpaidTotal ?? 0).toLocaleString()}</div><p className="text-xs text-muted-foreground">{kpi?.returnsCount ?? 0} returns this period • Supplier payable</p></CardContent></Card>
+        <StatCard icon={TrendingUp} title="Purchases This Period" value={`UGX ${(kpi?.totalThisPeriod ?? 0).toLocaleString()}`} description={`${kpi?.totalCount ?? 0} orders • ${new Date().toLocaleDateString(undefined,{month:'long'})}`}/>
+        <StatCard icon={FileText} title="Pending POs" value={kpi?.pendingPOs ?? 0} description="Draft + Ordered awaiting delivery"/>
+        <StatCard icon={Package} title="Pending Receipts / Partial" value={<>{kpi?.pendingReceipts ?? 0} {(kpi?.partially ?? 0)>0 && <span className="text-sm font-normal text-muted-foreground">({kpi?.partially ?? 0} partial)</span>}</>} description="Outstanding quantities"/>
+        <StatCard icon={CreditCard} title="Unpaid / Returns" value={`UGX ${(kpi?.unpaidTotal ?? 0).toLocaleString()}`} description={`${kpi?.returnsCount ?? 0} returns this period • Supplier payable`}/>
       </div>
 
       <Card className="mb-1"><CardContent className="p-4 space-y-3">
@@ -278,7 +278,7 @@ export default function PurchasesPage(){
         <TabsContent value={tab} className="mt-4">
           <Card><CardContent className="p-0">
             {loading ? <div className="p-6 space-y-3">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
-            : data.length===0 && mergedPurchases.length===0 ? <div className="py-12 text-center text-muted-foreground">No purchase orders — create PO then Receive to add stock</div>
+            : data.length===0 && mergedPurchases.length===0 ? <EmptyState icon={Package} title="No purchase orders" description="Create a PO, then receive it to add stock."/>
             : <>
               <div className="hidden md:block overflow-x-auto"><Table><TableHeader><TableRow><TableHead>PO #</TableHead><TableHead>Date</TableHead><TableHead>Supplier</TableHead><TableHead>Branch</TableHead><TableHead>Items</TableHead><TableHead className="text-right">Ordered</TableHead><TableHead className="text-right">Received</TableHead><TableHead>Pay Status*</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
                 {mergedPurchases.map(p=>{

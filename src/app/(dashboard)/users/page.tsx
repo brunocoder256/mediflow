@@ -9,7 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Search, Plus, Eye, EyeOff, Shield, Ban, ShieldCheck, Activity, Unlock, Building2, KeyRound, AtSign, Phone } from "lucide-react";
+import { Search, Plus, Eye, EyeOff, Shield, Ban, ShieldCheck, Activity, Unlock, Building2, KeyRound, AtSign, Phone, Users, Lock, Mail } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatCard } from "@/components/ui/stat-card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -192,74 +195,33 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Users</h1>
-          <p className="text-muted-foreground">Manage team members, roles, and branch access</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href="/users/roles"
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm hover:bg-accent"
-          >
-            <ShieldCheck className="h-4 w-4" />
-            Roles
-          </Link>
-          <Link
-            href="/audit"
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm hover:bg-accent"
-          >
-            <Activity className="h-4 w-4" />
-            Activity
-          </Link>
-          <Button onClick={() => setShowAdd(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Create User
-          </Button>
-        </div>
-      </div>
+      <PageHeader icon={Users} title="Users" description="Manage team members, roles, and branch access">
+        <Link
+          href="/users/roles"
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm hover:bg-accent"
+        >
+          <ShieldCheck className="h-4 w-4" />
+          Roles
+        </Link>
+        <Link
+          href="/audit"
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm hover:bg-accent"
+        >
+          <Activity className="h-4 w-4" />
+          Activity
+        </Link>
+        <Button onClick={() => setShowAdd(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Create User
+        </Button>
+      </PageHeader>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Users</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{total}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Active</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{activeCount}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Inactive</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-muted-foreground">{inactiveCount}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Invited</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{invitedCount}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Locked</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{lockedCount}</div>
-          </CardContent>
-        </Card>
+        <StatCard icon={Users} title="Total Users" value={total}/>
+        <StatCard icon={ShieldCheck} title="Active" value={<span className="text-green-600">{activeCount}</span>}/>
+        <StatCard icon={Ban} title="Inactive" value={<span className="text-muted-foreground">{inactiveCount}</span>}/>
+        <StatCard icon={Mail} title="Invited" value={<span className="text-orange-600">{invitedCount}</span>}/>
+        <StatCard icon={Lock} title="Locked" value={<span className="text-red-600">{lockedCount}</span>}/>
       </div>
 
       <Card>
@@ -337,7 +299,7 @@ export default function UsersPage() {
               ))}
             </div>
           ) : users.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">No users found. Create your first team member.</div>
+            <EmptyState icon={Users} title="No users found" description="Create your first team member — they can sign in immediately with the email and password you set."/>
           ) : (
             <>
               <div className="overflow-x-auto">
@@ -459,7 +421,7 @@ export default function UsersPage() {
         {loading ? (
           [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 w-full" />)
         ) : users.length === 0 ? (
-          <div className="py-12 text-center text-muted-foreground">No users found.</div>
+          <EmptyState icon={Users} title="No users found"/>
         ) : (
           users.map((u) => (
             <Card
