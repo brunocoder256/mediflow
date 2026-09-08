@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Toaster } from "@/components/ui/toast";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, WifiOff } from "lucide-react";
 
 function safeRedirect(path: string | null, fallback: string = "/dashboard"): string {
   if (!path) return fallback;
@@ -31,6 +31,18 @@ function LoginForm() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [offline, setOffline] = useState(false);
+
+  useEffect(() => {
+    setOffline(typeof navigator !== "undefined" && navigator.onLine === false);
+    const update = () => setOffline(typeof navigator !== "undefined" && !navigator.onLine);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
 
   const {
     register,
@@ -137,6 +149,15 @@ function LoginForm() {
   return (
     <Card>
       <CardHeader className="text-center">
+        {offline && (
+          <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-left text-xs text-amber-900">
+            <WifiOff className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              You&apos;re offline. Sign-in needs an internet connection. Work saved on this device is safe and will sync
+              when you&apos;re back online.
+            </span>
+          </div>
+        )}
         <CardTitle className="text-2xl">Sign in to MediFlow IQ</CardTitle>
         <CardDescription>
           Enter your credentials to access your account

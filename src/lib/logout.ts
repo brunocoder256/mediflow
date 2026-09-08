@@ -63,13 +63,21 @@ async function clearLocalSessionData(): Promise<void> {
  */
 export async function performLogout(): Promise<void> {
   // 1. Authoritative: clear cookies where the server can reach httpOnly ones.
+  //    Give it a hard timeout so an unreachable-but-unresponsive server (e.g.
+  //    captive portal, dead WiFi that does not reject the request) can never
+  //    make logout hang — offline logout must fail fast and continue locally.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4000);
   try {
     await fetch("/api/auth/logout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
     });
   } catch {
     /* non-blocking — fall back to local clearing below */
+  } finally {
+    clearTimeout(timer);
   }
 
   // 2. Fallback for environments where the route above did not run (offline).

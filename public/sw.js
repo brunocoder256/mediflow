@@ -22,9 +22,11 @@ const API_CACHE_NAME = "mediflow-api-v1";
 const SHELL = ["/offline.html", "/manifest.json", "/icon-192.png", "/icon-512.png", "/icon-32.png"];
 const OFFLINE_URL = "/offline.html";
 
-// These URLs produce redirects (e.g. auth) or non-HTML bodies while online and
-// must never be cached as a standalone navigation response.
-const NEVER_CACHE_NAV = ["/auth/login", "/auth/signup", "/auth/"];
+// The sign-in page is intentionally cacheable: logging out while offline must
+// still land the user on a real sign-in page (network-first online, cached
+// offline) instead of a dead-end fallback. The sign-up flow stays off the
+// offline cache.
+const NEVER_CACHE_NAV = ["/auth/signup"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

@@ -86,6 +86,7 @@ function DropdownMenuItem({
   className,
   children,
   onClick,
+  onSelect,
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & { destructive?: boolean }) {
   const { onItemSelect } = React.useContext(DropdownMenuContext);
@@ -99,6 +100,7 @@ function DropdownMenuItem({
       )}
       onClick={(e) => {
         onClick?.(e);
+        onSelect?.(e as unknown as React.FormEvent<HTMLDivElement>);
         onItemSelect();
       }}
       {...props}

@@ -235,4 +235,4 @@ $$;
 -- Grant execute to authenticated (new 7-arg signature)
 GRANT EXECUTE ON FUNCTION create_pos_sale(uuid, uuid, jsonb, jsonb, text, boolean, timestamptz) TO authenticated;
 
-COMMENT ON FUNCTION create_pos_sale IS 'Atomic POS transaction: FEFO, expiry, branch auth, discount permission, idempotency, optional client sale timestamp (offline)';
+COMMENT ON FUNCTION create_pos_sale(uuid, uuid, jsonb, jsonb, text, boolean, timestamptz) IS 'Atomic POS transaction: FEFO, expiry, branch auth, discount permission, idempotency, optional client sale timestamp (offline)';
