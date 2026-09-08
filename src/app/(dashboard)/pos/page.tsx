@@ -13,6 +13,7 @@ import { useOnlineStatus } from "@/hooks/use-online-status";
 import { db } from "@/lib/offline/db";
 import { processSyncQueue, setupAutoSync, queuePosSale } from "@/lib/offline/sync";
 import { cachedFetch } from "@/lib/offline/cached-fetch";
+import { applyOfflineSaleStockAdjustment, fefoDecrement, type OfflineSaleLine } from "@/lib/offline/offline-stock";
 import { readUserContext, writeUserContext, getCachedCashierName } from "@/lib/offline/user-context";
 import { rankProducts, matchesProduct, type PosSearchable } from "@/lib/pos-search";
 import { usePendingCash } from "@/lib/offline/pending-overlay";
@@ -61,6 +62,44 @@ function expiryLabel(expiry:string, warningDays:number){
   if(d<=warningDays) return { label:`⚠ Expires in ${d} days`, variant:'warning' as const, text:`Expires in ${d}d` };
   return null;
 }
+// Reserve the sold units in the in-memory POS grid after an offline sale — the same
+// effect the online path gets from calling `fetchProducts` after checkout.
+function applyOfflineProductDecrement(list: Product[], items: OfflineSaleLine[], expiryWarningDays: number): Product[] {
+  const sold = new Map<string, number>();
+  for (const it of items) {
+    sold.set(it.product_id, (sold.get(it.product_id) ?? 0) + Number(it.quantity || 0));
+  }
+  const now = new Date();
+  return list.map((p) => {
+    const qty = sold.get(p.id);
+    if (!qty || !p.batches?.length) return p;
+    const { rows } = fefoDecrement(p.batches, qty);
+    const batches = rows as NonNullable<Product["batches"]>;
+    const stock = batches.reduce((s, b) => s + Number(b.quantity_available), 0);
+    let expiry_status: Product["expiry_status"] = p.expiry_status;
+    let near_days: number | null = p.near_expiry_days ?? null;
+    let fefo: Product["fefo_batch"] = p.fefo_batch;
+    const valid = batches.filter((b) => new Date(b.expiry_date) > now && Number(b.quantity_available) > 0);
+    if (valid.length === 0) {
+      expiry_status = stock === 0 ? "out" : "ok";
+      near_days = null;
+      fefo = null;
+    } else {
+      fefo = { batch_number: valid[0].batch_number, expiry_date: valid[0].expiry_date };
+      const d = daysUntil(valid[0].expiry_date);
+      if (d <= expiryWarningDays) {
+        expiry_status = "near";
+        near_days = d;
+      } else {
+        expiry_status = "ok";
+        near_days = null;
+      }
+    }
+    const price = batches.find((b) => Number(b.quantity_available) > 0 && new Date(b.expiry_date) > now)?.selling_price ?? p.price;
+    return { ...p, batches, stock, price, fefo_batch: fefo, expiry_status, near_expiry_days: near_days };
+  });
+}
+
 function NewCustomerInline({ onCreated, preserveCartNote }:{ onCreated:(c:any)=>void; preserveCartNote?:string }){
   const [name,setName]=React.useState(""); const [phone,setPhone]=React.useState(""); const [email,setEmail]=React.useState(""); const [dup,setDup]=React.useState<any[]>([]); const [busy,setBusy]=React.useState(false);
   const checkDup=React.useCallback(async()=>{
@@ -501,6 +540,10 @@ export default function PosPage(){
     if(!isOnline){
       try{
         await queuePosSale(payload as any, op);
+        // Mirror online behaviour while offline: reserve the sold units locally so the
+        // POS grid, Inventory and Products pages all show the reduced stock.
+        await applyOfflineSaleStockAdjustment(payload.items, branchId);
+        setProducts(prev => applyOfflineProductDecrement(prev, payload.items, expiryWarningDays));
         setPendingCount(await db.syncQueue.where("status").equals("pending").count());
         const now=new Date().toISOString();
         const localSale:any = {
