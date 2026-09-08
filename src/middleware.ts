@@ -151,6 +151,19 @@ export async function middleware(request: NextRequest) {
   }
 
   if (!isPublicRoute(pathname) && !user) {
+    // Offline passcode access: a passcode-authorized device is allowed into the
+    // app shell even without a live server session, so users can keep working
+    // from the offline Dexie cache for full days without a connection. The real
+    // data APIs still require a live session and will 401 when offline-without-one
+    // (offline reads come from local cache). When back online, the app silently
+    // re-authenticates and the real session cookie replaces this signal.
+    const offlineAuthorized =
+      request.cookies.get("mediflow_offline_session")?.value === "1";
+    if (offlineAuthorized) {
+      applySecurityHeaders(supabaseResponse);
+      applyCorsHeaders(supabaseResponse, request.headers.get("origin"));
+      return supabaseResponse;
+    }
     const loginUrl = new URL("/auth/login", request.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);

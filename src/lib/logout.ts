@@ -4,17 +4,23 @@
 //
 // A browser-only `supabase.auth.signOut()` cannot delete the httpOnly `sb-*`
 // session cookies that the server/middleware writes, so those cookies must be
-// cleared from the server (POST /api/auth/logout). We also wipe the local
-// offline read-cache and user context so a shared terminal never leaks the
-// previous cashier's cached profile/products to the next sign-in. Pending
-// offline writes (queued sales, purchases, suppliers, etc.) are intentionally
-// PRESERVED so unsynced transactions are never lost by logging out.
+// cleared from the server (POST /api/auth/logout).
+//
+// Offline-first logging out:
+//  - We deliberately PRESERVE the cached user context, the offline read-cache
+//    (Dexie dataCache) and the pending write queues. This lets the same user
+//    sign straight back in with their offline passcode (even with no signal)
+//    and continue working on their data — critical for full days offline.
+//  - The offline read-cache is NOT dropped on logout, but the app is still
+//    protected from sharing: re-entry requires the user's passcode (the passcode
+//    gate in /auth/login + the middleware offline-session signal). A cashier's
+//    passcode protects their data; without it the offline session signal is
+//    never set and protected routes redirect to login.
+//  - What IS cleared: the live server session cookies, the local Supabase
+//    session, and the offline-session signal.
 
 import { createBrowserClient } from "@/lib/supabase/client";
-import { clearUserContext } from "@/lib/offline/user-context";
-import { db } from "@/lib/offline/db";
-
-const BRANCH_STORAGE_KEY = "mediflow.active_branch";
+import { expireOfflineSessionSignal } from "@/lib/offline/session-signal";
 
 // Best-effort: expire any sb-* cookies that were written without httpOnly.
 function expireBrowserAuthCookies(): void {
@@ -33,22 +39,12 @@ function expireBrowserAuthCookies(): void {
 }
 
 async function clearLocalSessionData(): Promise<void> {
+  // Intentionally keep the cached user context (mediflow_user_context), the
+  // Dexie offline caches and the pending write queues so offline passcode
+  // re-entry can resume uninterrupted. Clear only the offline-session signal.
+  expireOfflineSessionSignal();
   try {
-    clearUserContext();
-  } catch {
-    /* ignore */
-  }
-  try {
-    window.localStorage.removeItem(BRANCH_STORAGE_KEY);
     window.localStorage.removeItem("mediflow_last_sync");
-  } catch {
-    /* ignore */
-  }
-  // Drop the generic read-cache so a different user/org never sees stale data,
-  // but keep the pending write-queue tables (syncQueue, pendingSales,
-  // cachedPurchases/Suppliers/Returns/Expenses/Customers).
-  try {
-    await db.dataCache.clear();
   } catch {
     /* ignore */
   }

@@ -7,27 +7,41 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/ui/page-header";
-import { Building2, MapPin, Receipt, Save, Plus, Pencil, Trash2, Power, ChevronDown, ChevronUp, Settings2 } from "lucide-react";
+import { Building2, MapPin, Receipt, Save, Plus, Pencil, Trash2, Power, ChevronDown, ChevronUp, Settings2, KeyRound, ShieldCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useCallback, useEffect, useState } from "react";
+import {
+  hasPasscode,
+  setPasscode,
+  clearPasscode,
+} from "@/lib/passcode";
 
 type Branch = { id: string; name: string; code: string; phone?: string | null; address?: string | null; is_active: boolean };
 
 export default function SettingsPage(){
-  const [loading,setLoading]=React.useState(true);
-  const [data,setData]=React.useState<any>(null);
-  const [saving,setSaving]=React.useState(false);
-  const [canManageBranches,setCanManageBranches]=React.useState(false);
+  const [loading,setLoading]=useState(true);
+  const [data,setData]=useState<any>(null);
+  const [saving,setSaving]=useState(false);
+  const [canManageBranches,setCanManageBranches]=useState(false);
   const { toast }=useToast();
 
-  // Branch CRUD
-  const [branchDlg,setBranchDlg]=React.useState<{ open:boolean; editing:Branch|null }>({open:false,editing:null});
-  const [bForm,setBForm]=React.useState({name:"",code:"",phone:"",address:"",is_active:true});
-  const [expanded,setExpanded]=React.useState<string|null>(null);
-  const [bsForm,setBsForm]=React.useState<Record<string,{receipt_prefix:string;invoice_prefix:string;default_payment_method:string}>>({});
+  // Offline passcode management
+  const [passcodeConfigured,setPasscodeConfigured]=useState(false);
+  const [passcodeMode,setPasscodeMode]=useState<"none"|"set"|"change"|"remove">("none");
+  const [pcCurrent,setPcCurrent]=useState("");
+  const [pcNew,setPcNew]=useState("");
+  const [pcConfirm,setPcConfirm]=useState("");
+  const [pcBusy,setPcBusy]=useState(false);
 
-  const fetchData=React.useCallback(async()=>{
+  // Branch CRUD
+  const [branchDlg,setBranchDlg]=useState<{ open:boolean; editing:Branch|null }>({open:false,editing:null});
+  const [bForm,setBForm]=useState({name:"",code:"",phone:"",address:"",is_active:true});
+  const [expanded,setExpanded]=useState<string|null>(null);
+  const [bsForm,setBsForm]=useState<Record<string,{receipt_prefix:string;invoice_prefix:string;default_payment_method:string}>>({});
+
+  const fetchData=useCallback(async()=>{
     setLoading(true);
     const r=await fetch("/api/settings");
     const j=await r.json();
@@ -36,7 +50,7 @@ export default function SettingsPage(){
     setLoading(false);
   },[toast]);
 
-  const fetchCapabilities=React.useCallback(async()=>{
+  const fetchCapabilities=useCallback(async()=>{
     try{
       const r=await fetch("/api/me");
       const j=await r.json();
@@ -44,7 +58,42 @@ export default function SettingsPage(){
     }catch{/* non-blocking */}
   },[]);
 
-  React.useEffect(()=>{ fetchData(); fetchCapabilities(); },[fetchData,fetchCapabilities]);
+  useEffect(()=>{ fetchData(); fetchCapabilities(); },[fetchData,fetchCapabilities]);
+
+  useEffect(()=>{ setPasscodeConfigured(hasPasscode()); },[]);
+
+  const savePasscode=async()=>{
+    if(passcodeMode==="remove"){
+      clearPasscode();
+      setPasscodeConfigured(false);
+      setPasscodeMode("none");
+      setPcCurrent(""); setPcNew(""); setPcConfirm("");
+      toast({title:"Passcode removed"});
+      return;
+    }
+    const code=passcodeMode==="change" ? pcNew : pcCurrent;
+    if(!/^\d{4}$/.test(code)){
+      toast({title:"Passcode must be exactly 4 digits",variant:"error"});
+      return;
+    }
+    if(passcodeMode==="change" && pcNew!==pcConfirm){
+      toast({title:"New passcodes don't match",variant:"error"});
+      return;
+    }
+    setPcBusy(true);
+    const email=(data?.user?.email) || (typeof window!=="undefined" ? (window.localStorage.getItem("mediflow_passcode_email")||"") : "") || "";
+    const res=await setPasscode(email, undefined, code);
+    setPcBusy(false);
+    if(!res.ok){ toast({title:"Couldn't save passcode",description:res.error,variant:"error"}); return; }
+    setPasscodeConfigured(true);
+    setPasscodeMode("none");
+    setPcCurrent(""); setPcNew(""); setPcConfirm("");
+    toast({title:passcodeMode==="change"?"Passcode updated":"Passcode set",description:"You can now sign in offline with this passcode."});
+  };
+
+  const openSet=()=>{ setPcCurrent(""); setPcNew(""); setPcConfirm(""); setPasscodeMode("set"); };
+  const openChange=()=>{ setPcCurrent(""); setPcNew(""); setPcConfirm(""); setPasscodeMode("change"); };
+  const openRemove=()=>{ setPcCurrent(""); setPcNew(""); setPcConfirm(""); setPasscodeMode("remove"); };
 
   const saveOrg=async()=>{
     setSaving(true);
@@ -142,6 +191,21 @@ export default function SettingsPage(){
       </Card>
 
       <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10"><KeyRound className="h-5 w-5 text-primary"/></div><div><CardTitle>Offline passcode</CardTitle><CardDescription>{passcodeConfigured?"Configured — sign in offline with a 4-digit passcode":"Not set — set a 4-digit passcode to keep working offline"}</CardDescription></div></div>
+            {!passcodeConfigured && <Button className="shrink-0" onClick={openSet}><ShieldCheck className="h-4 w-4 mr-2"/>Set passcode</Button>}
+          </div>
+        </CardHeader>
+        {passcodeConfigured && (
+          <CardContent className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={openChange}><Pencil className="h-4 w-4 mr-1"/>Change</Button>
+            <Button variant="outline" size="sm" className="text-destructive" onClick={openRemove}><Trash2 className="h-4 w-4 mr-1"/>Remove</Button>
+          </CardContent>
+        )}
+      </Card>
+
+      <Card>
         <CardHeader><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10"><Receipt className="h-5 w-5 text-primary"/></div><div><CardTitle>Receipt & Tax</CardTitle><CardDescription>EFRIS fields reserved — do not claim compliance</CardDescription></div></div></CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2"><label className="text-sm font-medium">Receipt Header</label><Input value={data?.organization_settings?.receipt_header ?? ""} onChange={e=>setData((d:any)=>({...d, organization_settings:{...d.organization_settings, receipt_header:e.target.value}}))} placeholder="Thank you for shopping"/></div>
@@ -218,6 +282,57 @@ export default function SettingsPage(){
             <div className="space-y-1"><Label>Phone</Label><Input value={bForm.phone} onChange={e=>setBForm(f=>({...f,phone:e.target.value}))} placeholder="+256 700 000 000"/></div>
             <div className="space-y-1"><Label>Address</Label><Input value={bForm.address} onChange={e=>setBForm(f=>({...f,address:e.target.value}))} placeholder="Plot 1, Kampala Road"/></div>
             <Button onClick={saveBranch} disabled={saving||!bForm.name.trim()} className="w-full">{branchDlg.editing?"Save Changes":"Create Branch"}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={passcodeMode!=="none"} onOpenChange={(o)=>{ if(!o) setPasscodeMode("none"); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {passcodeMode==="set" ? "Set offline passcode" : passcodeMode==="change" ? "Change offline passcode" : "Remove offline passcode"}
+            </DialogTitle>
+            <DialogDescription>
+              {passcodeMode==="remove"
+                ? "You will no longer be able to sign in when offline without an internet connection."
+                : "Use 4 digits. You can sign in offline with it when there is no connection."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {passcodeMode!=="remove" && (
+              <>
+                <div className="space-y-1">
+                  <Label>{passcodeMode==="change" ? "New passcode" : "Passcode"}</Label>
+                  <Input
+                    type="password" inputMode="numeric" maxLength={4}
+                    placeholder="••••"
+                    value={passcodeMode==="change"?pcNew:pcCurrent}
+                    onChange={(e)=>passcodeMode==="change"?
+                      setPcNew(e.target.value.replace(/\D/g,"").slice(0,4)):
+                      setPcCurrent(e.target.value.replace(/\D/g,"").slice(0,4))}
+                    className="text-center text-2xl tracking-[0.4em]"
+                  />
+                </div>
+                {passcodeMode==="change" && (
+                  <div className="space-y-1">
+                    <Label>Confirm new passcode</Label>
+                    <Input
+                      type="password" inputMode="numeric" maxLength={4}
+                      placeholder="••••"
+                      value={pcConfirm}
+                      onChange={(e)=>setPcConfirm(e.target.value.replace(/\D/g,"").slice(0,4))}
+                      className="text-center text-2xl tracking-[0.4em]"
+                    />
+                  </div>
+                )}
+              </>
+            )}
+            <div className="flex items-center gap-2 pt-1">
+              <Button variant="outline" className="flex-1" onClick={()=>setPasscodeMode("none")}>Cancel</Button>
+              <Button className="flex-1" disabled={pcBusy} onClick={savePasscode}>
+                {pcBusy?"Saving...":passcodeMode==="remove"?"Remove":passcodeMode==="change"?"Update passcode":"Set passcode"}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

@@ -7,6 +7,7 @@ import { MobileNav } from "@/components/layout/mobile-nav";
 import { BranchProvider } from "@/hooks/branch-context";
 import { setupAutoSync } from "@/lib/offline/sync";
 import { invalidateCache } from "@/lib/offline/cached-fetch";
+import { tryRestoreServerSession } from "@/lib/offline/reauth";
 import { useToast } from "@/hooks/use-toast";
 
 export default function DashboardShell({
@@ -35,6 +36,24 @@ export default function DashboardShell({
       toast({ description: "Offline changes synced" });
     });
   }, [toast]);
+
+  // Silent server-session restore: if the user opened the app via offline
+  // passcode and the device is now online, re-establish the REAL Supabase
+  // session (from the stored refresh token) so APIs authenticate again and the
+  // auto-sync above can flush queued offline work. No prompt, no data loss.
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const reauth = async () => {
+      try {
+        await tryRestoreServerSession();
+      } catch {
+        /* non-blocking */
+      }
+    };
+    void reauth();
+    window.addEventListener("online", reauth);
+    return () => window.removeEventListener("online", reauth);
+  }, []);
 
   return (
     <BranchProvider>

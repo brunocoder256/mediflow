@@ -8,7 +8,10 @@
 // values are used and the cache is refreshed.
 
 const KEY = "mediflow_user_context";
-const TTL_MS = 24 * 60 * 60 * 1000; // 24h
+// Cached user context must survive long offline sessions (a full day or more in
+// low-connectivity areas). It is only removed on explicit logout (which now
+// preserves it for offline passcode re-entry) or when overwritten — so no TTL.
+const TTL_MS = Number.POSITIVE_INFINITY;
 
 interface UserContext {
   full_name: string;
