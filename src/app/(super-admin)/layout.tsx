@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { SuperAdminSignOut } from "@/components/layout/super-admin-signout";
 import { MediFlowMark } from "@/components/brand/mediflow-logo";
+import { NotificationsMenu } from "@/components/layout/notifications-menu";
 
 export default async function SuperAdminLayout({ children }: { children: React.ReactNode }) {
   const sb: any = await createServerSupabaseClient();
@@ -40,6 +41,7 @@ export default async function SuperAdminLayout({ children }: { children: React.R
             <Link href="/super-admin/accounts" className="rounded-md px-3 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
               Account Management
             </Link>
+            <NotificationsMenu />
             <SuperAdminSignOut />
           </div>
         </div>
