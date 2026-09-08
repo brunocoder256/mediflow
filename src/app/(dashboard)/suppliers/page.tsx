@@ -154,10 +154,10 @@ export default function SuppliersPage(){
     setWizardStep(1);
     setShowEdit(s);
   };
-  const openDetail=async(s:Supplier)=>{
+  const openDetail=async(s:Supplier, tab: string = "overview")=>{
     if((s as any).pendingSync) return alert("This supplier hasn't synced yet — view the full record after it syncs.");
     setShowDetail(s);
-    setDetailTab("overview");
+    setDetailTab(tab);
     setDetailLoading(true);
     setStatement(null);
     try{
@@ -447,6 +447,7 @@ export default function SuppliersPage(){
                   <TableCell>{statusBadge(s.status ?? (s.is_active?"Active":"Inactive"))}{s.sync_status==="pending" && <Badge variant="warning" className="ml-1">Pending Sync</Badge>}</TableCell>
                   <TableCell className="text-xs">{s.last_purchase_at ? new Date(s.last_purchase_at).toLocaleDateString() : "—"}</TableCell>
                   <TableCell className="text-right space-x-1" onClick={e=>e.stopPropagation()}>
+                    {Number(s.balance ?? 0) > 0 && <Button variant="outline" size="sm" disabled={s.pendingSync} onClick={()=>openDetail(s,"payments")}><CreditCard className="h-4 w-4 mr-1"/>Pay</Button>}
                     <Button variant="ghost" size="icon" disabled={s.pendingSync} title={s.pendingSync?"Pending sync": undefined} onClick={()=>openDetail(s)}><Eye className="h-4 w-4"/></Button>
                     <Button variant="ghost" size="icon" disabled={s.pendingSync} title={s.pendingSync?"Pending sync": undefined} onClick={()=>openEdit(s)}><Edit className="h-4 w-4"/></Button>
                     <Button variant="ghost" size="icon" disabled={s.pendingSync} title={s.pendingSync?"Pending sync": undefined} onClick={()=>handleDeactivate(s)}>{s.status==="Active"? <XCircle className="h-4 w-4"/> : <CheckCircle className="h-4 w-4"/>}</Button>
@@ -474,6 +475,7 @@ export default function SuppliersPage(){
                   </div>
                   <div className="flex justify-between text-xs"><span className="flex items-center gap-1"><Package className="h-3 w-3"/>{s.products_count ?? 0} products</span><span>{s.payment_terms ?? "30 Days"}</span></div>
                   <div className="flex gap-2" onClick={e=>e.stopPropagation()}>
+                    {Number(s.balance ?? 0) > 0 && <Button size="sm" variant="outline" className="flex-1 text-amber-700" disabled={s.pendingSync} onClick={()=>openDetail(s,"payments")}><CreditCard className="h-4 w-4 mr-1"/>Pay</Button>}
                     <Button size="sm" variant="outline" className="flex-1" disabled={s.pendingSync} onClick={()=>openDetail(s)}><Eye className="h-4 w-4 mr-1"/>View</Button>
                     <Button size="sm" variant="outline" disabled={s.pendingSync} onClick={()=>openEdit(s)}><Edit className="h-4 w-4"/></Button>
                     <Button size="sm" variant="outline" disabled={s.pendingSync} onClick={()=>handleDeactivate(s)}>{s.status==="Active"? "Deactivate" : "Activate"}</Button>

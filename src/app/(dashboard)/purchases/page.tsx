@@ -249,7 +249,7 @@ export default function PurchasesPage(){
         <StatCard icon={TrendingUp} title="Purchases This Period" value={`UGX ${(kpi?.totalThisPeriod ?? 0).toLocaleString()}`} description={`${kpi?.totalCount ?? 0} orders • ${new Date().toLocaleDateString(undefined,{month:'long'})}`}/>
         <StatCard icon={FileText} title="Pending POs" value={kpi?.pendingPOs ?? 0} description="Draft + Ordered awaiting delivery"/>
         <StatCard icon={Package} title="Pending Receipts / Partial" value={<>{kpi?.pendingReceipts ?? 0} {(kpi?.partially ?? 0)>0 && <span className="text-sm font-normal text-muted-foreground">({kpi?.partially ?? 0} partial)</span>}</>} description="Outstanding quantities"/>
-        <StatCard icon={CreditCard} title="Unpaid / Returns" value={`UGX ${(kpi?.unpaidTotal ?? 0).toLocaleString()}`} description={`${kpi?.returnsCount ?? 0} returns this period • Supplier payable`}/>
+        <StatCard icon={CreditCard} title="Unpaid / Returns" value={`UGX ${(kpi?.unpaidTotal ?? 0).toLocaleString()}`} description={`${kpi?.returnsCount ?? 0} returns (UGX ${(kpi?.returnsValue ?? 0).toLocaleString()}) this period • Payable = billed − paid − returns`}/>
       </div>
 
       <Card className="mb-1"><CardContent className="p-4 space-y-3">

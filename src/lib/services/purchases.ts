@@ -557,32 +557,42 @@ export async function getPurchaseKPIs(branch_id?: string) {
   if (branch_id) base = base.eq('branch_id', branch_id);
   const { data: all } = await base;
   const list = (all ?? []) as any[];
-  const totalThisPeriod = list.filter((p) => p.created_at >= startMonth).reduce((s: number, p: any) => s + Number(p.total), 0);
+  const confirmed = list.filter((p) => !['DRAFT', 'CANCELLED'].includes(p.status));
+  const totalThisPeriod = confirmed.filter((p) => p.created_at >= startMonth).reduce((s: number, p: any) => s + Number(p.total), 0);
   const pendingPOs = list.filter((p) => ['DRAFT', 'ORDERED'].includes(p.status)).length;
   const pendingReceipts = list.filter((p) => ['ORDERED', 'PARTIALLY_RECEIVED'].includes(p.status)).length;
   const partially = list.filter((p) => p.status === 'PARTIALLY_RECEIVED').length;
   const totalCount = list.length;
-  // Payables: sum purchased - paid - returned via rpc per supplier? Approximate via view: use get_supplier_balance aggregated
+  // Outstanding payable, mirroring get_supplier_balance = billed − paid − returned.
+  // Billed = all POs except CANCELLED/DRAFT; payments/returns are matched by SUPPLIER
+  // so a payment recorded without a PO link (Suppliers page → Record Payment) still
+  // reduces what we owe, and approved/completed returns reduce it too.
   let unpaidTotal = 0;
   const overdue = 0;
   try {
-    const { data: pos } = await sb.from('purchase_orders').select('id, total, status, created_at').in('status', ['ORDERED', 'PARTIALLY_RECEIVED', 'RECEIVED']);
-    const poIds = (pos ?? []).map((p: any) => p.id);
+    const billed = list.filter((p) => !['DRAFT', 'CANCELLED'].includes(p.status));
+    const purchases = billed.reduce((s: number, p: any) => s + Number(p.total), 0);
+    const supplierIds = [...new Set(billed.map((p: any) => p.supplier_id).filter(Boolean))];
     let paidSum = 0;
-    if (poIds.length) {
-      const { data: pays } = await sb.from('supplier_payments').select('amount, purchase_order_id');
-      paidSum = (pays ?? []).reduce((s: number, pay: any) => s + Number(pay.amount), 0);
-      const orderedSum = (pos ?? []).reduce((s: number, p: any) => s + Number(p.total), 0);
-      unpaidTotal = Math.max(0, orderedSum - paidSum);
+    let returnedSum = 0;
+    for (let i = 0; i < supplierIds.length; i += 100) {
+      const chunk = supplierIds.slice(i, i + 100);
+      const { data: pays } = await sb.from('supplier_payments').select('amount').in('supplier_id', chunk);
+      paidSum += (pays ?? []).reduce((s: number, pay: any) => s + Number(pay.amount), 0);
+      const { data: rets } = await sb.from('purchase_returns').select('total, status').in('supplier_id', chunk);
+      returnedSum += (rets ?? []).filter((r: any) => ['approved', 'completed'].includes(r.status)).reduce((s: number, r: any) => s + Number(r.total), 0);
     }
+    unpaidTotal = Math.max(0, Math.round((purchases - paidSum - returnedSum) * 100) / 100);
   } catch {}
-  // Returns recent
+  // Returns this period
   let returnsCount = 0;
+  let returnsValue = 0;
   try {
-    const { data: rets } = await sb.from('purchase_returns').select('id').gte('created_at', startMonth);
+    const { data: rets } = await sb.from('purchase_returns').select('total').gte('created_at', startMonth);
     returnsCount = (rets ?? []).length;
+    returnsValue = (rets ?? []).reduce((s: number, r: any) => s + Number(r.total), 0);
   } catch {}
-  return { totalThisPeriod, pendingPOs, pendingReceipts, partially, totalCount, unpaidTotal, overdue, returnsCount };
+  return { totalThisPeriod, pendingPOs, pendingReceipts, partially, totalCount, unpaidTotal, overdue, returnsCount, returnsValue };
 }
 
 export async function getSupplierPurchaseHistory(supplierId: string, productId?: string) {
