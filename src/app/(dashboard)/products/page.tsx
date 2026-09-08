@@ -103,7 +103,7 @@ export default function ProductsPage(){
       if(!dbNames.has(t)) merged.push({ id: t, name: t, __fallback: true });
     }
     return merged;
-  },[categoryFilter]);
+  },[categories]);
 
   // Selling Unit options — curated vocabulary (docs/sellingunit.md) in the
   // recommended order, then custom org units so existing products stay editable.
@@ -255,7 +255,10 @@ export default function ProductsPage(){
     if(!form.name.trim()) return alert("Product name is required");
     setSaving(true);
     try{
-      // Resolve therapeutic fallback category (product.md Section 7) to real DB id if needed
+      // Resolve therapeutic fallback category (product.md Section 7) to a real DB id.
+      // The insert MUST carry this org's id: categories.organization_id is NOT NULL and
+      // RLS scopes by it, otherwise the row is dropped silently and the product is
+      // saved without a category (blank dash in the list).
       let resolvedCategoryId = form.category_id;
       if(resolvedCategoryId && therapeuticCategories.includes(resolvedCategoryId) && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resolvedCategoryId)){
         try{
@@ -264,9 +267,17 @@ export default function ProductsPage(){
           const {data: existing}=await (sb.from("categories") as any).select("id").eq("name", resolvedCategoryId).maybeSingle();
           if(existing) resolvedCategoryId = existing.id;
           else {
-            const {data: newCat, error}=await (sb.from("categories") as any).insert({ name: resolvedCategoryId, description: `Therapeutic: ${resolvedCategoryId}` }).select().single();
-            if(!error && newCat){ resolvedCategoryId = newCat.id; setCategories(prev=>[...prev, newCat]); }
-            else resolvedCategoryId = "";
+            let orgId=readUserContext()?.organization_id || null;
+            if(!orgId){
+              const { data:user }=await sb.auth.getUser();
+              const { data:pid }=await (sb.from("profiles") as any).select("organization_id").eq("auth_user_id", user?.user?.id).maybeSingle();
+              orgId=pid?.organization_id ?? null;
+            }
+            if(orgId){
+              const {data: newCat, error}=await (sb.from("categories") as any).insert({ organization_id: orgId, name: resolvedCategoryId, description: `Therapeutic: ${resolvedCategoryId}` }).select().single();
+              if(!error && newCat){ resolvedCategoryId = newCat.id; setCategories(prev=>[...prev, newCat]); }
+              else resolvedCategoryId = "";
+            } else resolvedCategoryId = "";
           }
         }catch{ resolvedCategoryId = ""; }
       }
@@ -394,7 +405,13 @@ export default function ProductsPage(){
           const {data: existing}=await (sb.from("categories") as any).select("id").eq("name", p.category).maybeSingle();
           if(existing){ catMap.set(key, existing.id); }
           else{
-            const {data: newCat}=await (sb.from("categories") as any).insert({ name: p.category, description: `Therapeutic: ${p.category}` }).select().single();
+            let orgId=readUserContext()?.organization_id || null;
+            if(!orgId){
+              const { data:user }=await sb.auth.getUser();
+              const { data:pid }=await (sb.from("profiles") as any).select("organization_id").eq("auth_user_id", user?.user?.id).maybeSingle();
+              orgId=pid?.organization_id ?? null;
+            }
+            const {data: newCat}=await (sb.from("categories") as any).insert({ organization_id: orgId, name: p.category, description: `Therapeutic: ${p.category}` }).select().single();
             if(newCat){ catMap.set(key, newCat.id); setCategories(prev=>[...prev, newCat]); }
           }
         }catch{}
