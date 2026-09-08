@@ -339,7 +339,7 @@ export async function getStockSummary(params: ReportFilters) {
 
 export async function getStockValuation(params: ReportFilters) {
   const sb: any = await getSB();
-  let q = sb.from('product_batches').select('quantity_available, purchase_price, selling_price, product_id, branch_id, products!inner(category_id)').eq('is_active', true).gt('quantity_available', 0);
+  let q = sb.from('product_batches').select('quantity_available, purchase_price, selling_price, product_id, branch_id, products(category_id)').eq('is_active', true).gt('quantity_available', 0);
   if (params.branch_id) q = q.eq('branch_id', params.branch_id);
   const { data } = await q;
   let filtered = data as any[];
@@ -384,12 +384,12 @@ export async function getExpiryReport(params: ReportFilters) {
     const expiry = new Date(b.expiry_date); const diff = Math.ceil((expiry.getTime() - now.getTime()) / 86400000);
     const value = Number(b.quantity_available) * Number(b.purchase_price);
     const row = { ...b, days_to_expiry: diff, value_at_risk: roundToCents(value) };
-    totalAtRisk += value;
     if (diff <= 0) buckets.expired.push(row);
     else if (diff <= 30) buckets['0-30'].push(row);
     else if (diff <= 60) buckets['31-60'].push(row);
     else if (diff <= 90) buckets['61-90'].push(row);
     else buckets['90+'].push(row);
+    if (diff <= 30) totalAtRisk += value;
   }
   const requested = params.bucket;
   const filtered = requested && buckets[requested] ? buckets[requested] : Object.values(buckets).flat();

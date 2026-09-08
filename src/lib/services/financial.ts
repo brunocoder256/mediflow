@@ -4,7 +4,7 @@ import { calcCOGS, calcGrossProfit, calcNetProfit, calcInventoryValue, roundToCe
 
 export async function getInventoryValuation(params: { branch_id?: string; category_id?: string } = {}) {
   const sb: any = await getSB();
-  let q = sb.from('product_batches').select('quantity_available, purchase_price, product_id, branch_id, products!inner(category_id)').eq('is_active', true).gt('quantity_available', 0);
+  let q = sb.from('product_batches').select('quantity_available, purchase_price, product_id, branch_id, products(category_id)').eq('is_active', true).gt('quantity_available', 0);
   if (params.branch_id) q = q.eq('branch_id', params.branch_id);
   const { data, error } = await q;
   if (error) throw new Error(error.message);
