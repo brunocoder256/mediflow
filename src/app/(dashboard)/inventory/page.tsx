@@ -16,6 +16,7 @@ import { Search, Download, RefreshCw, AlertTriangle, Clock, XCircle, ArrowUpDown
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { cachedFetch } from "@/lib/offline/cached-fetch";
 import { usePendingStock, usePendingDisposals, useMediflowSynced } from "@/lib/offline/pending-overlay";
+import { rankProducts, type PosSearchable } from "@/lib/pos-search";
 
 type BatchRow = { id:string; product_id:string; branch_id:string; batch_number:string; quantity_available:number; quantity_received:number; purchase_price:number; selling_price:number; expiry_date:string; is_active:boolean; products:{name:string; generic_name?:string; sku?:string; barcode?:string; category_id?:string; reorder_level:number}; branches:{name:string}|null; suppliers?:{name:string}|null };
 
@@ -189,12 +190,29 @@ export default function InventoryPage() {
   // search across product name, generic, sku, barcode, batch, supplier, category, branch
   const rows = React.useMemo(()=>{
     const base=getRows();
-    let filtered=base.filter(r=>{
-      const q=debounced.toLowerCase();
-      if(!q) return true;
-      const hay=[r.products?.name, (r as any).products?.generic_name, (r as any).products?.sku, (r as any).products?.barcode, r.batch_number, (r as any).suppliers?.name, r.branches?.name].join(" ").toLowerCase();
-      return hay.includes(q);
-    });
+    let filtered=base;
+    // Ranked relevance search (same engine as POS) — works fully offline against
+    // the cached stock/batch rows. Exact barcode/SKU/batch and name prefixes rank
+    // before plain substrings.
+    const q=debounced.trim();
+    if(q){
+      const searchable:(PosSearchable & {__row?:any})[] = filtered.map((r:any)=>({
+        name: r.products?.name ?? "",
+        generic_name: r.products?.generic_name ?? null,
+        brand_name: null,
+        manufacturer: null,
+        dosage_form: null,
+        strength: null,
+        sku: r.products?.sku ?? null,
+        barcode: r.products?.barcode ?? null,
+        category_name: null,
+        batch_number: r.batch_number ?? null,
+        supplier_name: r.suppliers?.name ?? null,
+        location_name: r.branches?.name ?? null,
+        __row: r,
+      } as any));
+      filtered = rankProducts(searchable, q).map((s:any)=>s.__row);
+    }
     // stock status filter
     if(stockStatus!=="all"){
       filtered=filtered.filter(r=>{

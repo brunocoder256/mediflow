@@ -7,7 +7,8 @@ export async function getSalesList(params: {
 }) {
     const sb = await getSB();
     const { branch_id, page = 1, perPage = 20, status } = params;
-    let query = sb.from('sales').select('*, customers(name), profiles!sales_cashier_id_fkey(full_name)', { count: 'exact' });
+    // sale_items included so offline (cached) searches can match product name/SKU/barcode
+    let query = sb.from('sales').select('*, customers(name, phone), profiles!sales_cashier_id_fkey(full_name), sale_items(product_id, batch_id, products(name,sku,barcode))', { count: 'exact' });
     if (branch_id && branch_id !== 'all') query = query.eq('branch_id', branch_id);
     if (status && status !== 'all') query = query.eq('status', status);
     query = query.order('sold_at', { ascending: false });

@@ -20,6 +20,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Plus, Search, Eye, Edit, Trash2, Upload, Download, Barcode, Package, AlertTriangle, Clock, Shield, FileText, TrendingUp, Layers, ShoppingCart, Truck, History, Users, Filter, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { productTypes, dosageForms, strengthUnits, routes, classifications, sellingUnits } from "@/lib/validations/products";
 import { readUserContext } from "@/lib/offline/user-context";
+import { rankProducts, matchesProduct, type PosSearchable } from "@/lib/pos-search";
 
 function localDateStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -56,7 +57,7 @@ function ExpiryRisk({qty}:{qty:number}){
 export default function ProductsPage(){
   const { isOnline } = useOnlineStatus();
   const pendingProducts = usePendingProducts();
-  const [products,setProducts]=React.useState<ProductRow[]>([]);
+  const [allProducts,setAllProducts]=React.useState<ProductRow[]>([]);
   const [loading,setLoading]=React.useState(true);
   const [searchQuery,setSearchQuery]=React.useState("");
   const [debouncedSearch,setDebouncedSearch]=React.useState("");
@@ -68,7 +69,6 @@ export default function ProductsPage(){
   const [expiringOnly,setExpiringOnly]=React.useState(false);
   const [page,setPage]=React.useState(1);
   const perPage=20;
-  const [totalCount,setTotalCount]=React.useState(0);
   const [categories,setCategories]=React.useState<any[]>([]);
   const [units,setUnits]=React.useState<any[]>([]);
   const [suppliers,setSuppliers]=React.useState<any[]>([]);
@@ -117,10 +117,58 @@ export default function ProductsPage(){
   const otherUnits = React.useMemo(()=>units.filter(u=>!sellingUnits.some(s=>s.name.trim().toLowerCase()===(u.name||"").trim().toLowerCase())),[units]);
   const sellingUnitName = (id:string)=> units.find(u=>u.id===id)?.name || "";
 
+  // Client-side search + filter: rankProducts gives relevance ranking (same as POS),
+  // works offline against the cached full catalog.
+  const allProductsFiltered = React.useMemo(()=>{
+    let list = allProducts;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(categoryFilter);
+    if(categoryFilter!=="all" && isUuid) list = list.filter(p=> (p as any).category_id === categoryFilter);
+    if(categoryFilter!=="all" && !isUuid) list = list.filter((p:any)=> (p.categories?.name || "").toLowerCase() === categoryFilter.toLowerCase());
+    if(typeFilter!=="all") list = list.filter(p=> (p as any).product_type === typeFilter);
+    if(statusFilter!=="all") list = list.filter(p=> statusFilter==="active" ? p.is_active : !p.is_active);
+    if(supplierFilter!=="all") list = list.filter(p=> (p as any).preferred_supplier_id === supplierFilter);
+    if(lowStockOnly) list = list.filter(p=> (p.totalStock ?? 0) <= (p.reorder_level ?? 10));
+    if(expiringOnly) list = list.filter(p=> (p as any).expiringQty > 0);
+    const q = debouncedSearch.trim();
+    if(q) list = rankProducts(list, q);
+    return list;
+  },[allProducts, debouncedSearch, categoryFilter, typeFilter, statusFilter, supplierFilter, lowStockOnly, expiringOnly]);
+
+  // When online and local search yields no results, fall back to server search
+  // (catches products added after the catalog snapshot or not yet cached).
+  const [remoteResults,setRemoteResults]=React.useState<ProductRow[]>([]);
+  const [remoteSearching,setRemoteSearching]=React.useState(false);
+  React.useEffect(()=>{
+    const q = debouncedSearch.trim();
+    if(!q || allProductsFiltered.length > 0 || !isOnline){ setRemoteResults([]); return; }
+    const t=setTimeout(async()=>{
+      setRemoteSearching(true);
+      try{
+        const params=new URLSearchParams({ search: q, pos: "1" });
+        const r:any = await cachedFetch(`/api/products?${params.toString()}`);
+        const rows:any[] = Array.isArray(r) ? r : r.data ?? [];
+        const fresh = rows.filter((xx:any)=>xx.is_active!==false && !allProducts.some(p=>p.id===xx.id));
+        setRemoteResults(rankProducts(fresh as ProductRow[], q, 12));
+      }catch{ setRemoteResults([]); }
+      finally{ setRemoteSearching(false); }
+    },250);
+    return ()=>clearTimeout(t);
+  },[debouncedSearch, allProductsFiltered, allProducts, isOnline]);
+
+  // Merge: client-filtered first, then remote fallback
+  const displayProducts = allProductsFiltered.length > 0 ? allProductsFiltered : remoteResults;
+
   const mergedProducts = React.useMemo(()=>{
-    const pend = pendingProducts.filter(pp=>!products.some(p=>p.id===pp.id));
-    return [...pend, ...products];
-  },[pendingProducts, products]);
+    const pend = pendingProducts.filter(pp=>!displayProducts.some(p=>p.id===pp.id));
+    return [...pend, ...displayProducts];
+  },[pendingProducts, displayProducts]);
+
+  // Client-side pagination (the catalog is now filtered/fetched locally, so the
+  // previously server-side page/perPage slicing happens in the browser).
+  const pageRows = React.useMemo(
+    ()=> mergedProducts.slice((page-1)*perPage, page*perPage),
+    [mergedProducts, page, perPage]
+  );
 
   // Permissions check (simple)
   React.useEffect(()=>{
@@ -180,27 +228,18 @@ export default function ProductsPage(){
   },[searchQuery]);
   React.useEffect(()=>{ setPage(1); },[debouncedSearch, categoryFilter, typeFilter, statusFilter, supplierFilter, lowStockOnly, expiringOnly]);
 
-  // fetch products with stock enrichment
+  // fetch full product catalog once (cached by cachedFetch for offline)
+  // search + filters applied client-side so the search works offline
   const fetchProducts=React.useCallback(async ()=>{
     setLoading(true);
     try{
-      const params=new URLSearchParams();
-      if(debouncedSearch) params.set("search", debouncedSearch);
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(categoryFilter);
-      if(categoryFilter!=="all" && isUuid) params.set("category_id", categoryFilter);
-      if(typeFilter!=="all") params.set("product_type", typeFilter);
-      if(statusFilter!=="all") params.set("status", statusFilter);
-      if(supplierFilter!=="all") params.set("supplier_id", supplierFilter);
-      if(lowStockOnly) params.set("lowStock","true");
-      if(expiringOnly) params.set("expiring","true");
-      params.set("page", String(page)); params.set("perPage", String(perPage));
       const [prodRes, invRes]=await Promise.all([
-        cachedFetch(`/api/products?${params.toString()}`),
+        cachedFetch(`/api/products`),
         cachedFetch(`/api/inventory`).catch(()=>({stock:[]})),
       ]);
-      let list:any[]=[]; let count=0;
-      if(Array.isArray(prodRes)) { list=prodRes; count=prodRes.length; }
-      else if((prodRes as any).data){ list=(prodRes as any).data; count=(prodRes as any).count ?? list.length; }
+      let list:any[]=[];
+      if(Array.isArray(prodRes)) { list=prodRes; }
+      else if((prodRes as any).data){ list=(prodRes as any).data; }
       else if((prodRes as any).error) throw new Error((prodRes as any).error);
 
       // stock enrichment (single source of truth: product_batches)
@@ -217,23 +256,14 @@ export default function ProductsPage(){
           if(days>=0 && days<=30) map[pid].expiring+=Number(b.quantity_available);
         }
       }
-      const enriched:ProductRow[] = list.map((p:any)=>({
+      setAllProducts(list.map((p:any)=>({
         ...p,
         totalStock: map[p.id]?.total ?? 0,
         expiringQty: map[p.id]?.expiring ?? 0,
         batches: map[p.id]?.batches ?? [],
-      }));
-      let filtered=enriched;
-      // client fallback for therapeutic category (fallback id = name) when not yet in DB
-      if(categoryFilter!=="all" && !isUuid){
-        filtered=filtered.filter((p:any)=> (p.categories?.name || "").toLowerCase() === categoryFilter.toLowerCase());
-      }
-      if(lowStockOnly) filtered=filtered.filter(p=> (p.totalStock ?? 0) <= (p.reorder_level ?? 10));
-      if(expiringOnly) filtered=filtered.filter(p=> (p as any).expiringQty>0);
-      setProducts(filtered);
-      setTotalCount(count);
-    }catch(e){ setProducts([]); } finally{ setLoading(false); }
-  },[debouncedSearch, categoryFilter, typeFilter, statusFilter, supplierFilter, lowStockOnly, expiringOnly, page]);
+      })));
+    }catch(e){ setAllProducts([]); } finally{ setLoading(false); }
+  },[]);
 
   React.useEffect(()=>{ fetchProducts(); },[fetchProducts]);
 
@@ -249,7 +279,9 @@ export default function ProductsPage(){
     return ()=>window.removeEventListener("mediflow:synced", onSync);
   },[fetchProducts]);
 
-  const totalPages=Math.max(1, Math.ceil(totalCount/perPage));
+  // remoteResults is defined above (in the display pipeline)
+  const totalCountClient = mergedProducts.length;
+  const totalPages=Math.max(1, Math.ceil(totalCountClient/perPage));
 
   async function submitAdd(){
     if(!form.name.trim()) return alert("Product name is required");
@@ -493,7 +525,7 @@ export default function ProductsPage(){
         <CardContent className="p-0">
           {loading ? (
             <div className="p-6 space-y-4">{[...Array(6)].map((_,i)=><div key={i} className="flex gap-4"><Skeleton className="h-12 w-12"/><div className="flex-1 space-y-2"><Skeleton className="h-4 w-48"/><Skeleton className="h-3 w-32"/></div><Skeleton className="h-8 w-20"/></div>)}</div>
-          ) : products.length===0 && pendingProducts.length===0 ? (
+          ) : mergedProducts.length===0 && pendingProducts.length===0 ? (
             <EmptyState icon={Package} title="No products found" description="Adjust search/filters or add your first product." action={<Button onClick={()=>setShowAdd(true)}>Add Product</Button>}/>
           ) : (
             <>
@@ -519,7 +551,7 @@ export default function ProductsPage(){
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {mergedProducts.map(p=>{
+                    {pageRows.map(p=>{
                       const pending=isPendingRow(p);
                       return (
                       <TableRow key={p.id} className="hover:bg-muted/40">
@@ -550,7 +582,7 @@ export default function ProductsPage(){
               </div>
               {/* Mobile cards */}
               <div className="lg:hidden p-4 grid gap-3 sm:grid-cols-2">
-                {mergedProducts.map(p=>{
+                {pageRows.map(p=>{
                   const pending=isPendingRow(p);
                   return (
                   <Card key={p.id} className="overflow-hidden">
@@ -572,7 +604,7 @@ export default function ProductsPage(){
       </Card>
 
       <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">Showing {(page-1)*perPage+1}–{Math.min(page*perPage, totalCount)} of {totalCount}{(pendingProducts.length>0 && ` + ${pendingProducts.length} pending sync`)} • Page {page}/{totalPages}</p>
+        <p className="text-sm text-muted-foreground">Showing {(page-1)*perPage+1}–{Math.min(page*perPage, totalCountClient)} of {totalCountClient}{(pendingProducts.length>0 && ` + ${pendingProducts.length} pending sync`)} • Page {page}/{totalPages}</p>
         <div className="flex gap-2"><Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}><ChevronLeft className="h-4 w-4"/>Previous</Button><Button variant="outline" size="sm" disabled={page>=totalPages} onClick={()=>setPage(p=>Math.min(totalPages,p+1))}>Next<ChevronRight className="h-4 w-4 ml-1"/></Button></div>
       </div>
 

@@ -16,6 +16,8 @@ import { StatCard } from "@/components/ui/stat-card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { usePendingSales, useMediflowSynced } from "@/lib/offline/pending-overlay";
+import { cachedFetch } from "@/lib/offline/cached-fetch";
+import { rankProducts, type PosSearchable } from "@/lib/pos-search";
 
 type Sale = { id:string; sale_number:string; sold_at:string; cashier_id:string; customer_id:string|null; total:number; subtotal:number; discount:number; tax:number; status:string; branch_id:string; profiles?:{full_name:string}; customers?:{name:string; phone:string}; sale_items?: any[] };
 
@@ -76,9 +78,8 @@ export default function SalesPage(){
       const params=new URLSearchParams();
       if(branchFilter!=='all') params.set('branch_id', branchFilter);
       params.set('kpi','1');
-      const r=await fetch(`/api/sales?${params.toString()}`);
-      const j=await r.json();
-      if(r.ok) setKpi(j);
+      const j:any = await cachedFetch(`/api/sales?${params.toString()}`);
+      setKpi(j);
     }catch{}
   },[branchFilter]);
 
@@ -91,21 +92,21 @@ export default function SalesPage(){
       if(branchFilter!=="all") params.set("branch_id",branchFilter);
       if(dateFrom) params.set("date_from",dateFrom);
       if(dateTo) params.set("date_to",dateTo);
-      if(debouncedQ) params.set("search", debouncedQ);
+      // When offline, omit the server `search` param — the client-side ranked
+      // search (`displaySales`) handles filtering against the cached full list,
+      // so a disconnected user can still find any cached sale.
+      if(debouncedQ && isOnline) params.set("search", debouncedQ);
       if(customerSearch) params.set("customer_id", customerSearch);
       if(productFilter) params.set("product_id", productFilter);
       if(amountMin) params.set("amount_min", amountMin);
       if(amountMax) params.set("amount_max", amountMax);
-      params.set("page", String(page));
-      params.set("perPage", String(perPage));
-      const r=await fetch(`/api/sales?${params.toString()}`);
-      const j=await r.json();
-      if(!r.ok) throw new Error(j.error ?? 'Failed to fetch');
+      params.set("page", String(page)); params.set("perPage", String(perPage));
+      const j:any = await cachedFetch(`/api/sales?${params.toString()}`);
       setSales(j.data ?? []);
       setCount(j.count ?? (j.data?.length ?? 0));
-    }catch(e:any){ setErr(e.message); }
+    }catch(e:any){ setErr(e instanceof Error ? e.message : String(e)); }
     setLoading(false);
-  },[status,paymentMethod,branchFilter,dateFrom,dateTo,debouncedQ,customerSearch,productFilter,amountMin,amountMax,page]);
+  },[status,paymentMethod,branchFilter,dateFrom,dateTo,debouncedQ,customerSearch,productFilter,amountMin,amountMax,page,isOnline]);
 
   React.useEffect(()=>{ fetchData(); fetchKpi(); },[fetchData, fetchKpi]);
 
@@ -119,15 +120,49 @@ export default function SalesPage(){
     [pendingSales, sales, isDefaultFilters]
   );
 
-  // load branches/categories
+  // Client-side ranked search over the loaded rows — works offline against the
+  // cached sales list (same relevance engine as POS/Products/Inventory).
+  // Builds a search haystack that includes the sale's line-item products so a
+  // search on product name / SKU / barcode / batch matches the containing sale.
+  const displaySales = React.useMemo(()=>{
+    const q = (debouncedQ || "").trim();
+    if(!q) return mergedSales;
+    const searchable = mergedSales.map((s:any)=>{
+      let itemFields:any = {};
+      const items = s.sale_items ?? [];
+      if(items.length){
+        itemFields = {
+          name: items.map((i:any)=>i.products?.name ?? i.product_id).join(" "),
+          generic_name: items.map((i:any)=>i.products?.generic_name ?? "").join(" "),
+          sku: items.map((i:any)=>i.products?.sku ?? "").join(" "),
+          barcode: items.map((i:any)=>i.products?.barcode ?? "").join(" "),
+          batch_number: items.map((i:any)=>i.product_batches?.batch_number ?? "").join(" "),
+        };
+      }
+      return {
+        name: s.customers?.name ?? "",
+        sale_number: s.sale_number ?? null,
+        customer_name: s.customers?.name ?? null,
+        customer_phone: s.customers?.phone ?? null,
+        cashier_name: s.profiles?.full_name ?? null,
+        payment_method: s.payments?.[0]?.payment_method ?? null,
+        payment_reference: s.payments?.[0]?.reference ?? null,
+        ...itemFields,
+        __row: s,
+      } as any;
+    });
+    return rankProducts(searchable, q).map((x:any)=>x.__row);
+  },[mergedSales, debouncedQ]);
+
+  // load branches/categories (cached for offline)
   React.useEffect(()=>{
-    fetch("/api/settings").then(r=>r.json()).then(j=>{ if(j.branches) setBranches(j.branches); }).catch(()=>{});
-    fetch("/api/categories").then(r=>r.json()).then(j=>{ if(Array.isArray(j)) setCategories(j); }).catch(()=>{});
+    cachedFetch("/api/settings").then((j:any)=>{ if(j.branches) setBranches(j.branches); }).catch(()=>{});
+    cachedFetch("/api/categories").then((j:any)=>{ if(Array.isArray(j)) setCategories(j); }).catch(()=>{});
   },[]);
 
   const openDetail=async(id:string)=>{
     // optimistic: find in list for header
-    const found=mergedSales.find(s=>s.id===id);
+    const found=displaySales.find(s=>s.id===id);
     if(found && (found as any).pendingSync){
       setDetail(found);
       setDetailTab("overview");
@@ -136,10 +171,9 @@ export default function SalesPage(){
     setDetail(found ? {...found, _loading:true} : {_loading:true, id});
     setDetailTab("overview");
     try{
-      const r=await fetch(`/api/sales?id=${id}`);
-      const j=await r.json();
-      if(r.ok) setDetail(j);
-      else setDetail({...found, error:j.error});
+      const j:any = await cachedFetch(`/api/sales?id=${id}`);
+      if(j) setDetail(j);
+      else setDetail(found);
     }catch{ setDetail(found); }
   };
 
@@ -212,7 +246,7 @@ export default function SalesPage(){
             <Input type="date" value={dateTo} onChange={e=>{setDateTo(e.target.value); setPage(1);}} className="w-[150px]"/>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">Search is server-side (sale/customer/product/SKU/barcode/batch/payment ref). Use branch/date/payment filters for large datasets — pagination {count} total.</p>
+        <p className="text-xs text-muted-foreground">Search matches sale #, customer, phone, product, SKU, barcode, batch, cashier, payment ref. Works offline against cached sales. Use branch/date/payment filters for large datasets — pagination {count} total.</p>
       </CardContent></Card>
 
       {err && <Card><CardContent className="p-4 text-sm text-destructive flex items-center gap-2"><AlertTriangle className="h-4 w-4"/>{err}</CardContent></Card>}
@@ -220,12 +254,12 @@ export default function SalesPage(){
       {/* List */}
       <Card><CardContent className="p-0">
         {loading ? <div className="p-6 space-y-4">{[...Array(5)].map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
-        : mergedSales.length===0 ? <EmptyState icon={ShoppingCart} title="No sales found" description="Try adjusting search or date range. POS sales appear here after completion." action={<Button variant="outline" size="sm" onClick={()=>window.location.href='/pos'}>Go to POS</Button>}/>
+        : displaySales.length===0 ? <EmptyState icon={ShoppingCart} title="No sales found" description="Try adjusting search or date range. POS sales appear here after completion." action={<Button variant="outline" size="sm" onClick={()=>window.location.href='/pos'}>Go to POS</Button>}/>
         : <>
           <div className="hidden lg:block overflow-x-auto">
             <Table><TableHeader><TableRow><TableHead>Sale #</TableHead><TableHead>Date</TableHead><TableHead>Customer</TableHead><TableHead className="text-center">Items</TableHead><TableHead className="text-right">Total</TableHead><TableHead>Payment</TableHead><TableHead>Status</TableHead><TableHead>Cashier</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
             <TableBody>
-              {mergedSales.map(s=>(
+              {displaySales.map(s=>(
                 <TableRow key={s.id} className="hover:bg-muted/40 cursor-pointer" onClick={()=>openDetail(s.id)}>
                   <TableCell className="font-mono text-xs font-medium">{s.sale_number}<div className="text-[10px] text-muted-foreground">{s.id.slice(0,6)}</div></TableCell>
                   <TableCell className="text-xs">{new Date(s.sold_at).toLocaleString()}</TableCell>
@@ -250,7 +284,7 @@ export default function SalesPage(){
 
           {/* Mobile cards */}
           <div className="lg:hidden p-3 grid gap-3">
-            {mergedSales.map(s=>(
+            {displaySales.map(s=>(
               <Card key={s.id} className="cursor-pointer" onClick={()=>openDetail(s.id)}><CardContent className="p-3 space-y-2">
                 <div className="flex justify-between"><span className="font-mono text-xs">{s.sale_number}</span>{statusBadge(s.status)}</div>
                 <div className="flex justify-between text-xs"><span>{new Date(s.sold_at).toLocaleDateString()} • {s.customers?.name ?? 'Walk-in'}</span><span className="font-bold">{formatUGX(Number(s.total))}</span></div>

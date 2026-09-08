@@ -119,3 +119,52 @@ describe("pos-search haystack", () => {
     expect(h === h.toLowerCase()).toBe(true);
   });
 });
+
+describe("pos-search extended offline fields (Inventory / Sales)", () => {
+  it("matches on batch number (inventory)", () => {
+    const inv = product({ batch_number: "BAT-2024-0001" });
+    expect(matchesProduct(inv, "bat-2024")).toBe(true);
+    expect(matchesProduct(inv, "0001")).toBe(true);
+  });
+
+  it("matches on supplier name (inventory)", () => {
+    const inv = product({ supplier_name: "MediPharm Uganda Ltd" });
+    expect(matchesProduct(inv, "medipharm")).toBe(true);
+  });
+
+  it("matches on branch / location name (inventory)", () => {
+    const inv = product({ location_name: "Branch A - Kampala" });
+    expect(matchesProduct(inv, "kampala")).toBe(true);
+  });
+
+  it("matches on sale number (sales)", () => {
+    const sale = product({ name: "Walk-in", sale_number: "S-2026-0042" });
+    expect(matchesProduct(sale, "s-2026-0042")).toBe(true);
+    expect(matchesProduct(sale, "0042")).toBe(true);
+  });
+
+  it("matches on customer name & phone (sales)", () => {
+    const sale = product({ name: "", customer_name: "John Doe", customer_phone: "+256700123456" });
+    expect(matchesProduct(sale, "john doe")).toBe(true);
+    expect(matchesProduct(sale, "700123456")).toBe(true);
+  });
+
+  it("matches on cashier / payment info (sales)", () => {
+    const sale = product({ name: "", cashier_name: "Jane Cashier", payment_method: "MOBILE_MONEY", payment_reference: "REF-99123" });
+    expect(matchesProduct(sale, "jane")).toBe(true);
+    expect(matchesProduct(sale, "mobile")).toBe(true);
+    expect(matchesProduct(sale, "99123")).toBe(true);
+  });
+
+  it("exact sale number ranks above substring", () => {
+    const a = product({ name: "Walk-in", sale_number: "S-2026-0042" });
+    const b = product({ name: "Walk-in", sale_number: "S-2025-10042" });
+    expect(scoreProduct(a, "s-2026-0042")).toBeGreaterThan(scoreProduct(b, "s-2026-0042"));
+  });
+
+  it("multi-field sale search still requires all tokens", () => {
+    const sale = product({ name: "Walk-in", customer_name: "John Doe", payment_method: "MOBILE_MONEY" });
+    expect(matchesProduct(sale, "john mobile")).toBe(true);
+    expect(matchesProduct(sale, "john cash")).toBe(false);
+  });
+});

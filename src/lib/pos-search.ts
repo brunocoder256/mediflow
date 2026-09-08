@@ -1,4 +1,8 @@
-// Fast, relevance-ranked product search shared by the POS.
+// Fast, relevance-ranked search shared by POS, Products, Inventory, and Sales.
+//
+// `PosSearchable` covers product master fields.  Inventory and Sales extend it
+// with optional batch / supplier / sale fields so the same ranking engine can
+// be used for offline search across all read-heavy pages.
 
 export type PosSearchable = {
   name: string;
@@ -10,6 +14,23 @@ export type PosSearchable = {
   sku?: string | null;
   barcode?: string | null;
   category_name?: string | null;
+  /** Inventory: batch number */
+  batch_number?: string | null;
+  /** Inventory: supplier name */
+  supplier_name?: string | null;
+  /** Inventory: branch / location name */
+  location_name?: string | null;
+  /** Sales: sale number */
+  sale_number?: string | null;
+  /** Sales: customer name */
+  customer_name?: string | null;
+  /** Sales: customer phone */
+  customer_phone?: string | null;
+  /** Sales: cashier name */
+  cashier_name?: string | null;
+  /** Sales: payment method / reference */
+  payment_method?: string | null;
+  payment_reference?: string | null;
 };
 
 export function productHaystack(p: PosSearchable): string {
@@ -23,6 +44,15 @@ export function productHaystack(p: PosSearchable): string {
     p.sku,
     p.barcode,
     p.category_name,
+    p.batch_number,
+    p.supplier_name,
+    p.location_name,
+    p.sale_number,
+    p.customer_name,
+    p.customer_phone,
+    p.cashier_name,
+    p.payment_method,
+    p.payment_reference,
   ]
     .filter(Boolean)
     .map((v) => String(v).toLowerCase())
