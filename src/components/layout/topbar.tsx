@@ -26,7 +26,7 @@ import {
   Wifi,
   WifiOff,
   ChevronsUpDown,
-  Trash2,
+  LogOut,
 } from "lucide-react";
 
 interface TopbarProps {
@@ -142,16 +142,16 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
         {/* Notifications — real, live from the database */}
         <NotificationsMenu />
 
-        {/* Clear / Sign out */}
+        {/* Logout */}
         <Button
           variant="ghost"
           size="icon"
           className="relative h-9 w-9"
-          title="Clear / Sign out"
+          title="Logout"
           onClick={handleLogout}
         >
-          <Trash2 className="h-4 w-4 text-destructive" />
-          <span className="sr-only">Clear / Sign out</span>
+          <LogOut className="h-4 w-4 text-destructive" />
+          <span className="sr-only">Logout</span>
         </Button>
 
         {/* Theme Toggle */}
