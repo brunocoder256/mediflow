@@ -22,12 +22,12 @@ import {
   Menu,
   User,
   Settings,
-  LogOut,
   CheckCircle2,
   AlertCircle,
   Wifi,
   WifiOff,
   ChevronsUpDown,
+  Trash2,
 } from "lucide-react";
 
 interface TopbarProps {
@@ -143,6 +143,18 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
         {/* Notifications — real, live from the database */}
         <NotificationsMenu />
 
+        {/* Clear / Sign out */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative h-9 w-9"
+          title="Clear / Sign out"
+          onClick={handleLogout}
+        >
+          <Trash2 className="h-4 w-4 text-destructive" />
+          <span className="sr-only">Clear / Sign out</span>
+        </Button>
+
         {/* Theme Toggle */}
         <ThemeToggle />
 
@@ -171,11 +183,6 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
             <DropdownMenuItem onSelect={() => window.location.assign("/settings")}>
               <Settings className="mr-2 h-4 w-4" />
               <span>Settings</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-red-600" onSelect={handleLogout}>
-              <LogOut className="mr-2 h-4 w-4" />
-              <span>Log out</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
