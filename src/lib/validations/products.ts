@@ -34,6 +34,51 @@ export const dosageForms = [
 ] as const;
 
 export const strengthUnits = ["mg", "g", "mcg", "ml", "IU", "%", "mg/ml", "units"] as const;
+
+// Curated Selling Unit vocabulary (docs/sellingunit.md) — the recommended
+// dropdown order for the product "Selling Unit" field. Entries are provisioned
+// into the org-scoped `units` table on demand so product.unit_id keeps its FK.
+export const sellingUnits = [
+  { name: "Tablet", abbreviation: "tab" },
+  { name: "Capsule", abbreviation: "cap" },
+  { name: "Softgel", abbreviation: "softgel" },
+  { name: "Pill", abbreviation: "pill" },
+  { name: "Sachet", abbreviation: "sach" },
+  { name: "Strip", abbreviation: "strip" },
+  { name: "Blister", abbreviation: "blister" },
+  { name: "Packet", abbreviation: "pkt" },
+  { name: "Bottle", abbreviation: "btl" },
+  { name: "Vial", abbreviation: "vial" },
+  { name: "Ampoule", abbreviation: "amp" },
+  { name: "Tube", abbreviation: "tube" },
+  { name: "Jar", abbreviation: "jar" },
+  { name: "Dose", abbreviation: "dose" },
+  { name: "Piece (pcs)", abbreviation: "pcs" },
+  { name: "Millilitre (mL)", abbreviation: "mL" },
+  { name: "Litre (L)", abbreviation: "L" },
+  { name: "Gram (g)", abbreviation: "g" },
+  { name: "Kilogram (kg)", abbreviation: "kg" },
+  { name: "Syringe", abbreviation: "syr" },
+  { name: "Prefilled Syringe", abbreviation: "psyr" },
+  { name: "Cartridge", abbreviation: "cart" },
+  { name: "Pen", abbreviation: "pen" },
+  { name: "Inhaler", abbreviation: "inh" },
+  { name: "Patch", abbreviation: "patch" },
+  { name: "Suppository", abbreviation: "sup" },
+  { name: "Pessary", abbreviation: "pess" },
+  { name: "Kit", abbreviation: "kit" },
+  { name: "Set", abbreviation: "set" },
+  { name: "Pair", abbreviation: "pr" },
+  { name: "Roll", abbreviation: "roll" },
+  { name: "Pad", abbreviation: "pad" },
+  { name: "Pack", abbreviation: "pack" },
+  { name: "Box", abbreviation: "box" },
+  { name: "Carton", abbreviation: "ctn" },
+  { name: "Device", abbreviation: "device" },
+  { name: "Applicator", abbreviation: "applic" },
+] as const;
+
+export type SellingUnit = (typeof sellingUnits)[number];
 export const routes = ["Oral", "Topical", "Ophthalmic", "Otic", "Nasal", "Inhalation", "Injection", "Rectal", "Vaginal", "Other"] as const;
 export const classifications = ["OTC", "Prescription", "Controlled", "Herbal", "Supplement"] as const;
 export const taxCategories = ["standard", "zero", "exempt"] as const;

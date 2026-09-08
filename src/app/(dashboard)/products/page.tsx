@@ -18,7 +18,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Plus, Search, Eye, Edit, Trash2, Upload, Download, Barcode, Package, AlertTriangle, Clock, Shield, FileText, TrendingUp, Layers, ShoppingCart, Truck, History, Users, Filter, X, ChevronLeft, ChevronRight } from "lucide-react";
-import { productTypes, dosageForms, strengthUnits, routes, classifications } from "@/lib/validations/products";
+import { productTypes, dosageForms, strengthUnits, routes, classifications, sellingUnits } from "@/lib/validations/products";
+import { readUserContext } from "@/lib/offline/user-context";
 
 function localDateStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -104,6 +105,18 @@ export default function ProductsPage(){
     return merged;
   },[categoryFilter]);
 
+  // Selling Unit options — curated vocabulary (docs/sellingunit.md) in the
+  // recommended order, then custom org units so existing products stay editable.
+  // Options resolve to real units.id values only, keeping product.unit_id as a
+  // valid FK (offline-safe after the first online load provisions the list).
+  const sellingUnitNameById = React.useMemo(()=>{
+    const m:Record<string,string>={};
+    for(const u of units) m[(u.name||"").trim().toLowerCase()]=u.id;
+    return m;
+  },[units]);
+  const otherUnits = React.useMemo(()=>units.filter(u=>!sellingUnits.some(s=>s.name.trim().toLowerCase()===(u.name||"").trim().toLowerCase())),[units]);
+  const sellingUnitName = (id:string)=> units.find(u=>u.id===id)?.name || "";
+
   const mergedProducts = React.useMemo(()=>{
     const pend = pendingProducts.filter(pp=>!products.some(p=>p.id===pp.id));
     return [...pend, ...products];
@@ -129,14 +142,33 @@ export default function ProductsPage(){
       try{
         const {createBrowserClient}=await import("@/lib/supabase/client");
         const sb=createBrowserClient();
-        const [{data:cats},{data:uns},{data:sups}]=await Promise.all([
+        const [{data:cats},{data:sups}]=await Promise.all([
           sb.from("categories").select("id, name").eq("is_active",true).order("name"),
-          sb.from("units").select("id, name, abbreviation").order("name"),
           sb.from("suppliers").select("id, name").eq("is_active",true).order("name").limit(50),
         ]);
         if(cats) setCategories(cats);
-        if(uns) setUnits(uns);
         if(sups) setSuppliers(sups);
+        // Provision the curated Selling Unit vocabulary (docs/sellingunit.md) for
+        // this org so the dropdown resolves to real units.id values (FK intact,
+        // works offline after first load). Idempotent — inserts missing names only.
+        let uns:any[]=[];
+        const {data:existing}=await sb.from("units").select("id, name, abbreviation").order("name");
+        if(existing) uns=existing;
+        const have=new Set(uns.map((u:any)=>u.name.trim().toLowerCase()));
+        const missing=sellingUnits.filter(s=>!have.has(s.name.trim().toLowerCase()));
+        if(missing.length>0){
+          let orgId=readUserContext()?.organization_id || null;
+          if(!orgId){
+            const { data:user }=await sb.auth.getUser();
+            const { data:pid }=await (sb.from("profiles") as any).select("organization_id").eq("auth_user_id", user?.user?.id).maybeSingle();
+            orgId=pid?.organization_id ?? null;
+          }
+          if(orgId){
+            const {data:created,error}=await (sb.from("units") as any).insert(missing.map(s=>({ organization_id: orgId, name: s.name, abbreviation: s.abbreviation }))).select("id, name, abbreviation");
+            if(!error && created){ uns=[...uns, ...created]; }
+          }
+        }
+        setUnits(uns);
       }catch{}
     })();
   },[]);
@@ -460,6 +492,7 @@ export default function ProductsPage(){
                       <TableHead>Category</TableHead>
                       <TableHead>Form</TableHead>
                       <TableHead>Strength</TableHead>
+                      <TableHead>Selling Unit</TableHead>
                       <TableHead className="text-right">Stock</TableHead>
                       <TableHead className="text-right">Price</TableHead>
                       <TableHead>Status</TableHead>
@@ -480,6 +513,7 @@ export default function ProductsPage(){
                         <TableCell>{(p as any).categories?.name || "—"}</TableCell>
                         <TableCell>{(p as any).dosage_form||"—"}</TableCell>
                         <TableCell>{(p as any).strength ? `${(p as any).strength}${(p as any).strength_unit||""}`:"—"}</TableCell>
+                        <TableCell>{(p as any).units?.name || sellingUnitName((p as any).unit_id) || "—"}</TableCell>
                         <TableCell className="text-right font-medium">{p.totalStock ?? 0}</TableCell>
                         <TableCell className="text-right">{(p as any).default_selling_price ? `UGX ${Number((p as any).default_selling_price).toLocaleString()}` : "—"}</TableCell>
                         <TableCell><Badge variant={p.is_active ? "success":"secondary"}>{p.is_active ? "Active":"Inactive"}</Badge></TableCell>
@@ -507,6 +541,7 @@ export default function ProductsPage(){
                       <div className="flex justify-between gap-2"><p className="font-semibold line-clamp-2">{p.name}</p>{pending ? <Badge variant="warning">Pending sync</Badge> : <Badge variant={p.is_active?"success":"secondary"}>{p.is_active?"Active":"Inactive"}</Badge>}</div>
                       {p.generic_name && <p className="text-xs text-muted-foreground">{p.generic_name} • {(p as any).brand_name||""}</p>}
                       <div className="flex flex-wrap gap-1 text-xs"><span className="font-mono">{p.sku||"No SKU"}</span>{p.barcode && <span className="inline-flex items-center gap-1"><Barcode className="h-3 w-3"/>{p.barcode}</span>}</div>
+                      {(p as any).units?.name || sellingUnitName((p as any).unit_id) ? <div className="text-xs text-muted-foreground">Selling unit: <strong>{(p as any).units?.name || sellingUnitName((p as any).unit_id)}</strong></div> : null}
                       <div className="flex flex-wrap gap-1"><StockBadge stock={p.totalStock??0} reorder={p.reorder_level} expiring={(p as any).expiringQty??0}/> {(p as any).expiringQty>0 && <ExpiryRisk qty={(p as any).expiringQty}/>}</div>
                       <div className="flex justify-between text-sm"><span>Stock: <strong>{p.totalStock ?? 0}</strong></span><span>{(p as any).default_selling_price ? `UGX ${Number((p as any).default_selling_price).toLocaleString()}`:"—"}</span></div>
                       <div className="flex gap-1"><Button size="sm" variant="outline" className="flex-1" disabled={pending} title={pending?"Pending sync": undefined} onClick={()=>openDetail(p.id)}><Eye className="h-4 w-4 mr-1"/>View</Button><Button size="sm" variant="outline" className="flex-1" disabled={pending} title={pending?"Pending sync": undefined} onClick={()=>handleEdit(p as any)}><Edit className="h-4 w-4 mr-1"/>Edit</Button></div>
@@ -554,6 +589,7 @@ export default function ProductsPage(){
                   <div><span className="text-muted-foreground">Type:</span> {detail.product.product_type||"—"}</div>
                   <div><span className="text-muted-foreground">Form:</span> {detail.product.dosage_form||"—"}</div>
                   <div><span className="text-muted-foreground">Strength:</span> {detail.product.strength ? `${detail.product.strength}${detail.product.strength_unit||""}`:"—"}</div>
+                  <div><span className="text-muted-foreground">Selling Unit:</span> {detail.product.units?.name || sellingUnitName(detail.product.unit_id) || "—"}</div>
                   <div><span className="text-muted-foreground">Manufacturer:</span> {detail.product.manufacturer||"—"}</div>
                   <div><span className="text-muted-foreground">Country:</span> {detail.product.country_of_origin||"—"}</div>
                   <div><span className="text-muted-foreground">Reg No:</span> {detail.product.registration_number||"—"}</div>
@@ -632,7 +668,25 @@ export default function ProductsPage(){
                 <div><Label>Units per Pack</Label><Input type="number" value={form.units_per_pack} onChange={e=>setForm({...form, units_per_pack:e.target.value})}/></div>
               </div>
               <div className="grid md:grid-cols-2 gap-3">
-                <div><Label>Selling Unit</Label><Select value={form.unit_id} onChange={e=>setForm({...form, unit_id:e.target.value})}><option value="">Select</option>{units.map(u=><option key={u.id} value={u.id}>{u.name} {u.abbreviation&&`(${u.abbreviation})`}</option>)}</Select></div>
+                <div><Label>Selling Unit</Label>
+                  <Select value={form.unit_id} onChange={e=>setForm({...form, unit_id:e.target.value})}>
+                    <option value="">Select selling unit</option>
+                    {sellingUnits.filter(s=>sellingUnitNameById[s.name.trim().toLowerCase()]).length>0 && (
+                      <optgroup label="Recommended">
+                        {sellingUnits.map(s=>{
+                          const id=sellingUnitNameById[s.name.trim().toLowerCase()];
+                          if(!id) return null;
+                          return <option key={id} value={id}>{s.name}</option>;
+                        })}
+                      </optgroup>
+                    )}
+                    {otherUnits.length>0 && (
+                      <optgroup label="Other units">
+                        {otherUnits.map(u=><option key={u.id} value={u.id}>{u.name} {u.abbreviation&&`(${u.abbreviation})`}</option>)}
+                      </optgroup>
+                    )}
+                  </Select>
+                </div>
                 <div><Label>Manufacturer</Label><Input value={form.manufacturer} onChange={e=>setForm({...form, manufacturer:e.target.value})} placeholder="MediPharm Ltd"/></div>
               </div>
               <div className="grid md:grid-cols-3 gap-3">
@@ -708,7 +762,7 @@ export default function ProductsPage(){
 
           {addStep===6 && (
             <div className="space-y-3 text-sm">
-              <Card><CardContent className="p-4 space-y-1"><p><strong>Name:</strong> {form.name} {form.strength && `${form.strength}${form.strength_unit}`} ({form.dosage_form||"—"})</p><p><strong>SKU:</strong> {form.sku||"—"} • <strong>Barcode:</strong> {form.barcode||"—"} • <strong>Type:</strong> {form.product_type}</p><p><strong>Category:</strong> {categoryOptions.find((c:any)=>c.id===form.category_id)?.name || form.category_id || "—"} • <strong>Manuf:</strong> {form.manufacturer||"—"} • <strong>Reg:</strong> {form.registration_number||"—"}</p><p><strong>Stock:</strong> Reorder {form.reorder_level} • Min {form.min_stock} • Max {form.max_stock||"—"} • Loc {form.storage_location||"—"} {form.shelf&&`S:${form.shelf}`} </p><p><strong>Pricing:</strong> Cost {form.default_purchase_cost||"—"} • Sell {form.default_selling_price||"—"} • Tax {form.tax_category}</p><p><strong>Supplier:</strong> {suppliers.find(s=>s.id===form.preferred_supplier_id)?.name||"—"}</p>{!editingId && form.opening_enabled && Number(form.opening_quantity)>0 && <p><strong>Opening stock:</strong> {form.opening_quantity} units{form.opening_batch_number?` · Batch ${form.opening_batch_number}`:''} · Exp {form.opening_expiry_date||"auto +2y"}</p>}</CardContent></Card>
+              <Card><CardContent className="p-4 space-y-1"><p><strong>Name:</strong> {form.name} {form.strength && `${form.strength}${form.strength_unit}`} ({form.dosage_form||"—"})</p><p><strong>SKU:</strong> {form.sku||"—"} • <strong>Barcode:</strong> {form.barcode||"—"} • <strong>Type:</strong> {form.product_type}</p><p><strong>Category:</strong> {categoryOptions.find((c:any)=>c.id===form.category_id)?.name || form.category_id || "—"} • <strong>Manuf:</strong> {form.manufacturer||"—"} • <strong>Reg:</strong> {form.registration_number||"—"}</p><p><strong>Selling Unit:</strong> {sellingUnitName(form.unit_id) || "—"}</p><p><strong>Stock:</strong> Reorder {form.reorder_level} • Min {form.min_stock} • Max {form.max_stock||"—"} • Loc {form.storage_location||"—"} {form.shelf&&`S:${form.shelf}`} </p><p><strong>Pricing:</strong> Cost {form.default_purchase_cost||"—"} • Sell {form.default_selling_price||"—"} • Tax {form.tax_category}</p><p><strong>Supplier:</strong> {suppliers.find(s=>s.id===form.preferred_supplier_id)?.name||"—"}</p>{!editingId && form.opening_enabled && Number(form.opening_quantity)>0 && <p><strong>Opening stock:</strong> {form.opening_quantity} units{form.opening_batch_number?` · Batch ${form.opening_batch_number}`:''} · Exp {form.opening_expiry_date||"auto +2y"}</p>}</CardContent></Card>
               <p className="text-xs text-muted-foreground">Review — go back to edit any step. Saving creates the product; if opening stock was set it also creates a FEFO batch, immediately sellable in POS. Without it, stock stays 0 until a purchase is received.</p>
             </div>
           )}
