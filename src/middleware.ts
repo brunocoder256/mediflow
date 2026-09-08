@@ -35,7 +35,7 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
 }
 
 function applyCorsHeaders(response: NextResponse, origin: string | null): NextResponse {
-  const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:3000,http://localhost:3333,https://mediflow.vercel.app")
+  const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:3000,http://localhost:3333,https://mediflow.vercel.app,https://www.mediflowiq.online,https://mediflowiq.online")
     .split(",")
     .map((o) => o.trim());
   const allowedOrigin = origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
