@@ -494,7 +494,8 @@ export default function PosPage(){
       customer_id: selectedCustomer?.id || undefined,
       items: itemsForPayload,
       payments: paymentsForPayload,
-      operation_id: op
+      operation_id: op,
+      sold_at: new Date().toISOString()
     };
     // Offline queue — build a local pending receipt so the cashier sees & prints it now.
     if(!isOnline){

@@ -442,7 +442,7 @@ export function usePendingSales(): PendingSaleRow[] {
             id: q.id,
             operation_id: q.operation_id ?? null,
             sale_number: "PENDING…",
-            sold_at: q.created_at ?? new Date().toISOString(),
+            sold_at: p.sold_at ?? q.created_at ?? new Date().toISOString(),
             cashier_id: "",
             customer_id: p.customer_id ?? null,
             total,

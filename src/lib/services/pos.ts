@@ -63,6 +63,7 @@ export async function createSaleTransaction(input:{
   held?: boolean;
   discount_override?: number;
   notes?: string;
+  sold_at?: string;
 }){
   const sb:any=await getSB();
   const pid=await getProfileId();
@@ -88,7 +89,8 @@ export async function createSaleTransaction(input:{
       p_items: JSON.parse(JSON.stringify(input.items)),
       p_payments: JSON.parse(JSON.stringify(input.payments)),
       p_operation_id: input.operation_id ?? null,
-      p_held: !!input.held
+      p_held: !!input.held,
+      p_sold_at: input.sold_at ?? null
     });
     if (!rpcError && rpcData) {
       const res:any = rpcData;
@@ -142,7 +144,7 @@ export async function createSaleTransaction(input:{
     }
     const {data: sale, error}=await sb.from('sales').insert({
       organization_id: orgId, branch_id: input.branch_id, sale_number: saleNumber, customer_id: input.customer_id ?? null,
-      status:'HELD', subtotal: roundToCents(subtotal), discount:0, tax:0, total: roundToCents(total), cashier_id: pid, operation_id: input.operation_id ?? null, sold_at: new Date().toISOString()
+      status:'HELD', subtotal: roundToCents(subtotal), discount:0, tax:0, total: roundToCents(total), cashier_id: pid, operation_id: input.operation_id ?? null, sold_at: input.sold_at ?? new Date().toISOString()
     }).select().single();
     if(error) throw new Error(error.message);
     // sale_items for HELD
@@ -208,7 +210,7 @@ export async function createSaleTransaction(input:{
   const saleNumber=`SALE-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
   const {data: sale, error: saleErr}=await sb.from('sales').insert({
     organization_id: orgId, branch_id: input.branch_id, sale_number: saleNumber, customer_id: input.customer_id ?? null,
-    status:'COMPLETED', subtotal: saleSubtotal, discount:0, tax:0, total: saleTotal, cashier_id: pid, operation_id: input.operation_id ?? null, sold_at: new Date().toISOString()
+    status:'COMPLETED', subtotal: saleSubtotal, discount:0, tax:0, total: saleTotal, cashier_id: pid, operation_id: input.operation_id ?? null, sold_at: input.sold_at ?? new Date().toISOString()
   }).select().single();
   if(saleErr){
     // rollback decrements

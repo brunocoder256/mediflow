@@ -23,6 +23,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { createBrowserClient } from "@/lib/supabase/client";
+import { usePendingSales } from "@/lib/offline/pending-overlay";
 import {
   Area,
   AreaChart,
@@ -59,6 +60,7 @@ export default function DashboardPage() {
   const [userName, setUserName] = React.useState("");
   const [todayLabel, setTodayLabel] = React.useState("");
   const [data, setData] = React.useState<any>(null);
+  const pendingSales = usePendingSales();
 
   React.useEffect(() => {
     const hour = new Date().getHours();
@@ -77,27 +79,50 @@ export default function DashboardPage() {
   }, []);
 
   const fmt = (n: number) => UGX.format(n ?? 0);
+
+  // Overlay unsynced offline sales (from IndexedDB) on the server "today" figures
+  // so a user working offline still sees today's true sales even before sync.
+  const todayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const todayOffsetPending = React.useMemo(() => {
+    const today = todayKey(new Date());
+    const rows = (pendingSales ?? []).filter((p: any) => {
+      try { return todayKey(new Date(p.sold_at)) === today; } catch { return false; }
+    });
+    let amount = 0;
+    for (const r of rows) amount += Number(r.total ?? 0);
+    return { amount, count: rows.length };
+  }, [pendingSales]);
+
+  const offlineTodayTxns = React.useMemo(() => {
+    const today = todayKey(new Date());
+    return (pendingSales ?? [])
+      .filter((p: any) => { try { return todayKey(new Date(p.sold_at)) === today; } catch { return false; } })
+      .map((p: any) => ({ id: p.id, sale_number: p.sale_number ?? "PENDING…", sold_at: p.sold_at, total: p.total, status: "PENDING_SYNC" }));
+  }, [pendingSales]);
+
+  const merged = data ? { ...data, todaySales: (data.todaySales ?? 0) + todayOffsetPending.amount, todayCount: (data.todayCount ?? 0) + todayOffsetPending.count } : data;
+
   const trendOf = (cur: number, prev: number) => {
     if (!prev || prev <= 0) return { trend: "neutral" as const, trendValue: "" };
     const pct = Math.abs(Math.round((((cur ?? 0) - prev) / prev) * 1000) / 10);
     return { trend: ((cur ?? 0) >= prev ? "up" : "down") as "up" | "down", trendValue: `${pct}% vs yesterday` };
   };
 
-  const salesTrend = data ? trendOf(data.todaySales, data.todaySalesLast) : { trend: "neutral" as const, trendValue: "" };
-  const txTrend = data ? trendOf(data.todayCount, data.todayCountLast) : { trend: "neutral" as const, trendValue: "" };
-  const profitTrend = data ? trendOf(data.grossProfit, data.grossProfitLast) : { trend: "neutral" as const, trendValue: "" };
-  const expTrend = data ? trendOf(data.expenses, data.expensesLast) : { trend: "neutral" as const, trendValue: "" };
+  const salesTrend = merged ? trendOf(merged.todaySales, merged.todaySalesLast) : { trend: "neutral" as const, trendValue: "" };
+  const txTrend = merged ? trendOf(merged.todayCount, merged.todayCountLast) : { trend: "neutral" as const, trendValue: "" };
+  const profitTrend = merged ? trendOf(merged.grossProfit, merged.grossProfitLast) : { trend: "neutral" as const, trendValue: "" };
+  const expTrend = merged ? trendOf(merged.expenses, merged.expensesLast) : { trend: "neutral" as const, trendValue: "" };
 
-  const kpis = data
+  const kpis = merged
     ? [
-        { title: "Today's Sales", value: fmt(data.todaySales), icon: ShoppingCart, description: `${data.todayCount} transactions`, ...salesTrend },
-        { title: "Transactions", value: String(data.todayCount ?? 0), icon: Receipt, description: "Completed today", ...txTrend },
-        { title: "Gross Profit", value: fmt(data.grossProfit), icon: TrendingUp, description: "Today (net of discounts)", ...profitTrend },
-        { title: "Net Profit", value: fmt(data.netProfit), icon: Wallet, description: "After expenses" },
-        { title: "Expenses", value: fmt(data.expenses), icon: DollarSign, description: "Today", ...expTrend },
-        { title: "Low Stock", value: String(data.lowStock ?? 0), icon: AlertTriangle, description: "Items below minimum", accent: "text-amber-500" },
-        { title: "Expiring Soon", value: String(data.expiringSoon ?? 0), icon: Clock, description: "Within 30 days", accent: "text-orange-500" },
-        { title: "Expired Items", value: String(data.expired ?? 0), icon: XCircle, description: "Need removal", accent: "text-red-500" },
+        { title: "Today's Sales", value: fmt(merged.todaySales), icon: ShoppingCart, description: `${merged.todayCount} transactions${todayOffsetPending.count ? ` (+${todayOffsetPending.count} offline)` : ""}`, ...salesTrend },
+        { title: "Transactions", value: String(merged.todayCount ?? 0), icon: Receipt, description: todayOffsetPending.count ? `${todayOffsetPending.count} pending offline sync` : "Completed today", ...txTrend },
+        { title: "Gross Profit", value: fmt(merged.grossProfit), icon: TrendingUp, description: "Today (net of discounts)", ...profitTrend },
+        { title: "Net Profit", value: fmt(merged.netProfit), icon: Wallet, description: "After expenses" },
+        { title: "Expenses", value: fmt(merged.expenses), icon: DollarSign, description: "Today", ...expTrend },
+        { title: "Low Stock", value: String(merged.lowStock ?? 0), icon: AlertTriangle, description: "Items below minimum", accent: "text-amber-500" },
+        { title: "Expiring Soon", value: String(merged.expiringSoon ?? 0), icon: Clock, description: "Within 30 days", accent: "text-orange-500" },
+        { title: "Expired Items", value: String(merged.expired ?? 0), icon: XCircle, description: "Need removal", accent: "text-red-500" },
       ]
     : [];
 
@@ -243,7 +268,7 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {data?.recentTxns?.length ? data.recentTxns.map((txn: any) => (
+                  {offlineTodayTxns.length ? offlineTodayTxns.map((txn: any) => (
                     <div key={txn.id} className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><Receipt className="h-4 w-4" /></div>
@@ -255,7 +280,7 @@ export default function DashboardPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <Badge variant="outline" className="text-xs">{txn.status ?? "COMPLETED"}</Badge>
+                        <Badge variant="outline" className="text-xs">Pending offline</Badge>
                         <p className="text-sm font-semibold">{fmt(txn.total)}</p>
                       </div>
                     </div>

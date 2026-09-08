@@ -67,7 +67,8 @@ const SaleCreateSchema = z.object({
     provider: z.string().optional().nullable()
   })).min(1),
   operation_id: z.string().uuid().optional(),
-  held: z.boolean().optional()
+  held: z.boolean().optional(),
+  sold_at: z.string().datetime({ offset: true }).optional()
 });
 
 export async function POST(request: Request){
@@ -85,7 +86,8 @@ export async function POST(request: Request){
       items: parsed.items as any,
       payments: parsed.payments.map(p=>({ method:p.method, amount:p.amount, reference: p.reference ?? undefined, provider: p.provider ?? undefined })) as any,
       operation_id: parsed.operation_id,
-      held: parsed.held
+      held: parsed.held,
+      sold_at: parsed.sold_at
     });
     if((result as any).duplicate) return NextResponse.json({ ...result, message: 'Duplicate operation - returned existing' }, { status: 200 });
     return NextResponse.json(result, { status: 201 });
