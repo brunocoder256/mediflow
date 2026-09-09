@@ -114,16 +114,6 @@ export default function ProductsPage(){
     for(const u of units) m[(u.name||"").trim().toLowerCase()]=u.id;
     return m;
   },[units]);
-  // Build option list: DB rows first, then curated vocab as fallback (offline-safe).
-  const sellingUnitOptions = React.useMemo(()=>{
-    const merged = units.map((u:any)=>({ id: u.id, name: u.name, abbreviation: u.abbreviation }));
-    for(const s of sellingUnits){
-      if(!merged.some(m=>m.name.trim().toLowerCase()===(s.name||"").trim().toLowerCase())){
-        merged.push({ id: s.name, name: s.name, abbreviation: s.abbreviation });
-      }
-    }
-    return merged;
-  },[units]);
   const isUuid = (v:string)=>/^[0-9a-f]{8}-/i.test(v);
   const sellingUnitName = (id:string)=>{
     if(!id) return "";
@@ -132,6 +122,17 @@ export default function ProductsPage(){
   };
   const unitsOfflineOnly = units.length===0;
   const otherUnits = React.useMemo(()=>units.filter(u=>!sellingUnits.some(s=>s.name.trim().toLowerCase()===(u.name||"").trim().toLowerCase())),[units]);
+  // When editing offline, keep the currently picked unit in the
+  // dropdown even if its row isn't loaded (so the field never shows blank / never silently
+  // changes the saved value).
+  const currentUnitKept = React.useMemo(()=>{
+    if(!form.unit_id) return null;
+    const inList = sellingUnits.some(s=>{
+      const realId = sellingUnitNameById[s.name.trim().toLowerCase()];
+      return (realId || s.name) === form.unit_id;
+    }) || otherUnits.some(u=>u.id===form.unit_id);
+    return inList ? null : { id: form.unit_id, name: sellingUnitName(form.unit_id) || "Current unit" };
+  },[form.unit_id, sellingUnitNameById, otherUnits]);
   // Auto-compute Opening Quantity (units) from No. of Packs (pack_size) × Units per Pack —
   // the result is pre-filled into form.opening_quantity but stays editable by the user.
   const autoOpeningQuantity = (packs:string, upp:string)=>{
@@ -767,15 +768,11 @@ export default function ProductsPage(){
                 <div><Label>Selling Unit</Label>
                   <Select value={form.unit_id} onChange={e=>setForm({...form, unit_id:e.target.value})}>
                     <option value="">Select selling unit</option>
+                    {currentUnitKept && <option value={currentUnitKept.id}>{currentUnitKept.name}</option>}
                     {sellingUnits.map(s=>{
                       const realId = sellingUnitNameById[s.name.trim().toLowerCase()];
                       return <option key={realId||s.name} value={realId||s.name}>{s.name}</option>;
                     })}
-                    {sellingUnits.filter(s=>!sellingUnitNameById[s.name.trim().toLowerCase()]).length>0 && !unitsOfflineOnly && (
-                      <optgroup label="Recommended — pending sync">
-                        {sellingUnits.filter(s=>!sellingUnitNameById[s.name.trim().toLowerCase()]).map(s=><option key={s.name} value={s.name}>{s.name} (will sync on save)</option>)}
-                      </optgroup>
-                    )}
                     {otherUnits.length>0 && (
                       <optgroup label="Other units">
                         {otherUnits.map(u=><option key={u.id} value={u.id}>{u.name} {u.abbreviation&&`(${u.abbreviation})`}</option>)}

@@ -11,7 +11,6 @@ import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -68,31 +67,29 @@ function NotificationRows({
     );
   }
   return (
-    <>
+    <div role="list" className="divide-y divide-muted/60">
       {items.map((n) => (
-        <DropdownMenuItem
+        <div
+          role="listitem"
           key={n.id}
-          className={`items-start px-3 py-2.5 cursor-pointer whitespace-normal ${n.is_read ? "" : "bg-[var(--primary)]/5"}`}
-          onSelect={(e) => {
-            e.preventDefault();
+          className={`flex cursor-pointer items-start gap-2.5 px-3 py-2.5 w-full whitespace-normal transition-colors hover:bg-accent hover:text-accent-foreground ${n.is_read ? "" : "bg-[var(--primary)]/5"}`}
+          onClick={() => {
             if (!n.is_read) onSelect(n.id);
           }}
         >
-          <div className="flex items-start gap-2.5 w-full">
-            <span
-              className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${
-                n.is_read ? "bg-[var(--muted)]" : TYPE_COLORS[n.type] ?? "bg-[var(--primary)]"
-              }`}
-            />
-            <div className="min-w-0 flex-1">
-              <p className={`text-sm leading-snug ${n.is_read ? "text-muted-foreground" : "font-medium"}`}>{n.title}</p>
-              <p className="text-xs text-muted-foreground leading-snug">{n.message}</p>
-              <p className="text-[11px] text-muted-foreground/70 mt-0.5">{relativeTime(n.created_at)}</p>
-            </div>
+          <span
+            className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${
+              n.is_read ? "bg-[var(--muted)]" : TYPE_COLORS[n.type] ?? "bg-[var(--primary)]"
+            }`}
+          />
+          <div className="min-w-0 flex-1">
+            <p className={`text-sm leading-snug ${n.is_read ? "text-muted-foreground" : "font-medium"}`}>{n.title}</p>
+            <p className="text-xs text-muted-foreground leading-snug">{n.message}</p>
+            <p className="text-[11px] text-muted-foreground/70 mt-0.5">{relativeTime(n.created_at)}</p>
           </div>
-        </DropdownMenuItem>
+        </div>
       ))}
-    </>
+    </div>
   );
 }
 
@@ -166,7 +163,7 @@ export function NotificationsMenu() {
             )}
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <div className="max-h-[min(360px,50dvh)] overflow-y-auto sm:max-h-[360px]">
+          <div className="h-[min(360px,50dvh)] overflow-y-auto overscroll-contain touch-pan-y">
             <NotificationRows items={items} onSelect={(id) => void patch({ id })} />
           </div>
         </DropdownMenuContent>
@@ -209,7 +206,7 @@ export function NotificationsMenu() {
               </Button>
             )}
           </SheetHeader>
-          <div className="max-h-[60dvh] overflow-y-auto px-1 mt-2">
+          <div className="h-[min(60dvh,480px)] overflow-y-auto overscroll-contain touch-pan-y px-1 mt-2">
             <NotificationRows items={items} onSelect={(id) => void patch({ id })} />
           </div>
         </SheetContent>
