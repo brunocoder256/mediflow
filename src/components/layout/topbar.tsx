@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "./theme-toggle";
 import { NotificationsMenu } from "./notifications-menu";
+import { HelpMenu } from "./help-menu";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { useBranch } from "@/hooks/branch-context";
 import {
@@ -141,6 +142,9 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
 
         {/* Notifications — real, live from the database */}
         <NotificationsMenu />
+
+        {/* Help — in-app documentation & tutorials */}
+        <HelpMenu />
 
         {/* Logout */}
         <Button
