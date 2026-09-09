@@ -15,7 +15,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatCard } from "@/components/ui/stat-card";
 import { useOnlineStatus } from "@/hooks/use-online-status";
-import { queuePurchaseCreate, queuePurchaseReceive, getPurchasePendingCount } from "@/lib/offline/sync";
+import { queuePurchaseCreate, queuePurchaseReceive, queuePurchaseStatus, queuePurchaseCancel, queueSupplierPayment, getPurchasePendingCount } from "@/lib/offline/sync";
+import { cachedFetch, invalidateCache } from "@/lib/offline/cached-fetch";
 import { usePendingPurchases } from "@/lib/offline/pending-overlay";
 
 type Purchase = { id:string; purchase_number:string; supplier_id:string; branch_id:string; status:string; total:number; subtotal?:number; discount?:number; tax?:number; created_at:string; ordered_at?:string; received_at?:string; suppliers?:{name:string}; branches?:{name:string}; purchase_items?:any[]; pendingSync?: boolean };
@@ -78,17 +79,19 @@ export default function PurchasesPage(){
     params.set("page", String(page));
     params.set("perPage", String(perPage));
     const [pr, sr, prd, br, kpiRes]=await Promise.all([
-      fetch(`/api/purchases?${params.toString()}`).then(r=>r.json()).catch(()=>({data:[], count:0})),
-      fetch("/api/suppliers").then(r=>r.json()).catch(()=>[]),
-      fetch("/api/products").then(r=>r.json()).catch(()=>[]),
-      fetch("/api/settings").then(r=>r.json()).catch(()=>({branches:[]})),
-      fetch(`/api/purchases?kpi=1${branchFilter!=="all"?`&branch_id=${branchFilter}`:""}`).then(r=>r.json()).catch(()=>null),
+      cachedFetch<any>(`/api/purchases?${params.toString()}`).catch(()=>({data:[], count:0})),
+      cachedFetch<any[]>("/api/suppliers").catch(()=>[]),
+      cachedFetch<any>(`/api/products`).then((r:any)=>Array.isArray(r)?r:(r?.data ?? [])).catch(()=>[]),
+      cachedFetch<any>(`/api/settings`).catch(()=>({branches:[]})),
+      cachedFetch<any>(`/api/purchases?kpi=1${branchFilter!=="all"?`&branch_id=${branchFilter}`:""}`).catch(()=>null),
     ]);
-    setData(pr.data ?? pr ?? []);
-    setCount(pr.count ?? (pr.data?.length ?? 0));
+    const prArr = (pr as any)?.data ?? (Array.isArray(pr) ? (pr as any[]) : []);
+    const prList: Purchase[] = Array.isArray(prArr) ? prArr : [];
+    setData(prList);
+    setCount((pr as any)?.count ?? prList.length);
     setSuppliers(Array.isArray(sr)?sr:[]);
-    const prodList = Array.isArray(prd)?prd: (prd.data ?? []);
-    setProducts(prodList);
+    const prodList = Array.isArray(prd)?prd: (prd?.data ?? []);
+    setProducts(Array.isArray(prodList)?prodList:[]);
     setBranches(br.branches ?? []);
     if(kpiRes) setKpi(kpiRes);
     if(!form.branch_id && br.branches?.[0]) setForm(f=>({...f, branch_id: br.branches[0].id}));
@@ -96,6 +99,19 @@ export default function PurchasesPage(){
     setLoading(false);
   },[tab, supplierFilter, branchFilter, debouncedQ, dateFrom, dateTo, page]);
   React.useEffect(()=>{ fetchAll(); },[fetchAll]);
+
+  // After a global offline-sync flush, refetch so queued create/status/payment
+  // appears (or a pending row drops out) without a manual refresh.
+  React.useEffect(()=>{
+    const onSync=()=>{
+      invalidateCache("/api/purchases");
+      invalidateCache("/api/suppliers");
+      invalidateCache("/api/supplier-payments");
+      fetchAll();
+    };
+    window.addEventListener("mediflow:synced", onSync);
+    return ()=>window.removeEventListener("mediflow:synced", onSync);
+  },[fetchAll]);
 
   const addLine=()=> setForm({...form, lines:[...form.lines, {product_id:"", quantity_ordered:1, unit_cost:0, discount:0, tax:0}]});
   const updateLine=(i:number, patch:Partial<Line>)=> setForm({...form, lines: form.lines.map((l,idx)=> idx===i ? {...l, ...patch}: l)});
@@ -123,16 +139,15 @@ export default function PurchasesPage(){
     if((p as any).pendingSync) return alert("This purchase hasn't synced yet — view the full record after it syncs.");
     setShowDetail(p);
     setDetailTab("overview");
-    const r=await fetch(`/api/purchases?id=${p.id}`);
-    const j=await r.json();
-    setDetailData(j);
+    const j=await cachedFetch<any>(`/api/purchases?id=${p.id}`).catch(()=>null);
+    if(j) setDetailData(j); else { setDetailData(null); if(!isOnline) setDetailData({offline:true} as any); }
   };
   const openReceive=async(p:Purchase)=>{
     if((p as any).pendingSync) return alert("This purchase hasn't synced yet — receive goods after it syncs.");
     setShowReceive(p);
-    const r=await fetch(`/api/purchases?id=${p.id}`);
-    const j=await r.json();
+    const j=await cachedFetch<any>(`/api/purchases?id=${p.id}`).catch(()=>null);
     setReceiveDetail(j);
+    if(!j){ if(!isOnline) alert("Offline — no cached copy of this PO's items. Go online once to receive it."); return; }
     const items=j.purchase_items ?? j.items ?? [];
     setReceiveGroups(items.map((it:any)=>({
       purchase_item_id: it.id, product_id: it.product_id, product_name: it.products?.name ?? products.find(pr=>pr.id===it.product_id)?.name ?? it.product_id.slice(0,8),
@@ -182,6 +197,11 @@ export default function PurchasesPage(){
   const handleStatus=async(p:Purchase, status:string)=>{
     if((p as any).pendingSync) return alert("Pending sync — update status after it syncs.");
     if(!confirm(`Change ${p.purchase_number} to ${status}?`)) return;
+    if(!isOnline){
+      await queuePurchaseStatus(p.id, status);
+      alert("Offline — status change queued. Will sync when online.");
+      return;
+    }
     const r=await fetch("/api/purchases",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"status", purchase_order_id:p.id, status})});
     const j=await r.json();
     if(!r.ok) alert(j.error); else fetchAll();
@@ -189,6 +209,11 @@ export default function PurchasesPage(){
   const handleCancel=async(p:Purchase)=>{
     if((p as any).pendingSync) return alert("Pending sync — cancel after it syncs.");
     if(!confirm(`Cancel ${p.purchase_number}? This is irreversible if no stock received.`)) return;
+    if(!isOnline){
+      await queuePurchaseCancel(p.id);
+      alert("Offline — cancellation queued. Will sync when online.");
+      return;
+    }
     const r=await fetch("/api/purchases",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"cancel", purchase_order_id:p.id})});
     const j=await r.json();
     if(!r.ok) alert(j.error); else fetchAll();
@@ -198,6 +223,12 @@ export default function PurchasesPage(){
     if(!showDetail) return;
     const amt=Number(paymentForm.amount);
     if(!amt || amt<=0) return alert("Amount required");
+    if(!isOnline){
+      await queueSupplierPayment({supplier_id: showDetail.supplier_id, branch_id: showDetail.branch_id, purchase_order_id: showDetail.id, amount: amt, payment_method: paymentForm.method, reference: paymentForm.reference});
+      alert("Offline — payment queued. Supplier balance updates when online.");
+      setPaymentForm({amount:"", method:"CASH", reference:""});
+      return;
+    }
     const r=await fetch("/api/supplier-payments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({supplier_id: showDetail.supplier_id, branch_id: showDetail.branch_id, purchase_order_id: showDetail.id, amount: amt, payment_method: paymentForm.method, reference: paymentForm.reference})});
     const j=await r.json();
     if(!r.ok) alert(j.error); else { alert("Payment recorded"); setPaymentForm({amount:"", method:"CASH", reference:""}); openDetail(showDetail); fetchAll(); }
@@ -411,7 +442,8 @@ export default function PurchasesPage(){
       <Dialog open={!!showDetail} onOpenChange={(o)=>!o && setShowDetail(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-card">
           <DialogHeader><DialogTitle>Purchase {showDetail?.purchase_number} — Detail</DialogTitle><DialogDescription>{showDetail && `${new Date(showDetail.created_at).toLocaleDateString()} • ${showDetail.suppliers?.name ?? ""} • ${showDetail.status}`}</DialogDescription></DialogHeader>
-          {detailData ? (
+          {(detailData as any)?.offline ? <div className="space-y-4"><Card><CardContent className="p-4 text-sm text-muted-foreground">Offline — this purchase has no cached copy yet. View it once while online to cache its detail (items, receipts, payments). You can still record a payment offline.</CardContent></Card></div>
+          : detailData ? (
             <div className="space-y-4">
               <Tabs value={detailTab} onValueChange={setDetailTab}>
                 <TabsList className="flex flex-wrap h-auto">

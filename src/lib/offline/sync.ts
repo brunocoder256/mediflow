@@ -82,6 +82,65 @@ export async function queuePurchaseReceive(payload: Record<string, unknown>): Pr
   return op;
 }
 
+// Queue a PO status transition (DRAFT → ORDERED → APPROVED → ... ) for offline
+// replay. Replayed in created_at order, so the create (if any) reaches the
+// server before this — but the UI blocks actions on pending-sync rows anyway.
+export async function queuePurchaseStatus(purchase_order_id: string, status: string): Promise<string> {
+  const op = crypto.randomUUID();
+  await db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "purchases",
+    operation: "update",
+    payload: { action: "status", purchase_order_id, status, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  });
+  return op;
+}
+
+export async function queuePurchaseCancel(purchase_order_id: string): Promise<string> {
+  const op = crypto.randomUUID();
+  await db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "purchases",
+    operation: "update",
+    payload: { action: "cancel", purchase_order_id, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  });
+  return op;
+}
+
+// Queue a supplier payment (recorded from Purchases detail or Suppliers page)
+// for offline replay. Idempotent via idempotency_key so a retry can't double-pay.
+export async function queueSupplierPayment(payload: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  await db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "supplier_payments",
+    operation: "create",
+    payload: { ...payload, _operationId: op, idempotency_key: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  });
+  return op;
+}
+
+export async function getSupplierPaymentPendingCount(): Promise<number> {
+  try {
+    return await db.syncQueue.where("table_name").equals("supplier_payments").count();
+  } catch { return 0; }
+}
+
 export async function queueSupplierCreate(payload: Record<string, unknown>): Promise<string> {
   const op = crypto.randomUUID();
   const id = crypto.randomUUID();
@@ -646,6 +705,15 @@ export async function processSyncQueue(): Promise<{
             try { await db.cachedDisposals.update(localId, { sync_status: "synced" as any }); } catch {}
           }
         }
+      } else if (entry.table_name === "supplier_payments") {
+        const payload: any = entry.payload;
+        const clean: any = { ...payload };
+        delete clean._operationId; delete clean.idempotency_key; delete clean._offlineId;
+        response = await fetch("/api/supplier-payments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(clean),
+        });
       } else {
         response = await fetch("/api/sync", {
           method: "POST",

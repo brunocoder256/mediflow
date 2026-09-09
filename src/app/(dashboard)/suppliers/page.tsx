@@ -15,9 +15,10 @@ import { StatCard } from "@/components/ui/stat-card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useOnlineStatus } from "@/hooks/use-online-status";
-import { queueSupplierCreate, queueSupplierUpdate, getSupplierPendingCount } from "@/lib/offline/sync";
+import { queueSupplierCreate, queueSupplierUpdate, queueSupplierPayment, getSupplierPendingCount } from "@/lib/offline/sync";
 import { usePendingSuppliers } from "@/lib/offline/pending-overlay";
-import { Search, Plus, Eye, Edit, Building2, Phone, Mail, MapPin, CreditCard, Package, Truck, Undo2, FileText, History, TrendingUp, Layers, DollarSign, Clock, AlertTriangle, CheckCircle, XCircle, PauseCircle, Wifi, WifiOff, RefreshCw, Download, Trash2, ShieldCheck, Globe, Users, FileArchive, MessageSquare, ScanLine, Upload, FileSpreadsheet, Printer, Bell } from "lucide-react";
+import { cachedFetch, invalidateCache } from "@/lib/offline/cached-fetch";
+import { Search, Plus, Eye, Edit, Building2, Phone, Mail, MapPin, CreditCard, Package, Truck, Undo2, FileText, History, TrendingUp, Layers, DollarSign, Clock, AlertTriangle, CheckCircle, XCircle, Wifi, WifiOff, RefreshCw, Download, Trash2, ShieldCheck, Users, FileArchive, MessageSquare, ScanLine, Upload, FileSpreadsheet, Printer, Bell } from "lucide-react";
 import { db } from "@/lib/offline/db";
 
 type Supplier = any;
@@ -96,29 +97,46 @@ export default function SuppliersPage(){
       if(branchFilter!=="all") params.set("branch_id", branchFilter);
       params.set("page", String(page));
       params.set("perPage", String(perPage));
-      const [sRes, bRes, pRes]=await Promise.all([
-        fetch(`/api/suppliers?${params.toString()}`).then(r=>r.json()),
-        fetch("/api/settings").then(r=>r.json()).catch(()=>({branches:[]})),
-        fetch("/api/products?perPage=200").then(r=>r.json()).catch(()=>({data:[]})),
-      ]);
-      const list = sRes.data ?? (Array.isArray(sRes)? sRes : []);
-      let filtered=list;
-      if(onlyHasBalance) filtered = filtered.filter((s:any)=> Number(s.balance)>0);
-      if(onlyOpenPO) filtered = filtered.filter((s:any)=> Number(s.open_pos)>0);
-      setData(filtered);
-      setCount(sRes.count ?? filtered.length);
-      setBranches(bRes.branches ?? []);
-      setProducts(Array.isArray(pRes)? pRes : (pRes.data ?? []));
-      // cache offline
-      try{
-        for(const s of list){
-          await db.cachedSuppliers.put({ id:s.id, name:s.name, supplier_code:s.supplier_code, supplier_type:s.supplier_type, status:s.status, phone:s.phone, email:s.email, city:s.city, is_active:s.is_active, sync_status: "synced" as any, updated_at: s.updated_at } as any).catch(()=>{});
-        }
-      }catch{}
+const [sRes, bRes, pRes]=await Promise.all([
+      cachedFetch<any>(`/api/suppliers?${params.toString()}`).catch(()=>null),
+      cachedFetch<any>("/api/settings").catch(()=>({branches:[]})),
+      cachedFetch<any>("/api/products?perPage=200").catch(()=>({data:[]})),
+    ]);
+    let list = sRes ? (sRes.data ?? (Array.isArray(sRes)? sRes : [])) : [];
+    if(!sRes){
+      // Offline with no cached list snapshot: fall back to the supplier master
+      // stored in IndexedDB (with last-known balance in payload).
+      const cached = await db.cachedSuppliers.toArray().catch(()=>[]);
+      list = cached.filter((c:any)=>c.sync_status!=="pending").map((c:any)=>({ ...(c.payload ?? {}), id:c.id, name:c.name, supplier_code:c.supplier_code ?? c.payload?.supplier_code ?? null, supplier_type:c.supplier_type ?? c.payload?.supplier_type ?? null, status:c.status ?? c.payload?.status ?? (c.is_active?"Active":"Inactive"), phone:c.phone ?? c.payload?.phone ?? null, email:c.email ?? c.payload?.email ?? null, is_active:c.is_active ?? true, balance:Number(c.payload?.balance ?? 0), open_pos:Number(c.payload?.open_pos ?? 0), products_count:Number(c.payload?.products_count ?? 0), last_purchase_at:c.payload?.last_purchase_at ?? null, pendingSync: undefined }));
+      if(debouncedQ){ const q=debouncedQ.toLowerCase(); list=list.filter((s:any)=>(s.name??"").toLowerCase().includes(q)||(s.phone??"").toLowerCase().includes(q)||(s.email??"").toLowerCase().includes(q)); }
+    }
+    let filtered=list;
+    if(onlyHasBalance) filtered = filtered.filter((s:any)=> Number(s.balance)>0);
+    if(onlyOpenPO) filtered = filtered.filter((s:any)=> Number(s.open_pos)>0);
+    setData(filtered);
+    setCount(sRes?.count ?? filtered.length);
+    setBranches(bRes.branches ?? []);
+    setProducts(Array.isArray(pRes)? pRes : (pRes.data ?? []));
+    // cache offline — keep the full enriched row (incl. balance) in payload so
+    // the offline fallback can show outstanding even before any cachedFetch hit.
+    try{
+      for(const s of list){
+        await db.cachedSuppliers.put({ id:s.id, name:s.name, supplier_code:s.supplier_code, supplier_type:s.supplier_type, status:s.status, phone:s.phone, email:s.email, city:s.city, is_active:s.is_active, payload:s as any, sync_status: "synced" as any, updated_at: s.updated_at } as any).catch(()=>{});
+      }
+    }catch{}
     }catch(e:any){ setErr(e.message); }
     setLoading(false);
   },[debouncedQ,typeFilter,statusFilter,branchFilter,page,onlyHasBalance,onlyOpenPO]);
   React.useEffect(()=>{ fetchData(); },[fetchData]);
+  React.useEffect(()=>{ // after offline queue flushes, refetch so balances/status refresh
+    const onSync=()=>{
+      invalidateCache("/api/suppliers");
+      invalidateCache("/api/supplier-payments");
+      fetchData();
+    };
+    window.addEventListener("mediflow:synced", onSync);
+    return () => window.removeEventListener("mediflow:synced", onSync);
+  },[fetchData]);
   React.useEffect(()=>{ // fetch price alerts + threshold
     fetch("/api/suppliers?priceAlerts=1").then(r=>r.json()).then(j=>{ if(Array.isArray(j)) setPriceAlerts(j); else if(j.alerts) setPriceAlerts(j.alerts); }).catch(()=>{});
     fetch("/api/suppliers?creditApprovals=1").then(r=>r.json()).then(j=>{ if(Array.isArray(j)) setCreditApprovals(j); }).catch(()=>{});
@@ -160,12 +178,35 @@ export default function SuppliersPage(){
     setDetailTab(tab);
     setDetailLoading(true);
     setStatement(null);
+    let loaded:any=null;
     try{
-      const r=await fetch(`/api/suppliers?id=${s.id}&detail=1`);
-      const j=await r.json();
-      if(r.ok) setDetailData(j);
-      else setDetailData(null);
-    }catch{ setDetailData(null); }
+      const r=await cachedFetch<any>(`/api/suppliers?id=${s.id}&detail=1`).catch(()=>null);
+      if(r && !r.error) loaded=r;
+    }catch{ loaded=null; }
+    if(loaded) setDetailData(loaded);
+    else if(isOnline) setDetailData(null);
+    else {
+      // Offline: reconstruct a minimal detail from the cached supplier row
+      // (balance snapshot) + queued (unsynced) supplier payments.
+      try{
+        const cachedRow:any = await db.cachedSuppliers.where("id").equals(s.id).first();
+        const queued:any[] = await db.syncQueue.where("table_name").equals("supplier_payments").toArray().catch(()=>[]);
+        const pendingPays = (queued??[]).filter((q:any)=>q.status==="pending").map((q:any)=>(q.payload as any) ?? {});
+        const paidOffline = pendingPays.reduce((a:any,p:any)=>a+Number(p.amount??0),0);
+        const supplier = cachedRow?.payload ?? { ...s };
+        const bal = Math.max(0, Number(cachedRow?.payload?.balance ?? s.balance ?? 0) - paidOffline);
+        setDetailData({
+          supplier,
+          offline: true,
+          detail: {
+            products: [], pos: [], grns: [], batches: [], returns: [], movements: [], priceHistory: [], audit: [], branches: [], notes: [], documents: [], timeline: [], priceTrend: {},
+            payments: pendingPays.map((p:any)=>({ id: p._operationId ?? Math.random().toString(36).slice(2), payment_date: p.payment_date ?? new Date().toISOString().slice(0,10), payment_method: p.payment_method ?? "CASH", reference: (p.reference ? `${p.reference} (queued)` : "PENDING…"), amount: Number(p.amount??0) })),
+            kpi: { totalPurchased: 0, purchaseCount: 0, totalPaid: paidOffline, balance: bal, openPOs: 0, partialCount: 0, productsCount: 0, returnsValue: 0, returnsCount: 0, lastPurchaseAt: null, lastPurchaseValue: 0, avgLeadTime: null, onTimeRate: null },
+            performance: { avgLeadTime: null, onTime: 0, late: 0, partial: 0, returns: 0, totalPOs: 0, completed: 0 },
+          },
+        });
+      }catch{ setDetailData({ supplier: s, offline: true, detail: { products: [], pos: [], grns: [], batches: [], returns: [], movements: [], priceHistory: [], audit: [], branches: [], notes: [], documents: [], timeline: [], priceTrend: {}, payments: [], kpi: { totalPurchased: 0, purchaseCount: 0, totalPaid: 0, balance: Number(s.balance??0), openPOs: 0, partialCount: 0, productsCount: 0, returnsValue: 0, returnsCount: 0, lastPurchaseAt: null, lastPurchaseValue: 0, avgLeadTime: null, onTimeRate: null }, performance: { avgLeadTime: null, onTime: 0, late: 0, partial: 0, returns: 0, totalPOs: 0, completed: 0 } } }); }
+    }
     setDetailLoading(false);
   };
 
@@ -203,12 +244,21 @@ export default function SuppliersPage(){
   const handleDeactivate=async(s:Supplier)=>{
     const next = s.status==="Active" ? "Inactive" : "Active";
     if(!confirm(`${next} supplier ${s.name}? ${s.balance? `Outstanding UGX ${Number(s.balance).toLocaleString()} will remain` : ""}`)) return;
-    if(!isOnline) return alert("Offline deactivation queued? Go online to change status — synced transactions enforce branch/role auth");
+    if(!isOnline){
+      await queueSupplierUpdate(s.id, { status: next, is_active: next==="Active" });
+      alert("Offline — status change queued. Will sync when online.");
+      return;
+    }
     const r=await fetch("/api/suppliers",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"status", id:s.id, status: next})});
     const j=await r.json();
     if(!r.ok) alert(j.error); else fetchData();
   };
   const handleStatusChange=async(s:Supplier, st:string)=>{
+    if(!isOnline){
+      await queueSupplierUpdate(s.id, { status: st, is_active: st==="Active" });
+      alert("Offline — status change queued. Will sync when online.");
+      return;
+    }
     const r=await fetch("/api/suppliers",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"status", id:s.id, status: st})});
     const j=await r.json();
     if(!r.ok) alert(j.error); else { fetchData(); if(showDetail) openDetail(showDetail); }
@@ -226,9 +276,20 @@ export default function SuppliersPage(){
     if(statementFilter.from) p.set("from", statementFilter.from);
     if(statementFilter.to) p.set("to", statementFilter.to);
     p.set("statement","1");
-    const r=await fetch(`/api/suppliers?id=${showDetail.id}&${p.toString()}`);
-    const j=await r.json();
-    if(r.ok) setStatement(j);
+    const j=await cachedFetch<any>(`/api/suppliers?id=${showDetail.id}&${p.toString()}`).catch(()=>null);
+    if(j){ setStatement(j); return; }
+    // Offline fallback: opening = last-known balance; queued payments as credits.
+    if(!isOnline){
+      try{
+        const cachedRow:any = await db.cachedSuppliers.where("id").equals(showDetail.id).first();
+        const queued:any[] = await db.syncQueue.where("table_name").equals("supplier_payments").toArray().catch(()=>[]);
+        const pays = (queued??[]).filter((q:any)=>q.status==="pending").map((q:any)=>(q.payload as any) ?? {});
+        const queuedTotal = pays.reduce((a:any,p:any)=>a+Number(p.amount??0),0);
+        const base = Number(cachedRow?.payload?.balance ?? showDetail?.balance ?? 0);
+        const entries = pays.map((p:any)=>({ date: p.payment_date ?? new Date().toISOString().slice(0,10), ref: p.reference ?? "PENDING…", desc: `Payment ${p.payment_method} (queued)`, debit: 0, credit: Number(p.amount??0), balance: 0 }));
+        setStatement({ entries, opening: Math.round(base*100)/100, closing: Math.round((base - queuedTotal)*100)/100 });
+      }catch{ setStatement(null); }
+    }
   };
 
   const createPOFromSupplier=async()=>{
@@ -246,6 +307,13 @@ export default function SuppliersPage(){
     const recentPO = (detailData?.detail?.pos ?? []).find((p:any)=>p.branch_id);
     const branch_id = recentPO?.branch_id ?? detailData?.detail?.branches?.[0]?.branch_id ?? branches[0]?.id ?? detailData?.supplier?.branch_id;
     if(!branch_id) return alert("No branch — supplier must have branch relationship. Create purchase branch context first.");
+    if(!isOnline){
+      await queueSupplierPayment({ supplier_id: showDetail.id, branch_id, amount: amt, payment_method: paymentForm.method, reference: paymentForm.reference });
+      alert("Offline — payment queued. Balance updates when it syncs. PENDING… shown in Payments tab.");
+      setPaymentForm({amount:"", method:"CASH", reference:""});
+      openDetail(showDetail, "payments");
+      return;
+    }
     const r=await fetch("/api/supplier-payments",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ supplier_id: showDetail.id, branch_id, amount: amt, payment_method: paymentForm.method, reference: paymentForm.reference })});
     const j=await r.json();
     if(!r.ok) alert(j.error); else { alert("Payment recorded — supplier balance will recalc transaction-derived (not stale local)"); setPaymentForm({amount:"", method:"CASH", reference:""}); openDetail(showDetail); fetchData(); }
@@ -679,6 +747,7 @@ export default function SuppliersPage(){
           : !detailData ? <p className="text-sm text-muted-foreground">No detail — migration may not be applied yet. Basic supplier still usable; detail enriches after 00042.</p>
           : (
             <div className="space-y-4">
+              {(detailData as any)?.offline && <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20"><CardContent className="p-3 text-xs text-amber-700 dark:text-amber-300">Offline snapshot — showing last-known balance and queued payments only. Full detail (POs, GRNs, pricing) appears after the next online sync.</CardContent></Card>}
               {/* Header quick actions */}
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" onClick={()=>openEdit(showDetail!)}><Edit className="h-4 w-4 mr-1"/>Edit Supplier</Button>
@@ -703,7 +772,7 @@ export default function SuppliersPage(){
               </div>
               {detailData.detail.kpi.avgLeadTime !== null && <p className="text-xs text-muted-foreground">Avg delivery {detailData.detail.kpi.avgLeadTime} days • On-time {detailData.detail.kpi.onTimeRate ?? "N/A"}% • Inventory → Reorder → Supplier → PO workflow preserved</p>}
               <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20"><CardContent className="p-3 flex flex-wrap gap-2 items-center justify-between">
-                <div className="text-sm"><span className="font-medium flex items-center gap-1"><ShieldCheck className="h-4 w-4"/>Credit Limit Approval</span><span className="text-xs text-muted-foreground">Use Request Change to raise/lower this supplier's credit limit. Small changes apply instantly; changes &gt;20% or &gt;500k UGX become PENDING and must be approved/rejected here.</span>{creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id && a.status==='PENDING').length>0 && <Badge variant="warning" className="ml-2">{creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id && a.status==='PENDING').length} pending</Badge>}</div>
+                <div className="text-sm"><span className="font-medium flex items-center gap-1"><ShieldCheck className="h-4 w-4"/>Credit Limit Approval</span><span className="text-xs text-muted-foreground">Use Request Change to raise/lower this supplier&apos;s credit limit. Small changes apply instantly; changes &gt;20% or &gt;500k UGX become PENDING and must be approved/rejected here.</span>{creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id && a.status==='PENDING').length>0 && <Badge variant="warning" className="ml-2">{creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id && a.status==='PENDING').length} pending</Badge>}</div>
                 <Button size="sm" variant="outline" onClick={()=>setShowApproval(true)}>Request Change</Button>
               </CardContent></Card>
               {creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id).length>0 && (
