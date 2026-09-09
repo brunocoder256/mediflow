@@ -116,6 +116,12 @@ export default function ProductsPage(){
   },[units]);
   const otherUnits = React.useMemo(()=>units.filter(u=>!sellingUnits.some(s=>s.name.trim().toLowerCase()===(u.name||"").trim().toLowerCase())),[units]);
   const sellingUnitName = (id:string)=> units.find(u=>u.id===id)?.name || "";
+  // Auto-compute Opening Quantity (units) from No. of Packs (pack_size) × Units per Pack —
+  // the result is pre-filled into form.opening_quantity but stays editable by the user.
+  const autoOpeningQuantity = (packs:string, upp:string)=>{
+    const p = Number(packs), u = Number(upp);
+    return (Number.isFinite(p) && p>0 && Number.isFinite(u) && u>0) ? String(p*u) : "";
+  };
 
   // Client-side search + filter: rankProducts gives relevance ranking (same as POS),
   // works offline against the cached full catalog.
@@ -713,8 +719,8 @@ export default function ProductsPage(){
               </div>
               <div className="grid md:grid-cols-3 gap-3">
                 <div><Label>Route</Label><Select value={form.route} onChange={e=>setForm({...form, route:e.target.value})}><option value="">Select</option>{routes.map(r=><option key={r} value={r}>{r}</option>)}</Select></div>
-                <div><Label>Pack Size</Label><Input type="number" value={form.pack_size} onChange={e=>setForm({...form, pack_size:e.target.value})}/></div>
-                <div><Label>Units per Pack</Label><Input type="number" value={form.units_per_pack} onChange={e=>setForm({...form, units_per_pack:e.target.value})}/></div>
+                <div><Label>Pack Size/No. of Packs Available</Label><Input type="number" min={1} value={form.pack_size} onChange={e=>setForm({...form, pack_size:e.target.value, opening_quantity:autoOpeningQuantity(e.target.value, form.units_per_pack)})} placeholder="e.g. 10 packs"/></div>
+                <div><Label>Units per Pack</Label><Input type="number" min={1} value={form.units_per_pack} onChange={e=>setForm({...form, units_per_pack:e.target.value, opening_quantity:autoOpeningQuantity(form.pack_size, e.target.value)})} placeholder="e.g. 24"/></div>
               </div>
               <div className="grid md:grid-cols-2 gap-3">
                 <div><Label>Selling Unit</Label>
@@ -773,10 +779,13 @@ export default function ProductsPage(){
                   <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={form.opening_enabled} onChange={e=>setForm({...form, opening_enabled:e.target.checked})}/> Add opening stock now — creates a FEFO batch, sellable in POS immediately</label>
                   {form.opening_enabled && (
                     <div className="grid md:grid-cols-3 gap-3">
-                      <div><Label>Opening Quantity *</Label><Input type="number" min={0} value={form.opening_quantity} onChange={e=>setForm({...form, opening_quantity:e.target.value})} placeholder="e.g. 100"/></div>
+                      <div><Label>Opening Quantity (Units) *</Label><Input type="number" min={0} value={form.opening_quantity} onChange={e=>setForm({...form, opening_quantity:e.target.value})} placeholder="auto: packs × units/pack"/></div>
                       <div><Label>Batch Number</Label><Input value={form.opening_batch_number} onChange={e=>setForm({...form, opening_batch_number:e.target.value})} placeholder="auto: OPEN-YYYYMMDD-XXXX"/></div>
                       <div><Label>Expiry Date</Label><Input type="date" min={localDateStr(new Date())} value={form.opening_expiry_date} onChange={e=>setForm({...form, opening_expiry_date:e.target.value})}/></div>
                     </div>
+                  )}
+                  {form.opening_enabled && Number(form.pack_size)>0 && Number(form.units_per_pack)>0 && (
+                    <p className="text-xs text-muted-foreground">Auto-calculated from Step 2: {form.pack_size} pack(s) × {form.units_per_pack} units/pack = <strong>{autoOpeningQuantity(form.pack_size, form.units_per_pack)} units</strong> — you can edit this value directly.</p>
                   )}
                   <p className="text-xs text-muted-foreground">Leave blank for no opening stock. Batch purchase/selling price uses the Default Purchase Cost &amp; Default Selling Price from Step 4. Stock lands on the first active branch.</p>
                 </div>
