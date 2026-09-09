@@ -241,8 +241,10 @@ export default function SuppliersPage(){
     if(!showDetail || !detailData) return;
     const amt=Number(paymentForm.amount);
     if(!amt || amt<=0) return alert("Amount required");
-    // need branch_id — use first branch from detail or global
-    const branch_id = detailData?.detail?.branches?.[0]?.branch_id ?? branches[0]?.id ?? detailData?.supplier?.branch_id;
+    // need branch_id — prefer the branch of the most recent PO/GRN (they were
+    // recorded there), then the supplier's first branch link, then any active branch.
+    const recentPO = (detailData?.detail?.pos ?? []).find((p:any)=>p.branch_id);
+    const branch_id = recentPO?.branch_id ?? detailData?.detail?.branches?.[0]?.branch_id ?? branches[0]?.id ?? detailData?.supplier?.branch_id;
     if(!branch_id) return alert("No branch — supplier must have branch relationship. Create purchase branch context first.");
     const r=await fetch("/api/supplier-payments",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ supplier_id: showDetail.id, branch_id, amount: amt, payment_method: paymentForm.method, reference: paymentForm.reference })});
     const j=await r.json();
@@ -372,6 +374,14 @@ export default function SuppliersPage(){
   };
   const decideApproval=async(id:string, decision:'APPROVED'|'REJECTED')=>{
     const r=await fetch("/api/suppliers",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"decide_credit_approval", id, decision})});
+    const j=await r.json();
+    if(!r.ok) return alert(j.error);
+    fetch("/api/suppliers?creditApprovals=1").then(x=>x.json()).then(x=>setCreditApprovals(Array.isArray(x)?x:[])).catch(()=>{});
+    fetchData(); if(showDetail) openDetail(showDetail);
+  };
+  const deleteApproval=async(id:string)=>{
+    if(!confirm("Delete this credit-limit request? Removes it from the list (does not change the supplier's current credit limit).")) return;
+    const r=await fetch("/api/suppliers",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"delete_credit_approval", id})});
     const j=await r.json();
     if(!r.ok) return alert(j.error);
     fetch("/api/suppliers?creditApprovals=1").then(x=>x.json()).then(x=>setCreditApprovals(Array.isArray(x)?x:[])).catch(()=>{});
@@ -685,7 +695,7 @@ export default function SuppliersPage(){
               {/* KPI cards */}
               <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
                 <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Total Purchases</div><div className="font-bold">UGX {Number(detailData.detail.kpi.totalPurchased).toLocaleString()}</div><div className="text-[10px]">{detailData.detail.kpi.purchaseCount} orders</div></CardContent></Card>
-                <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Outstanding</div><div className="font-bold text-amber-600">UGX {Number(detailData.detail.kpi.balance).toLocaleString()}</div><div className="text-[10px]">Paid UGX {Number(detailData.detail.kpi.totalPaid).toLocaleString()}</div></CardContent></Card>
+                <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Outstanding</div><div className="font-bold text-amber-600">UGX {Number(detailData.detail.kpi.balance).toLocaleString()}</div><div className="text-[10px]">Paid UGX {Number(detailData.detail.kpi.totalPaid).toLocaleString()}</div><div className="text-[10px] text-muted-foreground" title="Balance includes every non-cancelled/non-draft PO total, even orders not yet received. Payments & returns reduce it.">Includes open (not-yet-received) POs</div></CardContent></Card>
                 <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Open POs</div><div className="font-bold">{detailData.detail.kpi.openPOs}</div><div className="text-[10px]">{detailData.detail.kpi.partialCount} partial</div></CardContent></Card>
                 <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Products</div><div className="font-bold">{detailData.detail.kpi.productsCount}</div><div className="text-[10px]">Supplied SKUs</div></CardContent></Card>
                 <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Returns</div><div className="font-bold">UGX {Number(detailData.detail.kpi.returnsValue).toLocaleString()}</div><div className="text-[10px]">{detailData.detail.kpi.returnsCount} returns</div></CardContent></Card>
@@ -693,16 +703,16 @@ export default function SuppliersPage(){
               </div>
               {detailData.detail.kpi.avgLeadTime !== null && <p className="text-xs text-muted-foreground">Avg delivery {detailData.detail.kpi.avgLeadTime} days • On-time {detailData.detail.kpi.onTimeRate ?? "N/A"}% • Inventory → Reorder → Supplier → PO workflow preserved</p>}
               <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20"><CardContent className="p-3 flex flex-wrap gap-2 items-center justify-between">
-                <div className="text-sm"><span className="font-medium flex items-center gap-1"><ShieldCheck className="h-4 w-4"/>Credit Limit Approval</span><span className="text-xs text-muted-foreground">Current UGX {(detailData.supplier.credit_limit ?? 0).toLocaleString()} • threshold &gt;20% or &gt;500k UGX requires manager approval</span>{creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id && a.status==='PENDING').length>0 && <Badge variant="warning" className="ml-2">{creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id && a.status==='PENDING').length} pending</Badge>}</div>
+                <div className="text-sm"><span className="font-medium flex items-center gap-1"><ShieldCheck className="h-4 w-4"/>Credit Limit Approval</span><span className="text-xs text-muted-foreground">Use Request Change to raise/lower this supplier's credit limit. Small changes apply instantly; changes &gt;20% or &gt;500k UGX become PENDING and must be approved/rejected here.</span>{creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id && a.status==='PENDING').length>0 && <Badge variant="warning" className="ml-2">{creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id && a.status==='PENDING').length} pending</Badge>}</div>
                 <Button size="sm" variant="outline" onClick={()=>setShowApproval(true)}>Request Change</Button>
               </CardContent></Card>
               {creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id).length>0 && (
                 <Card><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Prev → Req</TableHead><TableHead>Reason</TableHead><TableHead>Status</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>
-                  {creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id).slice(0,5).map((a:any)=><TableRow key={a.id}><TableCell className="text-xs">{new Date(a.created_at).toLocaleDateString()}</TableCell><TableCell className="text-xs">UGX {Number(a.previous_limit).toLocaleString()} → UGX {Number(a.requested_limit).toLocaleString()}</TableCell><TableCell className="text-xs">{a.reason ?? "—"}</TableCell><TableCell><Badge variant={a.status==='PENDING'?'warning': a.status==='APPROVED'?'success':'destructive'}>{a.status}</Badge></TableCell><TableCell>{a.status==='PENDING' && <><Button size="sm" variant="outline" className="mr-1" onClick={()=>decideApproval(a.id,'APPROVED')}>Approve</Button><Button size="sm" variant="ghost" onClick={()=>decideApproval(a.id,'REJECTED')}>Reject</Button></>}</TableCell></TableRow>)}
+                  {creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id).slice(0,5).map((a:any)=><TableRow key={a.id}><TableCell className="text-xs">{new Date(a.created_at).toLocaleDateString()}</TableCell><TableCell className="text-xs">UGX {Number(a.previous_limit).toLocaleString()} → UGX {Number(a.requested_limit).toLocaleString()}</TableCell><TableCell className="text-xs">{a.reason ?? "—"}</TableCell><TableCell><Badge variant={a.status==='PENDING'?'warning': a.status==='APPROVED'?'success':'destructive'}>{a.status}</Badge></TableCell><TableCell className="whitespace-nowrap">{a.status==='PENDING' && <><Button size="sm" variant="outline" className="mr-1" onClick={()=>decideApproval(a.id,'APPROVED')}>Approve</Button><Button size="sm" variant="ghost" className="mr-1" onClick={()=>decideApproval(a.id,'REJECTED')}>Reject</Button></>}<Button size="sm" variant="ghost" title="Delete request" onClick={()=>deleteApproval(a.id)}><Trash2 className="h-3 w-3"/></Button></TableCell></TableRow>)}
                 </TableBody></Table></CardContent></Card>
               )}
 
-              <Tabs defaultValue="overview">
+              <Tabs value={detailTab} onValueChange={setDetailTab}>
                 <TabsList className="flex flex-wrap h-auto">
                   {[
                     {id:"overview", label:"Overview", icon:FileText},
@@ -718,7 +728,7 @@ export default function SuppliersPage(){
                     {id:"notes", label:"Notes", icon:MessageSquare},
                     {id:"activity", label:"Activity / Audit", icon:History},
                   ].map(t=>(
-                    <TabsTrigger key={t.id} value={t.id} active={detailTab===t.id} onClick={()=>setDetailTab(t.id)}><t.icon className="h-3 w-3 mr-1"/>{t.label}</TabsTrigger>
+                    <TabsTrigger key={t.id} value={t.id}><t.icon className="h-3 w-3 mr-1"/>{t.label}</TabsTrigger>
                   ))}
                 </TabsList>
 
@@ -1005,7 +1015,7 @@ export default function SuppliersPage(){
       {/* Credit Approval Dialog */}
       <Dialog open={showApproval} onOpenChange={setShowApproval}>
         <DialogContent className="max-w-md bg-card">
-          <DialogHeader><DialogTitle>Request Credit Limit Change</DialogTitle><DialogDescription>Threshold configurable; &gt;20% or &gt;500k UGX → PENDING approval by manager (role suppliers.deactivate/approve). Offline queues, server validates.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Request Credit Limit Change</DialogTitle><DialogDescription>Enter a new credit limit. Small changes (≤20% or ≤500k UGX) apply instantly. Bigger changes become PENDING for a manager to Approve or Reject — you can delete any request from the list above.</DialogDescription></DialogHeader>
           <div className="space-y-3">
             <div><Label>Requested Limit (UGX)</Label><Input type="number" value={approvalAmount} onChange={e=>setApprovalAmount(e.target.value)} placeholder="7000000"/></div>
             <div><Label>Reason</Label><Textarea value={approvalReason} onChange={e=>setApprovalReason(e.target.value)} placeholder="Seasonal credit increase..." rows={2}/></div>

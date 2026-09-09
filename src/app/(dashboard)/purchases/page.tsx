@@ -413,7 +413,7 @@ export default function PurchasesPage(){
           <DialogHeader><DialogTitle>Purchase {showDetail?.purchase_number} — Detail</DialogTitle><DialogDescription>{showDetail && `${new Date(showDetail.created_at).toLocaleDateString()} • ${showDetail.suppliers?.name ?? ""} • ${showDetail.status}`}</DialogDescription></DialogHeader>
           {detailData ? (
             <div className="space-y-4">
-              <Tabs defaultValue="overview">
+              <Tabs value={detailTab} onValueChange={setDetailTab}>
                 <TabsList className="flex flex-wrap h-auto">
                   {[
                     {id:"overview", label:"Overview", icon:FileText},
@@ -426,7 +426,7 @@ export default function PurchasesPage(){
                     {id:"supplier", label:"Supplier", icon:Users},
                     {id:"audit", label:"Activity", icon:History},
                   ].map(t=>(
-                    <TabsTrigger key={t.id} value={t.id} active={detailTab===t.id} onClick={()=>setDetailTab(t.id)}><t.icon className="h-3 w-3 mr-1"/>{t.label}</TabsTrigger>
+                    <TabsTrigger key={t.id} value={t.id}><t.icon className="h-3 w-3 mr-1"/>{t.label}</TabsTrigger>
                   ))}
                 </TabsList>
                 <TabsContent value={detailTab} className="mt-4 space-y-3">

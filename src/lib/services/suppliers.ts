@@ -629,6 +629,15 @@ export async function decideCreditApproval(id: string, decision: 'APPROVED'|'REJ
   await createAuditLog('SUPPLIER_CREDIT_'+decision,'supplier_credit_approvals',id,appr,data);
   return data;
 }
+export async function deleteCreditApproval(id: string){
+  const sb:any = await getSB();
+  const { data: appr, error: e0 } = await sb.from('supplier_credit_approvals').select('*').eq('id', id).single();
+  if(e0) throw new Error(e0.message);
+  const { error } = await sb.from('supplier_credit_approvals').delete().eq('id', id);
+  if(error) throw new Error(error.message);
+  await createAuditLog('SUPPLIER_CREDIT_APPROVAL_DELETED','supplier_credit_approvals',id,appr,null).catch(()=>{});
+  return { ok: true };
+}
 export async function importSupplierCatalogue(supplierId: string, rows: Array<{ product_id?: string; sku?: string; barcode?: string; supplier_sku?: string; price: number; moq?: number; lead_time_days?: number; availability?: string; pack_size?: number }>){
   const sb:any = await getSB();
   const orgId = await getOrgId();

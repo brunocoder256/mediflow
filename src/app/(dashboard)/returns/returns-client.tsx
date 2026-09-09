@@ -521,13 +521,13 @@ export default function ReturnsPage(){
                 </CardContent></Card>
               </div>
 
-              <Tabs defaultValue="items">
+              <Tabs value={detailTab} onValueChange={setDetailTab}>
                 <TabsList className="flex flex-wrap h-auto">
-                  <TabsTrigger value="items" active={detailTab==='items'} onClick={()=>setDetailTab('items')}>Items</TabsTrigger>
-                  <TabsTrigger value="inventory" active={detailTab==='inventory'} onClick={()=>setDetailTab('inventory')}>Inventory</TabsTrigger>
-                  <TabsTrigger value="financial" active={detailTab==='financial'} onClick={()=>setDetailTab('financial')}>Financial</TabsTrigger>
-                  <TabsTrigger value="timeline" active={detailTab==='timeline'} onClick={()=>setDetailTab('timeline')}>Timeline</TabsTrigger>
-                  <TabsTrigger value="audit" active={detailTab==='audit'} onClick={()=>setDetailTab('audit')}>Audit</TabsTrigger>
+                  <TabsTrigger value="items">Items</TabsTrigger>
+                  <TabsTrigger value="inventory">Inventory</TabsTrigger>
+                  <TabsTrigger value="financial">Financial</TabsTrigger>
+                  <TabsTrigger value="timeline">Timeline</TabsTrigger>
+                  <TabsTrigger value="audit">Audit</TabsTrigger>
                 </TabsList>
                 <TabsContent value={detailTab} className="mt-4">
                   {detailTab==='items' && (

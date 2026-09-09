@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sanitizeError } from '@/lib/security';
-import { getSuppliers, createSupplier, getSupplierDetail, updateSupplier, deleteSupplier, getSupplierStatement, setSupplierStatus, getSupplierPriceHistory, addSupplierNote, addSupplierDocument, linkSupplierProduct, unlinkSupplierProduct, getPriceAlerts, importSupplierCatalogue, requestCreditApproval, getCreditApprovals, decideCreditApproval } from '@/lib/services/suppliers';
+import { getSuppliers, createSupplier, getSupplierDetail, updateSupplier, deleteSupplier, getSupplierStatement, setSupplierStatus, getSupplierPriceHistory, addSupplierNote, addSupplierDocument, linkSupplierProduct, unlinkSupplierProduct, getPriceAlerts, importSupplierCatalogue, requestCreditApproval, getCreditApprovals, decideCreditApproval, deleteCreditApproval } from '@/lib/services/suppliers';
 import { getSB } from '@/lib/services/supabase';
 
 export async function GET(req: Request){
@@ -97,6 +97,10 @@ export async function POST(req: Request){
     }
     if(body.action === 'decide_credit_approval'){
       const data = await decideCreditApproval(body.id, body.decision, body.note);
+      return NextResponse.json(data);
+    }
+    if(body.action === 'delete_credit_approval'){
+      const data = await deleteCreditApproval(body.id);
       return NextResponse.json(data);
     }
     const data = await createSupplier(body);
