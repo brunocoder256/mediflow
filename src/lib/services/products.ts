@@ -4,6 +4,24 @@ import { getOne, insertOne, updateOne, createAuditLog, getProfileId, getOrgId } 
 import { productSchema, productUpdateSchema, productSupplierSchema } from '@/lib/validations/products';
 import type { ProductInput, ProductUpdateInput, ProductSupplierInput } from '@/lib/validations/products';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Offline-queued product creates carry the curated category/unit NAME (not a UUID)
+// because the vocab couldn't be loaded offline. Resolve the name to this org's real
+// FK on save (provisioning the row if missing) so the queued payload persists correctly.
+async function resolveNameToId(sb: any, table: 'categories' | 'units', orgId: string, value: any) {
+    if (!value || UUID_RE.test(String(value))) return value ?? null;
+    const name = String(value).trim();
+    if (!name) return null;
+    const { data: existing } = await sb.from(table).select('id').eq('organization_id', orgId).eq('name', name).maybeSingle();
+    if (existing) return existing.id;
+    try {
+        const { data: created, error } = await sb.from(table).insert({ organization_id: orgId, name }).select('id').single();
+        if (!error && created) return created.id;
+    } catch { /* fall through to re-lookup on duplicate-race */ }
+    const { data: re } = await sb.from(table).select('id').eq('organization_id', orgId).eq('name', name).maybeSingle();
+    return re?.id ?? null;
+}
+
 export async function getProducts(params?: { category_id?: string; product_type?: string; status?: string; supplier_id?: string; search?: string; page?: number; perPage?: number; expiring?: boolean; lowStock?: boolean }) {
     const sb = await import('./supabase').then(m => m.getSB());
     let query = sb.from('products').select('*, categories(name), units(name, abbreviation)', { count: 'exact' }).order('name');
@@ -79,6 +97,8 @@ export async function createProduct(input: ProductInput) {
     const clean: any = { ...parsed, organization_id: orgId };
     if (!clean.category_id) clean.category_id = null;
     if (!clean.unit_id) clean.unit_id = null;
+    clean.category_id = await resolveNameToId(sb, 'categories', orgId, clean.category_id);
+    clean.unit_id = await resolveNameToId(sb, 'units', orgId, clean.unit_id);
     if (!clean.preferred_supplier_id) clean.preferred_supplier_id = null;
     // Uniqueness checks (server will also enforce via index where possible)
     if (clean.sku) {
@@ -143,6 +163,8 @@ export async function updateProduct(id: string, input: ProductUpdateInput) {
     const priceFields = ['default_selling_price', 'default_purchase_cost'] as const;
     const orgId = await getOrgId();
     const profileId = await getProfileId();
+    if (clean.category_id != null) clean.category_id = await resolveNameToId(sb, 'categories', orgId, clean.category_id);
+    if (clean.unit_id != null) clean.unit_id = await resolveNameToId(sb, 'units', orgId, clean.unit_id);
     const { data, error } = await sb.from('products').update(clean).eq('id', id).select().single();
     if (error) throw new Error(`Failed to update product: ${error.message}`);
     await createAuditLog('PRODUCT_UPDATED', 'products', id, existing as any, data);

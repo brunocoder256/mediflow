@@ -107,15 +107,31 @@ export default function ProductsPage(){
 
   // Selling Unit options — curated vocabulary (docs/sellingunit.md) in the
   // recommended order, then custom org units so existing products stay editable.
-  // Options resolve to real units.id values only, keeping product.unit_id as a
-  // valid FK (offline-safe after the first online load provisions the list).
+  // When online the DB provides real units.id UUIDs; when offline the curated
+  // names are used as option values (reversed to a real FK on submit).
   const sellingUnitNameById = React.useMemo(()=>{
     const m:Record<string,string>={};
     for(const u of units) m[(u.name||"").trim().toLowerCase()]=u.id;
     return m;
   },[units]);
+  // Build option list: DB rows first, then curated vocab as fallback (offline-safe).
+  const sellingUnitOptions = React.useMemo(()=>{
+    const merged = units.map((u:any)=>({ id: u.id, name: u.name, abbreviation: u.abbreviation }));
+    for(const s of sellingUnits){
+      if(!merged.some(m=>m.name.trim().toLowerCase()===(s.name||"").trim().toLowerCase())){
+        merged.push({ id: s.name, name: s.name, abbreviation: s.abbreviation });
+      }
+    }
+    return merged;
+  },[units]);
+  const isUuid = (v:string)=>/^[0-9a-f]{8}-/i.test(v);
+  const sellingUnitName = (id:string)=>{
+    if(!id) return "";
+    if(isUuid(id)) return units.find(u=>u.id===id)?.name || "";
+    return id; // curated name used as value (offline fallback)
+  };
+  const unitsOfflineOnly = units.length===0;
   const otherUnits = React.useMemo(()=>units.filter(u=>!sellingUnits.some(s=>s.name.trim().toLowerCase()===(u.name||"").trim().toLowerCase())),[units]);
-  const sellingUnitName = (id:string)=> units.find(u=>u.id===id)?.name || "";
   // Auto-compute Opening Quantity (units) from No. of Packs (pack_size) × Units per Pack —
   // the result is pre-filled into form.opening_quantity but stays editable by the user.
   const autoOpeningQuantity = (packs:string, upp:string)=>{
@@ -314,14 +330,39 @@ export default function ProductsPage(){
             if(orgId){
               const {data: newCat, error}=await (sb.from("categories") as any).insert({ organization_id: orgId, name: resolvedCategoryId, description: `Therapeutic: ${resolvedCategoryId}` }).select().single();
               if(!error && newCat){ resolvedCategoryId = newCat.id; setCategories(prev=>[...prev, newCat]); }
-              else resolvedCategoryId = "";
-            } else resolvedCategoryId = "";
+              else resolvedCategoryId = isOnline ? "" : resolvedCategoryId;
+            } else resolvedCategoryId = isOnline ? "" : resolvedCategoryId;
           }
-        }catch{ resolvedCategoryId = ""; }
+        }catch{ if (isOnline) resolvedCategoryId = ""; }
+      }
+      // Resolve offline selling-unit name to a real units.id FK when the curated
+      // name is not yet in the DB (same resolution pattern as the category fallback).
+      let resolvedUnitId = form.unit_id;
+      if(resolvedUnitId && !isUuid(resolvedUnitId)){
+        const matching = units.find(u=>u.name.trim().toLowerCase()===resolvedUnitId.trim().toLowerCase());
+        if(matching) resolvedUnitId = matching.id;
+        else {
+          const unitEntry = sellingUnits.find(s=>s.name.trim().toLowerCase()===resolvedUnitId.trim().toLowerCase());
+          try{
+            const {createBrowserClient}=await import("@/lib/supabase/client");
+            const sb=createBrowserClient();
+            let orgId=readUserContext()?.organization_id || null;
+            if(!orgId){
+              const { data:user }=await sb.auth.getUser();
+              const { data:pid }=await (sb.from("profiles") as any).select("organization_id").eq("auth_user_id", user?.user?.id).maybeSingle();
+              orgId=pid?.organization_id ?? null;
+            }
+            if(orgId){
+              const {data:newUnit, error}=await (sb.from("units") as any).insert({ organization_id: orgId, name: resolvedUnitId, abbreviation: unitEntry?.abbreviation||"" }).select("id, name, abbreviation").single();
+              if(!error && newUnit){ resolvedUnitId = newUnit.id; setUnits(prev=>[...prev, newUnit]); }
+              else resolvedUnitId = isOnline ? "" : resolvedUnitId;
+            } else resolvedUnitId = isOnline ? "" : resolvedUnitId;
+          }catch{ if (isOnline) resolvedUnitId = ""; }
+        }
       }
       const payload:any={
         name:form.name.trim(), generic_name:form.generic_name.trim(), brand_name:form.brand_name.trim(),
-        sku:form.sku.trim(), barcode:form.barcode.trim(), product_type:form.product_type, category_id:resolvedCategoryId || "", unit_id:form.unit_id || "", description:form.description.trim(), alternative_names: (form as any).alternative_names?.trim() || "",
+        sku:form.sku.trim(), barcode:form.barcode.trim(), product_type:form.product_type, category_id:resolvedCategoryId || "", unit_id:resolvedUnitId || "", description:form.description.trim(), alternative_names: (form as any).alternative_names?.trim() || "",
         strength:form.strength.trim(), strength_unit:form.strength_unit || "", dosage_form:form.dosage_form || "", route:form.route || "",
         pack_size: form.pack_size ? Number(form.pack_size): undefined, units_per_pack: form.units_per_pack ? Number(form.units_per_pack): undefined,
         manufacturer:form.manufacturer.trim(), country_of_origin:form.country_of_origin.trim(), registration_number:form.registration_number.trim(), classification:form.classification,
@@ -726,13 +767,13 @@ export default function ProductsPage(){
                 <div><Label>Selling Unit</Label>
                   <Select value={form.unit_id} onChange={e=>setForm({...form, unit_id:e.target.value})}>
                     <option value="">Select selling unit</option>
-                    {sellingUnits.filter(s=>sellingUnitNameById[s.name.trim().toLowerCase()]).length>0 && (
-                      <optgroup label="Recommended">
-                        {sellingUnits.map(s=>{
-                          const id=sellingUnitNameById[s.name.trim().toLowerCase()];
-                          if(!id) return null;
-                          return <option key={id} value={id}>{s.name}</option>;
-                        })}
+                    {sellingUnits.map(s=>{
+                      const realId = sellingUnitNameById[s.name.trim().toLowerCase()];
+                      return <option key={realId||s.name} value={realId||s.name}>{s.name}</option>;
+                    })}
+                    {sellingUnits.filter(s=>!sellingUnitNameById[s.name.trim().toLowerCase()]).length>0 && !unitsOfflineOnly && (
+                      <optgroup label="Recommended — pending sync">
+                        {sellingUnits.filter(s=>!sellingUnitNameById[s.name.trim().toLowerCase()]).map(s=><option key={s.name} value={s.name}>{s.name} (will sync on save)</option>)}
                       </optgroup>
                     )}
                     {otherUnits.length>0 && (
@@ -741,6 +782,7 @@ export default function ProductsPage(){
                       </optgroup>
                     )}
                   </Select>
+                  {unitsOfflineOnly && <p className="text-xs text-muted-foreground">Offline — your selection will be saved once you reconnect.</p>}
                 </div>
                 <div><Label>Manufacturer</Label><Input value={form.manufacturer} onChange={e=>setForm({...form, manufacturer:e.target.value})} placeholder="MediPharm Ltd"/></div>
               </div>
