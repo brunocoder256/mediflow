@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Container } from "@/components/site/container";
+import { buildMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildMetadata({
   title: "Terms of Service",
   description: "Terms of service for using the MediFlow IQ pharmacy management system.",
-};
+  path: "/terms",
+});
 
 const SECTIONS = [
   {

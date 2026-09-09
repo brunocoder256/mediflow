@@ -4,6 +4,7 @@ import { Container } from "@/components/site/container";
 import { SectionHeading } from "@/components/site/section-heading";
 import { Reveal } from "@/components/site/reveal";
 import { CtaSection } from "@/components/site/cta-section";
+import { buildMetadata, JsonLd } from "@/lib/seo";
 import {
   ShoppingCart,
   Boxes,
@@ -31,11 +32,20 @@ import {
   History,
 } from "lucide-react";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildMetadata({
   title: "Features",
   description:
     "Explore MediFlow IQ's pharmacy features — sales & POS, inventory with batch and expiry tracking, purchasing, customers, expenses, reports, users and audit.",
-};
+  path: "/features",
+  keywords: [
+    "pharmacy features",
+    "POS for pharmacy",
+    "inventory management",
+    "batch and expiry tracking",
+    "purchase management",
+    "pharmacy reporting software",
+  ],
+});
 
 const FEATURE_SECTIONS = [
   {
@@ -150,9 +160,23 @@ const FEATURE_SECTIONS = [
   },
 ];
 
+const FEATURES_SCHEMA = {
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  name: "MediFlow IQ Features",
+  itemListElement: FEATURE_SECTIONS.map((s, i) => ({
+    "@type": "ListItem",
+    position: i + 1,
+    name: s.title,
+    description: s.description,
+    url: `/features#${s.id}`,
+  })),
+};
+
 export default function FeaturesPage() {
   return (
     <>
+      <JsonLd data={FEATURES_SCHEMA} />
       <section className="border-b border-slate-200 bg-gradient-to-b from-teal-50 to-white py-16 dark:from-teal-950/30 dark:to-slate-950 dark:border-slate-800">
         <Container className="text-center">
           <SectionHeading

@@ -1,14 +1,24 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ToastProvider } from "@/hooks/use-toast";
+import {
+  SITE_NAME,
+  SITE_URL,
+  SITE_DESCRIPTION,
+  OG_IMAGE,
+  OG_IMAGE_DIMENSIONS,
+  JsonLd,
+  organizationSchema,
+  webSiteSchema,
+} from "@/lib/seo";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
     default: "MediFlow IQ — Pharmacy Management System",
     template: "%s — MediFlow IQ",
   },
-  description:
-    "MediFlow IQ is a modern pharmacy management system for managing sales, inventory, purchasing, customers, suppliers, expenses and reports from one connected platform.",
+  description: SITE_DESCRIPTION,
   keywords: [
     "pharmacy",
     "drug shop",
@@ -17,32 +27,71 @@ export const metadata: Metadata = {
     "POS",
     "point of sale",
     "expiry tracking",
+    "batch tracking",
+    "purchase orders",
+    "supplier management",
     "healthcare",
     "Uganda",
     "Africa",
   ],
-  applicationName: "MediFlow IQ",
+  applicationName: SITE_NAME,
+  creator: SITE_NAME,
+  publisher: SITE_NAME,
+  category: "business",
+  formatDetection: {
+    telephone: true,
+    email: true,
+    address: true,
+  },
   openGraph: {
-    title: "MediFlow IQ — Pharmacy Management System",
-    description:
-      "One connected system for running your pharmacy. Manage sales, stock, purchases, customers, suppliers, expenses and reports.",
+    title: `${SITE_NAME} — Pharmacy Management System`,
+    description: SITE_DESCRIPTION,
     type: "website",
     locale: "en_UG",
-    siteName: "MediFlow IQ",
-    images: [{ url: "/Mediflow IQ logo.png", width: 1254, height: 1254, alt: "MediFlow IQ logo" }],
+    siteName: SITE_NAME,
+    url: SITE_URL,
+    images: [
+      {
+        url: OG_IMAGE,
+        width: OG_IMAGE_DIMENSIONS.width,
+        height: OG_IMAGE_DIMENSIONS.height,
+        alt: `${SITE_NAME} logo`,
+      },
+    ],
   },
   twitter: {
-    card: "summary",
-    title: "MediFlow IQ — Pharmacy Management System",
-    description:
-      "One connected system for running your pharmacy. Manage sales, stock, purchases, customers, suppliers, expenses and reports.",
-    images: ["/Mediflow IQ logo.png"],
+    card: "summary_large_image",
+    title: `${SITE_NAME} — Pharmacy Management System`,
+    description: SITE_DESCRIPTION,
+    images: [OG_IMAGE],
   },
   robots: {
     index: true,
     follow: true,
     googleBot: { index: true, follow: true },
   },
+  icons: {
+    icon: [
+      { url: "/icon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+    shortcut: "/icon-32.png",
+  },
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: SITE_NAME,
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0f766e",
+  width: "device-width",
+  initialScale: 1,
+  colorScheme: "light dark",
 };
 
 export default function RootLayout({
@@ -52,20 +101,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#0f766e" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta
-          name="apple-mobile-web-app-status-bar-style"
-          content="default"
-        />
-        <link rel="apple-touch-icon" href="/icon-192.png" />
-        <link rel="icon" href="/icon-32.png" sizes="32x32" type="image/png" />
-        <link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png" />
-        <link rel="canonical" href="https://mediflow.vercel.app/" />
-      </head>
       <body className="antialiased min-h-screen">
+        <JsonLd data={organizationSchema()} />
+        <JsonLd data={webSiteSchema()} />
         <ToastProvider>{children}</ToastProvider>
         <script
           dangerouslySetInnerHTML={{

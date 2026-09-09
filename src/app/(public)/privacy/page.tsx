@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Container } from "@/components/site/container";
+import { buildMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildMetadata({
   title: "Privacy Policy",
   description: "How MediFlow IQ collects, uses and protects your business and personal data.",
-};
+  path: "/privacy",
+});
 
 const SECTIONS = [
   {

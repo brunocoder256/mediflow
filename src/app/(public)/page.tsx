@@ -9,6 +9,7 @@ import { CtaSection } from "@/components/site/cta-section";
 import { Reveal } from "@/components/site/reveal";
 import { DashboardPreview } from "@/components/site/dashboard-preview";
 import { FAQ_ITEMS } from "@/lib/site-content";
+import { buildMetadata, JsonLd } from "@/lib/seo";
 import { cn } from "@/lib/utils";
 import {
   Package,
@@ -33,10 +34,31 @@ import {
   TrendingUp,
 } from "lucide-react";
 
-export const metadata: Metadata = {
-  title: "MediFlow IQ — Pharmacy Management System",
+export const metadata: Metadata = buildMetadata({
+  title: "Pharmacy Management System for Drug Shops & Pharmacies",
   description:
-    "MediFlow IQ is a modern pharmacy management system for managing sales, inventory, purchasing, customers, suppliers, expenses and reports from one simple platform. UGX 20,000/month.",
+    "MediFlow IQ is a modern pharmacy management system for sales, inventory, purchasing, customers, suppliers, expenses and reports — with batch & expiry tracking, POS and offline mode. UGX 20,000/month.",
+  path: "/",
+  keywords: [
+    "pharmacy management system",
+    "drug shop management",
+    "pharmacy POS",
+    "inventory management pharmacy",
+    "expiry tracking",
+    "purchase order system",
+    "supplier management",
+    "pharmacy software Uganda",
+  ],
+});
+
+const FAQ_SCHEMA = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: FAQ_ITEMS.map((f) => ({
+    "@type": "Question",
+    name: f.question,
+    acceptedAnswer: { "@type": "Answer", text: f.answer },
+  })),
 };
 
 const PROBLEMS = [
@@ -247,6 +269,7 @@ const FEATURES = [
 export default function HomePage() {
   return (
     <>
+      <JsonLd data={FAQ_SCHEMA} />
       <Hero />
 
       {/* Trust strip */}

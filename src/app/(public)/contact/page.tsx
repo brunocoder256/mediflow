@@ -3,21 +3,43 @@ import Link from "next/link";
 import { Container } from "@/components/site/container";
 import { SectionHeading } from "@/components/site/section-heading";
 import { Reveal } from "@/components/site/reveal";
+import { buildMetadata, JsonLd, SITE_NAME, SITE_URL } from "@/lib/seo";
 import { Phone, MessageSquareText, ArrowRight } from "lucide-react";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildMetadata({
   title: "Contact",
-  description: "Contact the MediFlow IQ team to ask questions, request a demo or get help with your pharmacy account.",
-};
+  description:
+    "Contact the MediFlow IQ team to ask questions, request a demo or get help with your pharmacy account.",
+  path: "/contact",
+});
 
 const CONTACT_PHONES = [
   { label: "Main line", number: "0759327843" },
   { label: "Alt line", number: "0768082948" },
 ];
 
+const CONTACT_SCHEMA = {
+  "@context": "https://schema.org",
+  "@type": "ContactPage",
+  name: `Contact ${SITE_NAME}`,
+  url: `${SITE_URL}/contact`,
+  mainEntity: {
+    "@type": "Organization",
+    name: SITE_NAME,
+    url: SITE_URL,
+    contactPoint: CONTACT_PHONES.map((phone) => ({
+      "@type": "ContactPoint",
+      telephone: `+256${phone.number.slice(1)}`,
+      contactType: "customer service",
+      areaServed: "UG",
+    })),
+  },
+};
+
 export default function ContactPage() {
   return (
     <>
+      <JsonLd data={CONTACT_SCHEMA} />
       <section className="border-b border-slate-200 bg-gradient-to-b from-teal-50 to-white py-16 dark:from-teal-950/30 dark:to-slate-950 dark:border-slate-800">
         <Container className="mx-auto max-w-3xl text-center">
           <SectionHeading

@@ -5,13 +5,16 @@ import { SectionHeading } from "@/components/site/section-heading";
 import { PricingCard } from "@/components/site/pricing-card";
 import { Reveal } from "@/components/site/reveal";
 import { FaqAccordion } from "@/components/site/faq-accordion";
+import { buildMetadata, JsonLd } from "@/lib/seo";
 import { Check } from "lucide-react";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildMetadata({
   title: "Pricing",
   description:
     "MediFlow IQ costs UGX 20,000 per month. One simple price, full access — no complicated plans or hidden fees.",
-};
+  path: "/pricing",
+  keywords: ["pharmacy software pricing", "MediFlow IQ cost", "UGX 20000 pharmacy system"],
+});
 
 const FAQ_PRICING = [
   {
@@ -36,9 +39,38 @@ const FAQ_PRICING = [
   },
 ];
 
+const PRICING_SCHEMA = {
+  "@context": "https://schema.org",
+  "@type": "Product",
+  name: "MediFlow IQ — Pharmacy Management System",
+  description:
+    "One connected system for running your pharmacy — sales & POS, inventory with batch and expiry tracking, purchasing, suppliers, customers, expenses, reports, users and audit.",
+  brand: { "@type": "Brand", name: "MediFlow IQ" },
+  offers: {
+    "@type": "Offer",
+    price: "20000",
+    priceCurrency: "UGX",
+    availability: "https://schema.org/InStock",
+    url: "/pricing",
+    description: "One simple monthly price. Full access to every feature.",
+  },
+};
+
+const PRICING_FAQ_SCHEMA = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: FAQ_PRICING.map((f) => ({
+    "@type": "Question",
+    name: f.question,
+    acceptedAnswer: { "@type": "Answer", text: f.answer },
+  })),
+};
+
 export default function PricingPage() {
   return (
     <>
+      <JsonLd data={PRICING_SCHEMA} />
+      <JsonLd data={PRICING_FAQ_SCHEMA} />
       <section className="border-b border-slate-200 bg-gradient-to-b from-teal-50 to-white py-16 dark:from-teal-950/30 dark:to-slate-950 dark:border-slate-800">
         <Container className="text-center">
           <SectionHeading

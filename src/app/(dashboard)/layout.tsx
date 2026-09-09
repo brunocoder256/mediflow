@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import { getTrialGate } from "@/lib/trial";
 import { TrialBanner } from "@/components/layout/trial-banner";
@@ -5,6 +6,10 @@ import { SubscriptionGatePopup } from "@/components/layout/subscription-gate-pop
 import DashboardShell from "@/components/layout/dashboard-shell";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
+};
 
 export default async function DashboardLayout({
   children,

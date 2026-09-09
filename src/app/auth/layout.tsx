@@ -1,6 +1,15 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { ToastProvider } from "@/hooks/use-toast";
 import { MediFlowLogo } from "@/components/brand/mediflow-logo";
+
+export const metadata: Metadata = {
+  title: {
+    default: "Account",
+    template: "%s — MediFlow IQ",
+  },
+  robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
+};
 
 export default function AuthLayout({
   children,

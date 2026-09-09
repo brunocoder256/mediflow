@@ -4,13 +4,16 @@ import { Container } from "@/components/site/container";
 import { SectionHeading } from "@/components/site/section-heading";
 import { Reveal } from "@/components/site/reveal";
 import { DashboardPreview } from "@/components/site/dashboard-preview";
+import { buildMetadata } from "@/lib/seo";
 import { Phone, CheckCircle2, ArrowRight } from "lucide-react";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildMetadata({
   title: "Demo",
   description:
     "Request a MediFlow IQ demo or walkthrough. See how the dashboard, POS, inventory and reports work for your pharmacy.",
-};
+  path: "/demo",
+  keywords: ["pharmacy system demo", "MediFlow IQ walkthrough", "pharmacy software demo Uganda"],
+});
 
 const DEMO_STEPS = [
   "Your daily dashboard — sales, stock, expiry and profit at a glance",

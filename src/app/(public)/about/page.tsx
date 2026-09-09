@@ -4,13 +4,16 @@ import { SectionHeading } from "@/components/site/section-heading";
 import { FeatureCard } from "@/components/site/feature-card";
 import { Reveal } from "@/components/site/reveal";
 import { CtaSection } from "@/components/site/cta-section";
+import { buildMetadata } from "@/lib/seo";
 import { Cross, MapPin, Users, HeartHandshake, ShieldCheck, Zap } from "lucide-react";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildMetadata({
   title: "About",
   description:
     "MediFlow IQ is a modern pharmacy and drug-shop management platform built to help pharmacy businesses in Uganda and across Africa run their daily operations from one connected system.",
-};
+  path: "/about",
+  keywords: ["about MediFlow IQ", "pharmacy software company", "drug shop software Uganda"],
+});
 
 const VALUES = [
   {
