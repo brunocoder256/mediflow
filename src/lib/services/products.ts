@@ -173,6 +173,85 @@ export async function updateProduct(id: string, input: ProductUpdateInput) {
             await sb.from('price_history').insert({ organization_id: orgId, product_id: id, field_name: f === 'default_selling_price' ? 'selling_price' : 'purchase_price', old_value: (existing as any)?.[f] != null ? String((existing as any)[f]) : null, new_value: clean[f] != null ? String(clean[f]) : null, changed_by: profileId, reason: 'Product updated' });
         }
     }
+    // Stock Quantity edit (edit-product form) — read off the raw input because
+    // productUpdateSchema only covers product-master columns (zod strips unknown keys).
+    // Applies the delta between the requested total and the current sum of ACTIVE batch
+    // quantities as an audited stock adjustment, so batch/POS/inventory totals stay truthful.
+    const targetStockRaw = (input as any).stock_quantity;
+    if (targetStockRaw !== undefined && targetStockRaw !== null && String(targetStockRaw).trim() !== '') {
+        const target = Math.floor(Number(targetStockRaw));
+        if (!Number.isFinite(target) || target < 0) throw new Error('Stock quantity must be a whole number of 0 or more');
+        const { data: batchRows, error: bErr } = await sb.from('product_batches')
+            .select('id, branch_id, expiry_date, received_at, quantity_available, purchase_price, selling_price')
+            .eq('product_id', id)
+            .eq('is_active', true)
+            .order('expiry_date', { ascending: true });
+        if (bErr) throw new Error(`Stock quantity update failed: ${bErr.message}`);
+        const batches = (batchRows ?? []) as any[];
+        const current = batches.reduce((s, b) => s + Number(b.quantity_available ?? 0), 0);
+        const delta = target - current;
+        if (delta > 0) {
+            // Increase: top up the most recently received batch; create an adjustment
+            // batch (same shape as an opening-stock batch) when the product has none.
+            const newest = [...batches].sort((a, b) => String(b.received_at ?? '').localeCompare(String(a.received_at ?? '')))[0];
+            let batchId: string, branchId: string, unitCost: number;
+            if (newest) {
+                batchId = newest.id; branchId = newest.branch_id; unitCost = Number(newest.purchase_price ?? 0);
+                const { error } = await sb.from('product_batches')
+                    .update({ quantity_available: Number(newest.quantity_available) + delta, updated_at: new Date().toISOString() })
+                    .eq('id', newest.id);
+                if (error) throw new Error(`Stock quantity update failed: ${error.message}`);
+            } else {
+                const { data: branchesRes } = await sb.from('branches').select('id').eq('organization_id', orgId).eq('is_active', true).order('created_at', { ascending: true }).limit(1);
+                branchId = branchesRes?.[0]?.id;
+                if (!branchId) throw new Error('Stock quantity update failed: no active branch for adjustment batch');
+                const today = new Date();
+                const adjYmd = today.toISOString().slice(0, 10).replace(/-/g, '');
+                const batchNumber = `ADJ-${adjYmd}-${String(Math.floor(1000 + Math.random() * 9000))}`;
+                const expiryDate = new Date(today.getFullYear() + 2, today.getMonth(), today.getDate()).toISOString().slice(0, 10);
+                unitCost = Number(data.default_purchase_cost ?? 0);
+                const { data: batch, error: bIns } = await sb.from('product_batches').insert({
+                    organization_id: orgId, branch_id: branchId, product_id: id, batch_number: batchNumber,
+                    expiry_date: expiryDate, purchase_price: unitCost, selling_price: Number(data.default_selling_price ?? 0),
+                    quantity_received: delta, quantity_available: delta, received_at: today.toISOString().slice(0, 10),
+                    is_active: true,
+                }).select('id').single();
+                if (bIns) throw new Error(`Stock quantity update failed: ${bIns.message}`);
+                batchId = batch.id;
+                await createAuditLog('BATCH_CREATED', 'product_batches', batch.id, null, batch);
+            }
+            const { error: mErr } = await sb.from('stock_movements').insert({
+                organization_id: orgId, branch_id: branchId, product_id: id, batch_id: batchId,
+                movement_type: 'ADJUSTMENT_IN', quantity: delta, reference_type: 'PRODUCT', reference_id: id,
+                unit_cost: unitCost, notes: `Product edit — stock set to ${target} (was ${current})`, created_by: profileId,
+            });
+            if (mErr) throw new Error(`Stock quantity update failed: ${mErr.message}`);
+        } else if (delta < 0) {
+            // Decrease: deduct FEFO (earliest expiry first), never below 0 on a batch.
+            let toRemove = -delta;
+            for (const b of batches) {
+                if (toRemove <= 0) break;
+                const avail = Number(b.quantity_available ?? 0);
+                if (avail <= 0) continue;
+                const take = Math.min(avail, toRemove);
+                const { error } = await sb.from('product_batches')
+                    .update({ quantity_available: avail - take, updated_at: new Date().toISOString() })
+                    .eq('id', b.id);
+                if (error) throw new Error(`Stock quantity update failed: ${error.message}`);
+                const { error: mErr } = await sb.from('stock_movements').insert({
+                    organization_id: orgId, branch_id: b.branch_id, product_id: id, batch_id: b.id,
+                    movement_type: 'ADJUSTMENT_OUT', quantity: -take, reference_type: 'PRODUCT', reference_id: id,
+                    unit_cost: Number(b.purchase_price ?? 0), notes: `Product edit — stock set to ${target} (was ${current})`, created_by: profileId,
+                });
+                if (mErr) throw new Error(`Stock quantity update failed: ${mErr.message}`);
+                toRemove -= take;
+            }
+            if (toRemove > 0) throw new Error(`Stock quantity update failed: could only remove ${(-delta) - toRemove} of ${-delta} units`);
+        }
+        if (delta !== 0) {
+            await createAuditLog('STOCK_ADJUSTED', 'products', id, { stock_quantity: current } as any, { stock_quantity: target, delta });
+        }
+    }
     return data;
 }
 

@@ -91,7 +91,8 @@ export default function ProductsPage(){
     track_batch:true, track_expiry:true, fefo_enabled:true, allow_negative_stock:false,
     default_purchase_cost:"", default_selling_price:"", min_selling_price:"", tax_category:"standard", tax_inclusive:false,
     preferred_supplier_id:"", supplier_product_code:"",
-    opening_enabled:true, opening_quantity:"", opening_batch_number:"", opening_expiry_date:twoYearsFromNow
+    opening_enabled:true, opening_quantity:"", opening_batch_number:"", opening_expiry_date:twoYearsFromNow,
+    stock_quantity:"", original_stock_quantity:""
   });
   const therapeuticCategories = [
     "Analgesics / Pain Relief","Antipyretics","Anti-inflammatory","Anti-infective / Antimicrobial","Antimalarial","Antiallergic / Antihistamine","Respiratory","Gastrointestinal","Cardiovascular","Endocrine / Metabolic","Dermatological","Ophthalmic","Otic","Oral / Dental","Genitourinary","Reproductive / Maternal Health","Vitamins & Minerals","Electrolytes / Rehydration","Neurological","Musculoskeletal","Blood / Hematological","Immunological","Other / Unclassified"
@@ -133,13 +134,6 @@ export default function ProductsPage(){
     }) || otherUnits.some(u=>u.id===form.unit_id);
     return inList ? null : { id: form.unit_id, name: sellingUnitName(form.unit_id) || "Current unit" };
   },[form.unit_id, sellingUnitNameById, otherUnits]);
-  // Auto-compute Opening Quantity (units) from No. of Packs (pack_size) × Units per Pack —
-  // the result is pre-filled into form.opening_quantity but stays editable by the user.
-  const autoOpeningQuantity = (packs:string, upp:string)=>{
-    const p = Number(packs), u = Number(upp);
-    return (Number.isFinite(p) && p>0 && Number.isFinite(u) && u>0) ? String(p*u) : "";
-  };
-
   // Client-side search + filter: rankProducts gives relevance ranking (same as POS),
   // works offline against the cached full catalog.
   const allProductsFiltered = React.useMemo(()=>{
@@ -376,6 +370,11 @@ export default function ProductsPage(){
       if(!editingId && form.opening_enabled && Number(form.opening_quantity)>0){
         payload.initial_stock = { quantity: Number(form.opening_quantity), batch_number: form.opening_batch_number.trim(), expiry_date: form.opening_expiry_date || undefined };
       }
+      if(editingId && String(form.stock_quantity).trim() !== ""){
+        const sq = Number(form.stock_quantity);
+        if(!Number.isFinite(sq) || sq < 0 || Math.floor(sq) !== sq) throw new Error("Stock quantity must be a whole number of 0 or more");
+        payload.stock_quantity = sq;
+      }
       if (!isOnline) {
         if (editingId) {
           await queueProductUpdate(editingId, payload);
@@ -383,7 +382,7 @@ export default function ProductsPage(){
           await queueProductCreate(payload);
         }
         setShowAdd(false); setAddStep(1); setEditingId(null);
-        setForm({ name:"", generic_name:"", brand_name:"", sku:"", barcode:"", product_type:"Human Medicine", category_id:"", unit_id:"", description:"", alternative_names:"", strength:"", strength_unit:"", dosage_form:"", route:"", pack_size:"", units_per_pack:"", manufacturer:"", country_of_origin:"", registration_number:"", classification:"OTC", reorder_level:10, min_stock:0, max_stock:"", reorder_quantity:"", storage_location:"", shelf:"", rack:"", bin:"", track_batch:true, track_expiry:true, fefo_enabled:true, allow_negative_stock:false, default_purchase_cost:"", default_selling_price:"", min_selling_price:"", tax_category:"standard", tax_inclusive:false, preferred_supplier_id:"", supplier_product_code:"", opening_enabled:true, opening_quantity:"", opening_batch_number:"", opening_expiry_date:twoYearsFromNow });
+        setForm({ name:"", generic_name:"", brand_name:"", sku:"", barcode:"", product_type:"Human Medicine", category_id:"", unit_id:"", description:"", alternative_names:"", strength:"", strength_unit:"", dosage_form:"", route:"", pack_size:"", units_per_pack:"", manufacturer:"", country_of_origin:"", registration_number:"", classification:"OTC", reorder_level:10, min_stock:0, max_stock:"", reorder_quantity:"", storage_location:"", shelf:"", rack:"", bin:"", track_batch:true, track_expiry:true, fefo_enabled:true, allow_negative_stock:false, default_purchase_cost:"", default_selling_price:"", min_selling_price:"", tax_category:"standard", tax_inclusive:false, preferred_supplier_id:"", supplier_product_code:"", opening_enabled:true, opening_quantity:"", opening_batch_number:"", opening_expiry_date:twoYearsFromNow, stock_quantity:"", original_stock_quantity:"" });
         alert(editingId ? "Product update queued offline — will sync when you reconnect." : "Product queued offline — will be created when you reconnect.");
         return;
       }
@@ -393,7 +392,7 @@ export default function ProductsPage(){
       const j=await res.json();
       if(!res.ok) throw new Error(j.error || "Failed");
       setShowAdd(false); setAddStep(1); setEditingId(null);
-      setForm({ name:"", generic_name:"", brand_name:"", sku:"", barcode:"", product_type:"Human Medicine", category_id:"", unit_id:"", description:"", alternative_names:"", strength:"", strength_unit:"", dosage_form:"", route:"", pack_size:"", units_per_pack:"", manufacturer:"", country_of_origin:"", registration_number:"", classification:"OTC", reorder_level:10, min_stock:0, max_stock:"", reorder_quantity:"", storage_location:"", shelf:"", rack:"", bin:"", track_batch:true, track_expiry:true, fefo_enabled:true, allow_negative_stock:false, default_purchase_cost:"", default_selling_price:"", min_selling_price:"", tax_category:"standard", tax_inclusive:false, preferred_supplier_id:"", supplier_product_code:"", opening_enabled:true, opening_quantity:"", opening_batch_number:"", opening_expiry_date:twoYearsFromNow });
+      setForm({ name:"", generic_name:"", brand_name:"", sku:"", barcode:"", product_type:"Human Medicine", category_id:"", unit_id:"", description:"", alternative_names:"", strength:"", strength_unit:"", dosage_form:"", route:"", pack_size:"", units_per_pack:"", manufacturer:"", country_of_origin:"", registration_number:"", classification:"OTC", reorder_level:10, min_stock:0, max_stock:"", reorder_quantity:"", storage_location:"", shelf:"", rack:"", bin:"", track_batch:true, track_expiry:true, fefo_enabled:true, allow_negative_stock:false, default_purchase_cost:"", default_selling_price:"", min_selling_price:"", tax_category:"standard", tax_inclusive:false, preferred_supplier_id:"", supplier_product_code:"", opening_enabled:true, opening_quantity:"", opening_batch_number:"", opening_expiry_date:twoYearsFromNow, stock_quantity:"", original_stock_quantity:"" });
       invalidateCache("/api/products");
       invalidateCache("/api/inventory");
       fetchProducts();
@@ -432,7 +431,8 @@ export default function ProductsPage(){
       track_batch:(p as any).track_batch ?? true, track_expiry:(p as any).track_expiry ?? true, fefo_enabled:(p as any).fefo_enabled ?? true, allow_negative_stock:(p as any).allow_negative_stock ?? false,
       default_purchase_cost:(p as any).default_purchase_cost ? String((p as any).default_purchase_cost):"", default_selling_price:(p as any).default_selling_price ? String((p as any).default_selling_price):"", min_selling_price:(p as any).min_selling_price ? String((p as any).min_selling_price):"", tax_category:(p as any).tax_category||"standard", tax_inclusive:(p as any).tax_inclusive||false,
       preferred_supplier_id:(p as any).preferred_supplier_id||"", supplier_product_code:"",
-      opening_enabled:false, opening_quantity:"", opening_batch_number:"", opening_expiry_date:twoYearsFromNow
+      opening_enabled:false, opening_quantity:"", opening_batch_number:"", opening_expiry_date:twoYearsFromNow,
+      stock_quantity: p.totalStock != null ? String(p.totalStock) : "", original_stock_quantity: p.totalStock != null ? String(p.totalStock) : ""
     });
     setAddStep(1); setShowAdd(true);
   }
@@ -713,7 +713,7 @@ export default function ProductsPage(){
 
                 <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={()=>openDetail(detail.product.id)}><Clock className="h-4 w-4 mr-2"/>Refresh</Button>
-                  <Button variant="outline" onClick={()=>{ setShowDetail(false); handleEdit(detail.product); }}><Edit className="h-4 w-4 mr-2"/>Edit</Button>
+                  <Button variant="outline" onClick={()=>{ setShowDetail(false); handleEdit({ ...detail.product, totalStock: detail.totalStock }); }}><Edit className="h-4 w-4 mr-2"/>Edit</Button>
                   <Button variant="outline" onClick={()=> window.location.href=`/pos` }><ShoppingCart className="h-4 w-4 mr-2"/>Sell in POS</Button>
                   <Button variant="outline" onClick={()=> window.location.href=`/inventory`}><Layers className="h-4 w-4 mr-2"/>Inventory</Button>
                 </div>
@@ -761,8 +761,8 @@ export default function ProductsPage(){
               </div>
               <div className="grid md:grid-cols-3 gap-3">
                 <div><Label>Route</Label><Select value={form.route} onChange={e=>setForm({...form, route:e.target.value})}><option value="">Select</option>{routes.map(r=><option key={r} value={r}>{r}</option>)}</Select></div>
-                <div><Label>Pack Size/No. of Packs Available</Label><Input type="number" min={1} value={form.pack_size} onChange={e=>setForm({...form, pack_size:e.target.value, opening_quantity:autoOpeningQuantity(e.target.value, form.units_per_pack)})} placeholder="e.g. 10 packs"/></div>
-                <div><Label>Units per Pack</Label><Input type="number" min={1} value={form.units_per_pack} onChange={e=>setForm({...form, units_per_pack:e.target.value, opening_quantity:autoOpeningQuantity(form.pack_size, e.target.value)})} placeholder="e.g. 24"/></div>
+                <div><Label>Pack Size/No. of Packs Available</Label><Input type="number" min={1} value={form.pack_size} onChange={e=>setForm({...form, pack_size:e.target.value})} placeholder="e.g. 10 packs"/></div>
+                <div><Label>Units per Pack</Label><Input type="number" min={1} value={form.units_per_pack} onChange={e=>setForm({...form, units_per_pack:e.target.value})} placeholder="e.g. 24"/></div>
               </div>
               <div className="grid md:grid-cols-2 gap-3">
                 <div><Label>Selling Unit</Label>
@@ -813,18 +813,22 @@ export default function ProductsPage(){
                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.fefo_enabled} onChange={e=>setForm({...form, fefo_enabled:e.target.checked})}/> FEFO Enabled</label>
                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.allow_negative_stock} onChange={e=>setForm({...form, allow_negative_stock:e.target.checked})}/> Allow Negative Stock</label>
               </div>
+              {editingId && (
+                <div className="border rounded p-3 space-y-2 bg-muted/20">
+                  <Label>Stock Quantity (Units)</Label>
+                  <Input type="number" min={0} value={form.stock_quantity} onChange={e=>setForm({...form, stock_quantity:e.target.value})} placeholder="e.g. 240"/>
+                  <p className="text-xs text-muted-foreground">Sets the total stock for this product. Saved as an audited stock adjustment — the difference is applied across batches (FEFO for deductions). Leave blank to keep current stock ({form.original_stock_quantity || 0} units).</p>
+                </div>
+              )}
               {!editingId && (
                 <div className="border rounded p-3 space-y-3 bg-muted/20">
                   <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={form.opening_enabled} onChange={e=>setForm({...form, opening_enabled:e.target.checked})}/> Add opening stock now — creates a FEFO batch, sellable in POS immediately</label>
                   {form.opening_enabled && (
                     <div className="grid md:grid-cols-3 gap-3">
-                      <div><Label>Opening Quantity (Units) *</Label><Input type="number" min={0} value={form.opening_quantity} onChange={e=>setForm({...form, opening_quantity:e.target.value})} placeholder="auto: packs × units/pack"/></div>
+                      <div><Label>Opening Quantity (Units) *</Label><Input type="number" min={0} value={form.opening_quantity} onChange={e=>setForm({...form, opening_quantity:e.target.value})} placeholder="e.g. 240"/></div>
                       <div><Label>Batch Number</Label><Input value={form.opening_batch_number} onChange={e=>setForm({...form, opening_batch_number:e.target.value})} placeholder="auto: OPEN-YYYYMMDD-XXXX"/></div>
                       <div><Label>Expiry Date</Label><Input type="date" min={localDateStr(new Date())} value={form.opening_expiry_date} onChange={e=>setForm({...form, opening_expiry_date:e.target.value})}/></div>
                     </div>
-                  )}
-                  {form.opening_enabled && Number(form.pack_size)>0 && Number(form.units_per_pack)>0 && (
-                    <p className="text-xs text-muted-foreground">Auto-calculated from Step 2: {form.pack_size} pack(s) × {form.units_per_pack} units/pack = <strong>{autoOpeningQuantity(form.pack_size, form.units_per_pack)} units</strong> — you can edit this value directly.</p>
                   )}
                   <p className="text-xs text-muted-foreground">Leave blank for no opening stock. Batch purchase/selling price uses the Default Purchase Cost &amp; Default Selling Price from Step 4. Stock lands on the first active branch.</p>
                 </div>
@@ -859,7 +863,7 @@ export default function ProductsPage(){
 
           {addStep===6 && (
             <div className="space-y-3 text-sm">
-              <Card><CardContent className="p-4 space-y-1"><p><strong>Name:</strong> {form.name} {form.strength && `${form.strength}${form.strength_unit}`} ({form.dosage_form||"—"})</p><p><strong>SKU:</strong> {form.sku||"—"} • <strong>Barcode:</strong> {form.barcode||"—"} • <strong>Type:</strong> {form.product_type}</p><p><strong>Category:</strong> {categoryOptions.find((c:any)=>c.id===form.category_id)?.name || form.category_id || "—"} • <strong>Manuf:</strong> {form.manufacturer||"—"} • <strong>Reg:</strong> {form.registration_number||"—"}</p><p><strong>Selling Unit:</strong> {sellingUnitName(form.unit_id) || "—"}</p><p><strong>Stock:</strong> Reorder {form.reorder_level} • Min {form.min_stock} • Max {form.max_stock||"—"} • Loc {form.storage_location||"—"} {form.shelf&&`S:${form.shelf}`} </p><p><strong>Pricing:</strong> Cost {form.default_purchase_cost||"—"} • Sell {form.default_selling_price||"—"} • Tax {form.tax_category}</p><p><strong>Supplier:</strong> {suppliers.find(s=>s.id===form.preferred_supplier_id)?.name||"—"}</p>{!editingId && form.opening_enabled && Number(form.opening_quantity)>0 && <p><strong>Opening stock:</strong> {form.opening_quantity} units{form.opening_batch_number?` · Batch ${form.opening_batch_number}`:''} · Exp {form.opening_expiry_date||"auto +2y"}</p>}</CardContent></Card>
+              <Card><CardContent className="p-4 space-y-1"><p><strong>Name:</strong> {form.name} {form.strength && `${form.strength}${form.strength_unit}`} ({form.dosage_form||"—"})</p><p><strong>SKU:</strong> {form.sku||"—"} • <strong>Barcode:</strong> {form.barcode||"—"} • <strong>Type:</strong> {form.product_type}</p><p><strong>Category:</strong> {categoryOptions.find((c:any)=>c.id===form.category_id)?.name || form.category_id || "—"} • <strong>Manuf:</strong> {form.manufacturer||"—"} • <strong>Reg:</strong> {form.registration_number||"—"}</p><p><strong>Selling Unit:</strong> {sellingUnitName(form.unit_id) || "—"}</p><p><strong>Stock:</strong> Reorder {form.reorder_level} • Min {form.min_stock} • Max {form.max_stock||"—"} • Loc {form.storage_location||"—"} {form.shelf&&`S:${form.shelf}`} </p><p><strong>Pricing:</strong> Cost {form.default_purchase_cost||"—"} • Sell {form.default_selling_price||"—"} • Tax {form.tax_category}</p><p><strong>Supplier:</strong> {suppliers.find(s=>s.id===form.preferred_supplier_id)?.name||"—"}</p>{!editingId && form.opening_enabled && Number(form.opening_quantity)>0 && <p><strong>Opening stock:</strong> {form.opening_quantity} units{form.opening_batch_number?` · Batch ${form.opening_batch_number}`:''} · Exp {form.opening_expiry_date||"auto +2y"}</p>}{editingId && String(form.stock_quantity).trim()!=="" && <p><strong>Stock quantity:</strong> {form.stock_quantity} units {Number(form.stock_quantity)!==Number(form.original_stock_quantity) ? `(adjusting from ${form.original_stock_quantity||0})` : `(unchanged)`}</p>}</CardContent></Card>
               <p className="text-xs text-muted-foreground">Review — go back to edit any step. Saving creates the product; if opening stock was set it also creates a FEFO batch, immediately sellable in POS. Without it, stock stays 0 until a purchase is received.</p>
             </div>
           )}
