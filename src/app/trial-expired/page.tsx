@@ -109,8 +109,8 @@ export default function TrialExpiredPage() {
             <ul className="mt-3 space-y-2">
               <li className="flex items-center gap-3 font-medium">
                 <Phone className="h-4 w-4 text-primary" />
-                <a href={`tel:${gate?.contact_phone_1 ?? "0759327843"}`} className="hover:underline">
-                  {gate?.contact_phone_1 ?? "0759327843"}
+                <a href={`tel:${gate?.contact_phone_1 ?? "0746047086"}`} className="hover:underline">
+                  {gate?.contact_phone_1 ?? "0746047086"}
                 </a>
               </li>
               <li className="flex items-center gap-3 font-medium">

@@ -14,7 +14,7 @@ export const metadata: Metadata = buildMetadata({
 });
 
 const CONTACT_PHONES = [
-  { label: "Main line", number: "0759327843" },
+  { label: "Main line", number: "0746047086" },
   { label: "Alt line", number: "0768082948" },
 ];
 
