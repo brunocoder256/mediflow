@@ -53,7 +53,7 @@ export function TrialBanner({ gate }: { gate: TrialGate | null }) {
   const isTrial = isTrialActive(effective);
   if (live <= 0) return null;
 
-  const phone1 = effective?.contact_phone_1 ?? "0759327843";
+  const phone1 = effective?.contact_phone_1 ?? "0746047086";
   const phone2 = effective?.contact_phone_2 ?? "0768082948";
 
   return (

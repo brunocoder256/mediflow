@@ -154,6 +154,7 @@ export default function PosPage(){
   const [syncError,setSyncError]=React.useState<string|null>(null);
   const [cashSession,setCashSession]=React.useState<any>(null);
   const [orgSettings,setOrgSettings]=React.useState<any>(null);
+  const [organization,setOrganization]=React.useState<any>(null);
   const [customers,setCustomers]=React.useState<CustomerOpt[]>([]);
   const [selectedCustomer,setSelectedCustomer]=React.useState<CustomerOpt|null>(null);
   const [customerSearch,setCustomerSearch]=React.useState("");
@@ -250,13 +251,15 @@ export default function PosPage(){
   React.useEffect(()=>{
     cachedFetch("/api/settings").then((j:any)=>{
       if(j.branches?.length){ setBranches(j.branches); if(!branchId) setBranchId(j.branches[0].id); }
+      if(j.organization) setOrganization(j.organization);
       if(j.organization_settings){ setOrgSettings(j.organization_settings); setExpiryWarningDays(j.organization_settings.expiry_warning_days ?? 90); }
       if(typeof window!=="undefined"){
-        writeUserContext({ branches: j.branches ?? undefined, organization_settings: j.organization_settings ?? undefined });
+        writeUserContext({ branches: j.branches ?? undefined, organization: j.organization ?? undefined, organization_settings: j.organization_settings ?? undefined });
       }
     }).catch(()=>{
       const ctx = readUserContext();
       if(ctx?.branches?.length){ setBranches(ctx.branches); if(!branchId) setBranchId(ctx.branches[0].id); }
+      if((ctx as any)?.organization) setOrganization((ctx as any).organization);
       if(ctx?.organization_settings){ setOrgSettings(ctx.organization_settings); setExpiryWarningDays((ctx.organization_settings as any).expiry_warning_days ?? 90); }
     });
     cachedFetch("/api/categories").then((j:any)=>{ if(Array.isArray(j)) setCategories(j); }).catch(()=>{});
@@ -623,7 +626,7 @@ export default function PosPage(){
           {pendingReceipt && <p className="text-xs text-amber-600 mt-1">This receipt is a local preview. The sale will sync when you are back online — server re-validates stock and FEFO.</p>}
         </div>
         <Receipt
-          organization={{name: orgSettings?.receipt_header?.split('\n')[0] ?? "MediFlow IQ Pharmacy", address:"Kampala Road, Kampala", phone:"+256700123456", registration_number:"REG-2024-001"}}
+          organization={{name: organization?.name ?? orgSettings?.receipt_header?.split('\n')[0] ?? "", address: organization?.address, phone: organization?.phone, registration_number: organization?.registration_number}}
           branch={{name: branches.find(b=>b.id===receiptData.branchId)?.name ?? "Main Branch"}}
           receipt_number={receiptData.sale.sale_number}
           sold_at={receiptData.sale.sold_at ?? new Date().toISOString()}

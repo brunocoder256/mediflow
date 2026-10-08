@@ -19,6 +19,7 @@ interface UserContext {
   organization_id?: string | null;
   branch?: string | null;
   branches?: Array<{ id: string; name: string; code: string }>;
+  organization?: Record<string, unknown> | null;
   organization_settings?: Record<string, unknown>;
   cached_at: string;
 }

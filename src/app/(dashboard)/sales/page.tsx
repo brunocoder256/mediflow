@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { usePendingSales, useMediflowSynced } from "@/lib/offline/pending-overlay";
 import { cachedFetch } from "@/lib/offline/cached-fetch";
+import { readUserContext, writeUserContext } from "@/lib/offline/user-context";
 import { rankProducts, type PosSearchable } from "@/lib/pos-search";
 
 type Sale = { id:string; sale_number:string; sold_at:string; cashier_id:string; customer_id:string|null; total:number; subtotal:number; discount:number; tax:number; status:string; branch_id:string; profiles?:{full_name:string}; customers?:{name:string; phone:string}; sale_items?: any[] };
@@ -54,6 +55,7 @@ export default function SalesPage(){
   const [page,setPage]=React.useState(1);
   const perPage=14;
   const [branches,setBranches]=React.useState<any[]>([]);
+  const [organization,setOrganization]=React.useState<any>(null);
   const [categories,setCategories]=React.useState<any[]>([]);
   const [kpi,setKpi]=React.useState<any>(null);
   const [detail,setDetail]=React.useState<any>(null);
@@ -156,7 +158,11 @@ export default function SalesPage(){
 
   // load branches/categories (cached for offline)
   React.useEffect(()=>{
-    cachedFetch("/api/settings").then((j:any)=>{ if(j.branches) setBranches(j.branches); }).catch(()=>{});
+    cachedFetch("/api/settings").then((j:any)=>{ if(j.branches) setBranches(j.branches); if(j.organization) setOrganization(j.organization); if(typeof window!=="undefined") writeUserContext({ branches: j.branches ?? undefined, organization: j.organization ?? undefined }); }).catch(()=>{
+      const ctx=readUserContext();
+      if(ctx?.branches) setBranches(ctx.branches);
+      if((ctx as any)?.organization) setOrganization((ctx as any).organization);
+    });
     cachedFetch("/api/categories").then((j:any)=>{ if(Array.isArray(j)) setCategories(j); }).catch(()=>{});
   },[]);
 
@@ -415,7 +421,7 @@ export default function SalesPage(){
                 </TabsContent>
 
                 <TabsContent value="receipt" className="mt-4">
-                  <ReceiptComp organization={{name:"MediFlow IQ Pharmacy", address:"Kampala", phone:"+256700123456", registration_number:"REG-2024-001"}} branch={{name: branches.find(b=>b.id===detail.branch_id)?.name ?? "Branch"}} receipt_number={detail.sale_number} sold_at={detail.sold_at} cashier={detail.profiles?.full_name ?? detail.cashier_id} customer={detail.customers?.name} items={(detail.sale_items??[]).map((it:any)=>({name: it.products?.name ?? it.product_id.slice(0,8), quantity: it.quantity, unit_price: Number(it.unit_price), discount: Number(it.discount ?? 0), tax: Number(it.tax ?? 0), subtotal: Number(it.subtotal)}))} subtotal={Number(detail.subtotal)} discount={Number(detail.discount)} tax={Number(detail.tax)} total={Number(detail.total)} payment_method={detail.payments?.[0]?.payment_method ?? "CASH"} payment_reference={detail.payments?.[0]?.reference}/>
+                  <ReceiptComp organization={{name: organization?.name ?? "", address: organization?.address, phone: organization?.phone, registration_number: organization?.registration_number}} branch={{name: branches.find(b=>b.id===detail.branch_id)?.name ?? "Branch"}} receipt_number={detail.sale_number} sold_at={detail.sold_at} cashier={detail.profiles?.full_name ?? detail.cashier_id} customer={detail.customers?.name} items={(detail.sale_items??[]).map((it:any)=>({name: it.products?.name ?? it.product_id.slice(0,8), quantity: it.quantity, unit_price: Number(it.unit_price), discount: Number(it.discount ?? 0), tax: Number(it.tax ?? 0), subtotal: Number(it.subtotal)}))} subtotal={Number(detail.subtotal)} discount={Number(detail.discount)} tax={Number(detail.tax)} total={Number(detail.total)} payment_method={detail.payments?.[0]?.payment_method ?? "CASH"} payment_reference={detail.payments?.[0]?.reference}/>
                   <Button onClick={printReceipt} className="w-full mt-3"><Printer className="h-4 w-4 mr-2"/>Print (58/80mm) — EFRIS QR placeholder</Button>
                 </TabsContent>
               </Tabs>
