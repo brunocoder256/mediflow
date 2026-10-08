@@ -217,15 +217,18 @@ export default function ReturnsPage(){
   const submitSalesReturn=async()=>{
     if(!saleDetail) return;
     if(submitting) return;
-    const items=(saleDetail.sale_items ?? []).filter((it:any)=> (saleQty[it.id] ?? 0) >0).map((it:any)=>({
-      sale_item_id: it.id, product_id: it.product_id, batch_id: it.batch_id,
-      quantity: Math.min(Number(saleQty[it.id]), Number(it.quantity)),
-      reason: saleReason[it.id] ?? commonReason,
-      reason_category: saleReason[it.id] ?? commonReason,
-      return_condition: saleCond[it.id] ?? "SELLABLE",
-      condition: saleCond[it.id] ?? "SELLABLE",
-      inventory_destination: saleDest[it.id] ?? (saleCond[it.id]==='SELLABLE' ? 'SALEABLE' : 'QUARANTINE')
-    }));
+    const items=(saleDetail.sale_items ?? []).map((it:any)=>{
+      const qty=Math.min(Math.floor(Number(saleQty[it.id] ?? 0)), Number(it.quantity));
+      return {
+        sale_item_id: it.id, product_id: it.product_id, batch_id: it.batch_id,
+        quantity: qty,
+        reason: saleReason[it.id] ?? commonReason,
+        reason_category: saleReason[it.id] ?? commonReason,
+        return_condition: saleCond[it.id] ?? "SELLABLE",
+        condition: saleCond[it.id] ?? "SELLABLE",
+        inventory_destination: saleDest[it.id] ?? (saleCond[it.id]==='SELLABLE' ? 'SALEABLE' : 'QUARANTINE')
+      };
+    }).filter((it:any)=> it.quantity > 0);
     if(!items.length) return alert("Select quantity for at least one item");
     setSubmitting(true);
     const payload:any={ sale_id: saleDetail.id, branch_id: saleDetail.branch_id, reason: commonReason, reason_category: commonReason, resolution: "REFUND", refund_method: refundMethod, items, operation_id: crypto.randomUUID() };

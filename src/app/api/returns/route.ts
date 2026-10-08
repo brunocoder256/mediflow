@@ -67,6 +67,7 @@ export async function GET(request: Request) {
     const data = await getReturns({ branch_id, page, perPage, search, status, reason, refund_status, date_from, date_to, product_id, batch_id });
     return NextResponse.json(data);
   } catch (error: any) {
+    console.error('[api/returns] GET error:', error?.message);
     return NextResponse.json({ error: sanitizeError(error?.message ?? '') }, { status: 500 });
   }
 }
@@ -107,7 +108,20 @@ export async function POST(req: Request){
     const parsed = ReturnSchema.parse(body);
     const data = await createReturn({ sale_id: parsed.sale_id, branch_id: parsed.branch_id, operation_id: (body as any).operation_id, reason: parsed.reason, reason_category: parsed.reason_category, resolution: parsed.resolution, refund_method: parsed.refund_method, items: parsed.items as any });
     return NextResponse.json(data, {status:201});
-  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? ''), issues: e.issues },{status:400}); }
+  }catch(e:any){
+    console.error('[api/returns] POST error:', e?.message, e?.issues ?? '');
+    // deliberate validation/business errors — safe to show verbatim
+    if(e?.name === 'ReturnsError'){
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    // Zod validation — surface the first issue in readable form
+    if(Array.isArray(e?.issues)){
+      const first = e.issues[0];
+      const field = Array.isArray(first?.path) && first.path.length ? `${first.path.join('.')}: ` : '';
+      return NextResponse.json({ error: `Validation error — ${field}${first?.message ?? 'invalid input'}`, issues: e.issues },{status:400});
+    }
+    return NextResponse.json({ error: sanitizeError(e?.message ?? ''), issues: e.issues },{status:400});
+  }
 }
 
 export async function PATCH(req: Request){

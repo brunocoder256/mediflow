@@ -11,6 +11,59 @@ function serverReturnNumber(date = new Date()){
   return `RET-${d}-${r}`;
 }
 
+// Deliberate, user-safe validation/business errors — returned verbatim to the client
+// (unlike DB/internal errors which go through sanitizeError).
+export class ReturnsError extends Error {
+  constructor(message: string){
+    super(message);
+    this.name = 'ReturnsError';
+  }
+}
+
+// Allowed values for return_items.condition / returns.condition (migration 00044 CHECK).
+const DB_CONDITIONS = ['SEALED','OPENED','DAMAGED','CONTAMINATED','EXPIRED','NEAR_EXPIRY','QUALITY_ISSUE','OTHER'];
+// UI value -> DB value mapping (the POS/Returns UI uses SELLABLE for "Sealed/Resalable").
+const CONDITION_ALIASES: Record<string,string> = { SELLABLE:'SEALED', RESALABLE:'SEALED', COMPROMISED:'QUALITY_ISSUE' };
+function normalizeReturnCondition(value?: string | null): string | null {
+  if(!value) return null;
+  const c = String(value).toUpperCase().trim();
+  if(!c) return null;
+  if(DB_CONDITIONS.includes(c)) return c;
+  return CONDITION_ALIASES[c] ?? 'OTHER';
+}
+
+const DB_DESTINATIONS = ['SALEABLE','QUARANTINE','DAMAGED','EXPIRED','RECALL','DISPOSAL'];
+function normalizeDestination(dest: string | undefined, cond: string): string {
+  if(dest && DB_DESTINATIONS.includes(dest)) return dest;
+  if(['SELLABLE','SEALED'].includes(cond)) return 'SALEABLE';
+  if(cond==='DAMAGED') return 'DAMAGED';
+  if(cond==='EXPIRED') return 'EXPIRED';
+  return 'QUARANTINE';
+}
+
+// Inserts a row (or array of rows), stripping any column the DB does not have and
+// retrying — keeps working even if newer schema migrations are not applied yet.
+async function insertIgnoringMissingColumns(sb: any, table: string, rows: any, opts?: { select?: boolean }){
+  const payload = Array.isArray(rows) ? rows.map(r=>({ ...r })) : { ...rows };
+  const isArr = Array.isArray(payload);
+  for(let attempt=0; attempt<12; attempt++){
+    const q = opts?.select ? sb.from(table).insert(payload).select().single() : sb.from(table).insert(payload);
+    const { data, error } = await q;
+    if(!error) return { data: data ?? null, error: null };
+    const msg = error.message ?? '';
+    // Postgres: `column "x" of relation "t" does not exist` / PostgREST: `Could not find the 'x' column of 't' in the schema cache`
+    const missingCol = /column/i.test(msg) && (/does not exist/i.test(msg) || /Could not find the/i.test(msg));
+    if(!missingCol) return { data: null, error };
+    const m = /column "([^"]+)"|column ([a-zA-Z_][a-zA-Z0-9_]*)|find the '([^']+)' column/.exec(msg);
+    const col = m?.[1] ?? m?.[2] ?? m?.[3];
+    const has = isArr ? payload.some((p:any)=> col && col in p) : !!(col && col in payload);
+    if(!col || !has) return { data: null, error };
+    if(isArr) payload.forEach((p:any)=> delete p[col]);
+    else delete payload[col];
+  }
+  return { data: null, error: { message: `Insert into ${table} failed after retrying without missing columns` } };
+}
+
 export async function getReturns(params: {
   branch_id?: string; page?: number; perPage?: number; search?: string; status?: string; reason?: string; refund_status?: string; date_from?: string; date_to?: string; customer_id?: string; product_id?: string; batch_id?: string;
 }){
@@ -87,17 +140,17 @@ export async function createReturn(input:{
   const sb:any = await getSB();
   const orgId = await getOrgId();
   const pid = await getProfileId();
-  if(!orgId || !pid) throw new Error('Unauthorized');
+  if(!orgId || !pid) throw new ReturnsError('Unauthorized');
   // idempotency
   if(input.operation_id){
     const { data: dup } = await sb.from('returns').select('id, return_number').eq('operation_id', input.operation_id).maybeSingle();
     if(dup) return dup;
   }
   const sale:any = await getOne('sales', input.sale_id);
-  if(!sale) throw new Error('Sale not found');
-  if(sale.organization_id !== orgId) throw new Error('Sale org mismatch');
-  if(input.branch_id !== sale.branch_id) throw new Error('Return branch must match sale branch');
-  if(['VOIDED'].includes(sale.status)) throw new Error('Cannot return voided sale');
+  if(!sale) throw new ReturnsError('Sale not found');
+  if(sale.organization_id !== orgId) throw new ReturnsError('Sale org mismatch');
+  if(input.branch_id !== sale.branch_id) throw new ReturnsError('Return branch must match sale branch');
+  if(['VOIDED'].includes(sale.status)) throw new ReturnsError('Cannot return voided sale');
   // fetch sale_items for validation
   const { data: saleItems } = await sb.from('sale_items').select('*').eq('sale_id', input.sale_id);
   const siMap=new Map((saleItems??[]).map((si:any)=>[si.id, si]));
@@ -113,13 +166,13 @@ export async function createReturn(input:{
   let total=0;
   for(const it of input.items){
     const si:any = siMap.get(it.sale_item_id);
-    if(!si) throw new Error(`Sale item not found ${it.sale_item_id}`);
-    if(si.product_id !== it.product_id) throw new Error(`Product mismatch for ${it.sale_item_id}`);
-    if(si.batch_id !== it.batch_id) throw new Error(`Batch mismatch: sale batch ${si.batch_id} vs return ${it.batch_id}`);
-    if(!Number.isInteger(it.quantity) || it.quantity<=0) throw new Error('Quantity must be >0');
+    if(!si) throw new ReturnsError(`Sale item not found ${it.sale_item_id}`);
+    if(si.product_id !== it.product_id) throw new ReturnsError(`Product mismatch for ${it.sale_item_id}`);
+    if(si.batch_id !== it.batch_id) throw new ReturnsError(`Batch mismatch: sale batch ${si.batch_id} vs return ${it.batch_id}`);
+    if(!Number.isInteger(it.quantity) || it.quantity<=0) throw new ReturnsError('Quantity must be a whole number greater than 0');
     const already = returnedMap[it.sale_item_id] ?? 0;
     const max = Number(si.quantity) - already;
-    if(it.quantity > max) throw new Error(`Exceeds returnable: sold ${si.quantity}, already returned ${already}, max ${max} for ${si.product_id.slice(0,8)}`);
+    if(it.quantity > max) throw new ReturnsError(`Exceeds returnable: sold ${si.quantity}, already returned ${already}, max ${max} for ${si.product_id.slice(0,8)}`);
     // price per spec 27/28: use original sale_item unit_price - discount + tax
     const lineUnit = Number(si.unit_price) - Number(si.discount ?? 0)/Number(si.quantity) + Number(si.tax ?? 0)/Number(si.quantity);
     // but simpler: subtotal / quantity
@@ -129,11 +182,12 @@ export async function createReturn(input:{
     total+=amount;
     // validate batch exists and product matches
     const { data: batch } = await sb.from('product_batches').select('id, product_id, batch_number, expiry_date').eq('id', it.batch_id).maybeSingle();
-    if(!batch) throw new Error(`Batch ${it.batch_id} not found`);
-    if(batch.product_id !== it.product_id) throw new Error('Batch product mismatch');
+    if(!batch) throw new ReturnsError(`Batch ${it.batch_id} not found`);
+    if(batch.product_id !== it.product_id) throw new ReturnsError('Batch product mismatch');
     // inventory destination explicit per spec 14 — map condition to destination
-    const cond = (it.return_condition ?? it.condition ?? 'SELLABLE').toUpperCase();
-    const dest = it.inventory_destination ?? (['SELLABLE','SEALED'].includes(cond) ? 'SALEABLE' : cond==='DAMAGED' ? 'DAMAGED' : cond==='EXPIRED' ? 'EXPIRED' : cond==='NEAR_EXPIRY' ? 'QUARANTINE' : 'QUARANTINE');
+    const rawCond = (it.return_condition ?? it.condition ?? 'SELLABLE').toUpperCase();
+    const cond = normalizeReturnCondition(rawCond);
+    const dest = normalizeDestination(it.inventory_destination, cond ?? 'SEALED');
     (it as any)._dest=dest;
     (it as any)._cond=cond;
   }
@@ -154,24 +208,17 @@ export async function createReturn(input:{
     refund_status: 'PENDING',
     resolution: input.resolution ?? 'REFUND',
     refund_method: input.refund_method ?? null,
-    condition: input.items[0]?.condition ?? null,
+    condition: (input.items[0] as any)?._cond ?? null,
     inventory_destination: (input.items[0] as any)?._dest ?? null,
     operation_id: input.operation_id ?? null,
     created_by: pid,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
-  // fallback if columns missing
-  const { data, error } = await sb.from('returns').insert(payload).select().single();
-  let ret=data;
-  if(error){
-    if(/column.*does not exist/i.test(error.message)){
-      const legacy:any={ organization_id: orgId, branch_id: input.branch_id, return_number: returnNumber, sale_id: input.sale_id, reason: payload.reason, total: payload.total, status: 'pending', created_by: pid };
-      const { data: d2, error: e2 } = await sb.from('returns').insert(legacy).select().single();
-      if(e2) throw new Error(e2.message);
-      ret=d2;
-    } else throw new Error(error.message);
-  }
+  const ins = await insertIgnoringMissingColumns(sb, 'returns', payload, { select: true });
+  if(ins.error) throw new Error(ins.error.message);
+  const ret:any = ins.data;
+  if(!ret?.id) throw new Error('Return insert returned no row');
 
   const rows = input.items.map((it:any)=>({
     return_id: ret.id,
@@ -186,55 +233,70 @@ export async function createReturn(input:{
     unit_price: (()=>{ const si:any=siMap.get(it.sale_item_id); return Number(si.unit_price ?? 0); })(),
     batch_number: it.batch_id?.slice(0,12) ?? null,
   }));
-  // insert return_items with fallback for new cols
-  const { error: e2 } = await sb.from('return_items').insert(rows);
-  if(e2){
-    if(/column.*does not exist/i.test(e2.message)){
-      const legacyRows = input.items.map((it:any)=>({ return_id: ret.id, sale_item_id: it.sale_item_id, product_id: it.product_id, batch_id: it.batch_id, quantity: it.quantity, amount: it._amount ?? 0 }));
-      const { error: e3 } = await sb.from('return_items').insert(legacyRows);
-      if(e3){ await sb.from('returns').delete().eq('id', ret.id); throw new Error(e3.message); }
-    } else { await sb.from('returns').delete().eq('id', ret.id); throw new Error(e2.message); }
+  const insItems = await insertIgnoringMissingColumns(sb, 'return_items', rows);
+  if(insItems.error){
+    const msg = insItems.error.message;
+    await sb.from('returns').delete().eq('id', ret.id);
+    throw new Error(msg);
   }
 
   // Inventory movements — per spec 24/25: explicit, auditable, never direct stock update without movement
-  for(const it of input.items as any[]){
-    const dest=it._dest;
-    const isSaleable = dest==='SALEABLE';
-    const movType = isSaleable ? 'SALE_RETURN' : (dest==='DAMAGED' ? 'DAMAGED' : dest==='EXPIRED' ? 'EXPIRED' : 'ADJUSTMENT_OUT');
-    const qty = Number(it.quantity);
-    // FEFO: keep original batch/expiry — just adjust quantity_available if saleable
-    if(isSaleable){
-      await sb.from('stock_movements').insert({
-        organization_id: orgId,
-        branch_id: input.branch_id,
-        product_id: it.product_id,
-        batch_id: it.batch_id,
-        movement_type: 'SALE_RETURN',
-        quantity: qty,
-        reference_type: 'RETURN',
-        reference_id: ret.id,
-        notes: `Sales return ${ret.return_number} ${it.reason ?? ''} -> SALEABLE`,
-        created_by: pid,
-      });
-      // increase batch saleable
-      const { data: batch } = await sb.from('product_batches').select('quantity_available').eq('id', it.batch_id).single();
-      await sb.from('product_batches').update({ quantity_available: Number(batch.quantity_available)+qty, updated_at: new Date().toISOString() }).eq('id', it.batch_id);
-    } else {
-      // quarantine/damaged/expired — do NOT increase saleable; create movement to quarantine but not batch saleable
-      await sb.from('stock_movements').insert({
-        organization_id: orgId,
-        branch_id: input.branch_id,
-        product_id: it.product_id,
-        batch_id: it.batch_id,
-        movement_type: movType as any,
-        quantity: qty,
-        reference_type: 'RETURN',
-        reference_id: ret.id,
-        notes: `Sales return ${ret.return_number} -> ${dest} (${it._cond}) — not saleable per pharmacy safety`,
-        created_by: pid,
-      });
-      // No saleable increase
+  const rollback = async ()=>{
+    await sb.from('stock_movements').delete().eq('reference_id', ret.id).eq('reference_type', 'RETURN');
+    await sb.from('return_items').delete().eq('return_id', ret.id);
+    await sb.from('returns').delete().eq('id', ret.id);
+  };
+  try{
+    for(const it of input.items as any[]){
+      const dest=it._dest;
+      const isSaleable = dest==='SALEABLE';
+      const movType = isSaleable ? 'SALE_RETURN' : (dest==='DAMAGED' ? 'DAMAGED' : dest==='EXPIRED' ? 'EXPIRED' : 'ADJUSTMENT_OUT');
+      const qty = Number(it.quantity);
+      // FEFO: keep original batch/expiry — just adjust quantity_available if saleable
+      if(isSaleable){
+        const { error: movErr } = await sb.from('stock_movements').insert({
+          organization_id: orgId,
+          branch_id: input.branch_id,
+          product_id: it.product_id,
+          batch_id: it.batch_id,
+          movement_type: 'SALE_RETURN',
+          quantity: qty,
+          reference_type: 'RETURN',
+          reference_id: ret.id,
+          notes: `Sales return ${ret.return_number} ${it.reason ?? ''} -> SALEABLE`,
+          created_by: pid,
+        });
+        if(movErr) throw new Error(movErr.message);
+        // increase batch saleable
+        const { data: batch, error: batchErr } = await sb.from('product_batches').select('quantity_available').eq('id', it.batch_id).single();
+        if(batchErr || !batch) throw new Error(batchErr?.message ?? `Batch ${it.batch_id} not readable`);
+        const { data: updRows, error: updErr } = await sb.from('product_batches')
+          .update({ quantity_available: Number(batch.quantity_available)+qty, updated_at: new Date().toISOString() })
+          .eq('id', it.batch_id).select('id');
+        if(updErr) throw new Error(updErr.message);
+        if(!updRows?.length) throw new Error('Batch stock update affected 0 rows');
+      } else {
+        // quarantine/damaged/expired — do NOT increase saleable; create movement to quarantine but not batch saleable
+        const { error: movErr } = await sb.from('stock_movements').insert({
+          organization_id: orgId,
+          branch_id: input.branch_id,
+          product_id: it.product_id,
+          batch_id: it.batch_id,
+          movement_type: movType as any,
+          quantity: qty,
+          reference_type: 'RETURN',
+          reference_id: ret.id,
+          notes: `Sales return ${ret.return_number} -> ${dest} (${it._cond}) — not saleable per pharmacy safety`,
+          created_by: pid,
+        });
+        if(movErr) throw new Error(movErr.message);
+        // No saleable increase
+      }
     }
+  }catch(e:any){
+    console.error(`[returns] stock update failed for ${ret.return_number}, rolling back:`, e?.message);
+    try{ await rollback(); }catch(re:any){ console.error('[returns] rollback failed:', re?.message); }
+    throw new ReturnsError('Stock update failed — the return was rolled back and no stock was changed. Please retry.');
   }
 
   // Audit
@@ -247,7 +309,7 @@ export async function updateReturnStatus(id:string, toStatus:string, opts?:{ rej
   const sb:any = await getSB();
   const pid = await getProfileId();
   const { data: cur } = await sb.from('returns').select('*').eq('id', id).single();
-  if(!cur) throw new Error('Return not found');
+  if(!cur) throw new ReturnsError('Return not found');
   const allowed:Record<string,string[]>={
     draft:['pending','submitted','pending_approval','cancelled'],
     pending:['submitted','pending_approval','approved','rejected','cancelled'],
@@ -261,7 +323,7 @@ export async function updateReturnStatus(id:string, toStatus:string, opts?:{ rej
   };
   const curSt = (cur.status ?? 'pending').toString().toLowerCase();
   const next = toStatus.toLowerCase();
-  if(curSt!==next && !(allowed[curSt]??[]).includes(next)) throw new Error(`Cannot transition ${cur.status} -> ${toStatus}`);
+  if(curSt!==next && !(allowed[curSt]??[]).includes(next)) throw new ReturnsError(`Cannot transition ${cur.status} -> ${toStatus}`);
   const patch:any={ status: next, updated_at: new Date().toISOString() };
   if(next==='approved'){ patch.approved_by=pid; patch.approved_at=new Date().toISOString(); }
   if(next==='rejected'){ patch.rejected_at=new Date().toISOString(); patch.rejection_reason=opts?.rejection_reason ?? null; }
@@ -283,10 +345,10 @@ export async function createRefund(input:{ return_id: string; sale_id: string; b
   }
   // validate return exists and amount <= return total - already refunded
   const { data: ret } = await sb.from('returns').select('total').eq('id', input.return_id).single();
-  if(!ret) throw new Error('Return not found');
+  if(!ret) throw new ReturnsError('Return not found');
   const { data: existing } = await sb.from('refunds').select('amount, status').eq('return_id', input.return_id).neq('status','failed').neq('status','cancelled');
   const refunded = (existing??[]).reduce((a:any,r:any)=> a+Number(r.amount),0);
-  if(Number(input.amount) + refunded > Number(ret.total + 0.01)) throw new Error(`Refund exceeds return value: return ${ret.total}, already refunded ${refunded}, requested ${input.amount}`);
+  if(Number(input.amount) + refunded > Number(ret.total + 0.01)) throw new ReturnsError(`Refund exceeds return value: return ${ret.total}, already refunded ${refunded}, requested ${input.amount}`);
   const { data, error } = await sb.from('refunds').insert({
     organization_id: orgId,
     branch_id: input.branch_id,
@@ -315,8 +377,8 @@ export async function completeRefund(id:string){
   const sb:any = await getSB();
   const pid = await getProfileId();
   const { data: r } = await sb.from('refunds').select('*').eq('id', id).single();
-  if(!r) throw new Error('Refund not found');
-  if(r.status!=='pending') throw new Error('Only pending can be completed');
+  if(!r) throw new ReturnsError('Refund not found');
+  if(r.status!=='pending') throw new ReturnsError('Only pending refunds can be completed');
   const { data, error } = await sb.from('refunds').update({ status: 'completed', approved_by: pid, processed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', id).select().single();
   if(error) throw new Error(error.message);
   await createAuditLog('REFUND_COMPLETED','refunds',id,r,data);
