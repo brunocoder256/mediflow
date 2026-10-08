@@ -324,6 +324,35 @@ export async function updateReturnStatus(id:string, toStatus:string, opts?:{ rej
   const curSt = (cur.status ?? 'pending').toString().toLowerCase();
   const next = toStatus.toLowerCase();
   if(curSt!==next && !(allowed[curSt]??[]).includes(next)) throw new ReturnsError(`Cannot transition ${cur.status} -> ${toStatus}`);
+
+  // Stock was restored at creation time — a rejected/cancelled return must give it
+  // back (reverses SALE_RETURN batch increments and removes the RETURN ledger rows).
+  // Idempotent: retries find no remaining movements and skip straight to the status update.
+  if(next==='rejected' || next==='cancelled'){
+    try{
+      const { data: movs } = await sb.from('stock_movements').select('*')
+        .eq('reference_type','RETURN').eq('reference_id', id);
+      for(const m of (movs??[]) as any[]){
+        if(m.movement_type==='SALE_RETURN'){
+          const { data: batch, error: batchErr } = await sb.from('product_batches').select('quantity_available').eq('id', m.batch_id).single();
+          if(batchErr || !batch) throw new Error(batchErr?.message ?? `Batch ${m.batch_id} not readable`);
+          const curQty = Number(batch.quantity_available);
+          const revQty = Number(m.quantity);
+          if(curQty < revQty) console.warn(`[returns] reversal for ${id}: batch ${m.batch_id} has ${curQty} < ${revQty}, clamping to 0`);
+          const { error: updErr } = await sb.from('product_batches')
+            .update({ quantity_available: Math.max(0, curQty - revQty), updated_at: new Date().toISOString() })
+            .eq('id', m.batch_id);
+          if(updErr) throw new Error(updErr.message);
+        }
+        const { error: delErr } = await sb.from('stock_movements').delete().eq('id', m.id);
+        if(delErr) throw new Error(delErr.message);
+      }
+    }catch(e:any){
+      console.error(`[returns] stock reversal failed for ${id}:`, e?.message);
+      throw new ReturnsError('Stock reversal failed — the return status was not changed. Please retry.');
+    }
+  }
+
   const patch:any={ status: next, updated_at: new Date().toISOString() };
   if(next==='approved'){ patch.approved_by=pid; patch.approved_at=new Date().toISOString(); }
   if(next==='rejected'){ patch.rejected_at=new Date().toISOString(); patch.rejection_reason=opts?.rejection_reason ?? null; }
@@ -344,7 +373,7 @@ export async function createRefund(input:{ return_id: string; sale_id: string; b
     if(dup) return dup;
   }
   // validate return exists and amount <= return total - already refunded
-  const { data: ret } = await sb.from('returns').select('total').eq('id', input.return_id).single();
+  const { data: ret } = await sb.from('returns').select('total, status').eq('id', input.return_id).single();
   if(!ret) throw new ReturnsError('Return not found');
   const { data: existing } = await sb.from('refunds').select('amount, status').eq('return_id', input.return_id).neq('status','failed').neq('status','cancelled');
   const refunded = (existing??[]).reduce((a:any,r:any)=> a+Number(r.amount),0);
@@ -367,8 +396,19 @@ export async function createRefund(input:{ return_id: string; sale_id: string; b
   // update return refund_status
   const newRefunded = refunded + Number(input.amount);
   const refundStatus = newRefunded >= Number(ret.total) -0.01 ? 'COMPLETED' : 'PARTIAL';
-  await sb.from('returns').update({ refund_status: refundStatus, updated_at: new Date().toISOString() }).eq('id', input.return_id);
+  const returnPatch:any = { refund_status: refundStatus, updated_at: new Date().toISOString() };
+  // Fully refunded = the money is back, so the return workflow is done. Keeps
+  // report queries keyed on status='completed' (COGS / P&L / profit cards)
+  // consistent with what was actually refunded.
+  if(refundStatus==='COMPLETED' && !['rejected','cancelled','completed'].includes(String(ret.status ?? '').toLowerCase())){
+    returnPatch.status = 'completed';
+    returnPatch.completed_at = new Date().toISOString();
+    returnPatch.processed_by = pid;
+  }
+  const { error: retUpdErr } = await sb.from('returns').update(returnPatch).eq('id', input.return_id);
+  if(retUpdErr) console.error('[returns] failed to update return refund status:', retUpdErr.message);
   await createAuditLog('REFUND_CREATED','refunds',data.id,null,data);
+  if(returnPatch.status==='completed') await createAuditLog('RETURN_STATUS_COMPLETED','returns',input.return_id,ret.status,'completed');
   // also create cash movement if needed via existing pos/cash logic? Connect to payments? For now audit only
   return data;
 }

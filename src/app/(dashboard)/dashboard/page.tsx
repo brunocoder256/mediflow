@@ -115,7 +115,7 @@ export default function DashboardPage() {
 
   const kpis = merged
     ? [
-        { title: "Today's Sales", value: fmt(merged.todaySales), icon: ShoppingCart, description: `${merged.todayCount} transactions${todayOffsetPending.count ? ` (+${todayOffsetPending.count} offline)` : ""}`, ...salesTrend },
+        { title: "Today's Sales", value: fmt(merged.todaySales), icon: ShoppingCart, description: `${merged.todayCount} transactions${todayOffsetPending.count ? ` (+${todayOffsetPending.count} offline)` : ""}${Number(merged.todayRefunds) > 0 ? ` · ${fmt(merged.todayRefunds)} refunded` : ""}`, ...salesTrend },
         { title: "Transactions", value: String(merged.todayCount ?? 0), icon: Receipt, description: todayOffsetPending.count ? `${todayOffsetPending.count} pending offline sync` : "Completed today", ...txTrend },
         { title: "Gross Profit", value: fmt(merged.grossProfit), icon: TrendingUp, description: "Today (net of discounts)", ...profitTrend },
         { title: "Net Profit", value: fmt(merged.netProfit), icon: Wallet, description: "After expenses" },

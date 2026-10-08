@@ -29,9 +29,24 @@ export async function GET(req: Request) {
     const { data: yesterdaySales } = await yQ;
 
     const netOf = (rows: any[]) => rows.reduce((s: number, r: any) => s + (Number(r.total) - Number(r.discount ?? 0)), 0);
-    const todayRevenue = round2(netOf(todaySales ?? []));
+
+    // Refunds issued (money returned to customers) — Net Sales = Sale Total − Refunds.
+    // Bucketed by refund date so "Today's Sales" reflects what was actually kept today.
+    let refundQ = sb.from('refunds').select('amount, created_at').gte('created_at', sevenAgo.toISOString()).neq('status', 'failed').neq('status', 'cancelled');
+    if (branch_id) refundQ = refundQ.eq('branch_id', branch_id);
+    const { data: refunds, error: refundErr } = await refundQ;
+    if (refundErr) console.error('[dashboard] refunds query failed:', refundErr.message);
+    const refundsByDay: Record<string, number> = {};
+    for (const r of (refunds ?? []) as any[]) {
+      const key = dateStr(new Date(r.created_at));
+      refundsByDay[key] = round2((refundsByDay[key] ?? 0) + Number(r.amount));
+    }
+    const todayRefunds = round2(refundsByDay[dateStr(now)] ?? 0);
+    const yesterdayRefunds = round2(refundsByDay[dateStr(yest)] ?? 0);
+
+    const todayRevenue = round2(netOf(todaySales ?? []) - todayRefunds);
     const todayCount = (todaySales ?? []).length;
-    const yesterdayRevenue = round2(netOf(yesterdaySales ?? []));
+    const yesterdayRevenue = round2(netOf(yesterdaySales ?? []) - yesterdayRefunds);
     const yesterdayCount = (yesterdaySales ?? []).length;
 
     // Last 7 days series (daily net revenue + count)
@@ -50,6 +65,9 @@ export async function GET(req: Request) {
         series[key].revenue = round2(series[key].revenue + (Number(r.total) - Number(r.discount ?? 0)));
         series[key].count += 1;
       }
+    }
+    for (const [key, amt] of Object.entries(refundsByDay)) {
+      if (series[key]) series[key].revenue = round2(series[key].revenue - amt);
     }
     const salesSeries = Object.values(series);
 
@@ -97,6 +115,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       todaySales: todayRevenue,
       todaySalesGross: round2((todaySales ?? []).reduce((s: number, r: any) => s + Number(r.total), 0)),
+      todayRefunds,
       todayCount,
       todaySalesLast: yesterdayRevenue,
       todayCountLast: yesterdayCount,

@@ -20,6 +20,15 @@ import { useOnlineStatus } from "@/hooks/use-online-status";
 import { queueReturnCreate, getReturnsPendingCount } from "@/lib/offline/sync";
 import { db } from "@/lib/offline/db";
 import { usePendingReturns, useMediflowSynced } from "@/lib/offline/pending-overlay";
+import { invalidateCache } from "@/lib/offline/cached-fetch";
+
+// A return changes stock and revenue — drop cached snapshots so Inventory /
+// Dashboard re-fetch fresh data instead of silently serving the stale one.
+function invalidateAfterReturn(){
+  invalidateCache("/api/inventory");
+  invalidateCache("/api/dashboard");
+  invalidateCache("/api/products");
+}
 
 type ReturnType = 'SALES' | 'PURCHASE';
 const reasons = ["Damaged","Expired","Near Expiry","Wrong Product","Wrong Quantity","Wrong Batch","Quality Issue","Customer Return","Supplier Error","Recall","Duplicate Sale","Pricing Error","Packaging Issue","Delivery Discrepancy","Other"];
@@ -219,14 +228,18 @@ export default function ReturnsPage(){
     if(submitting) return;
     const items=(saleDetail.sale_items ?? []).map((it:any)=>{
       const qty=Math.min(Math.floor(Number(saleQty[it.id] ?? 0)), Number(it.quantity));
+      const cond=saleCond[it.id] ?? "SELLABLE";
       return {
         sale_item_id: it.id, product_id: it.product_id, batch_id: it.batch_id,
         quantity: qty,
         reason: saleReason[it.id] ?? commonReason,
         reason_category: saleReason[it.id] ?? commonReason,
-        return_condition: saleCond[it.id] ?? "SELLABLE",
-        condition: saleCond[it.id] ?? "SELLABLE",
-        inventory_destination: saleDest[it.id] ?? (saleCond[it.id]==='SELLABLE' ? 'SALEABLE' : 'QUARANTINE')
+        return_condition: cond,
+        condition: cond,
+        // Must stay consistent with condition: an untouched condition select means
+        // SELLABLE, which has to restore saleable stock (previously defaulted to
+        // QUARANTINE here, silently skipping the stock restoration).
+        inventory_destination: saleDest[it.id] ?? (cond==='SELLABLE' ? 'SALEABLE' : cond==='DAMAGED' ? 'DAMAGED' : cond==='EXPIRED' ? 'EXPIRED' : 'QUARANTINE')
       };
     }).filter((it:any)=> it.quantity > 0);
     if(!items.length) return alert("Select quantity for at least one item");
@@ -243,7 +256,7 @@ export default function ReturnsPage(){
       const r=await fetch("/api/returns",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
       const j=await r.json();
       if(!r.ok) alert(j.error || "Failed");
-      else { alert(`Return ${j.return_number ?? j.id} created — status pending / refund pending`); setShowNew(false); setSaleDetail(null); fetchAll(); }
+      else { alert(`Return ${j.return_number ?? j.id} created — status pending / refund pending`); invalidateAfterReturn(); setShowNew(false); setSaleDetail(null); fetchAll(); }
     } finally { setSubmitting(false); }
   };
 
@@ -275,7 +288,7 @@ export default function ReturnsPage(){
       const r=await fetch("/api/purchase-returns",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
       const j=await r.json();
       if(!r.ok) alert(j.error);
-      else { alert(`Purchase return ${j.return_number ?? j.id} created — pending approval`); setShowNew(false); setPoDetail(null); fetchAll(); }
+      else { alert(`Purchase return ${j.return_number ?? j.id} created — pending approval`); invalidateAfterReturn(); setShowNew(false); setPoDetail(null); fetchAll(); }
     } finally { setSubmitting(false); }
   };
 
@@ -300,7 +313,7 @@ export default function ReturnsPage(){
       const r=await fetch(url,{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
       const j=await r.json();
       if(!r.ok) alert(j.error);
-      else { fetchAll(); if(showDetail?.id===row.id) openDetail(row); }
+      else { invalidateAfterReturn(); fetchAll(); if(showDetail?.id===row.id) openDetail(row); }
     } finally { setSubmitting(false); }
   };
 
@@ -442,7 +455,7 @@ export default function ReturnsPage(){
                               <TableCell className="text-right">{max}</TableCell>
                               <TableCell><Input type="number" min={0} max={max} value={saleQty[it.id] ?? 0} onChange={e=>setSaleQty(s=>({...s, [it.id]: Math.min(max, Math.max(0, Number(e.target.value)))}))} className="w-20"/></TableCell>
                               <TableCell><Select value={saleReason[it.id] ?? commonReason} onChange={e=>setSaleReason(s=>({...s, [it.id]: e.target.value}))} className="w-[140px]"><option>Customer Return</option>{reasons.map(r=> <option key={r} value={r}>{r}</option>)}</Select></TableCell>
-                              <TableCell><Select value={saleCond[it.id] ?? "SELLABLE"} onChange={e=>{ const v=e.target.value; setSaleCond(s=>({...s, [it.id]: v})); setSaleDest(d=>({...d, [it.id]: v==='SELLABLE'?'SALEABLE':'QUARANTINE'})); }} className="w-[130px]"><option value="SELLABLE">Sealed/Resalable</option><option value="DAMAGED">Damaged</option><option value="EXPIRED">Expired</option><option value="NEAR_EXPIRY">Near Expiry</option><option value="QUALITY_ISSUE">Quality</option></Select></TableCell>
+                              <TableCell><Select value={saleCond[it.id] ?? "SELLABLE"} onChange={e=>{ const v=e.target.value; setSaleCond(s=>({...s, [it.id]: v})); setSaleDest(d=>({...d, [it.id]: v==='SELLABLE'?'SALEABLE': v==='DAMAGED'?'DAMAGED': v==='EXPIRED'?'EXPIRED':'QUARANTINE'})); }} className="w-[130px]"><option value="SELLABLE">Sealed/Resalable</option><option value="DAMAGED">Damaged</option><option value="EXPIRED">Expired</option><option value="NEAR_EXPIRY">Near Expiry</option><option value="QUALITY_ISSUE">Quality</option></Select></TableCell>
                               <TableCell><Badge variant={(saleDest[it.id]??'SALEABLE')==='SALEABLE'?'success':'warning'}>{saleDest[it.id] ?? 'SALEABLE'}</Badge><div className="text-[10px]">{(saleDest[it.id]??'SALEABLE')==='SALEABLE'?'→ batch +3 saleable':'→ quarantine, not saleable'}</div></TableCell>
                             </TableRow>
                           );
@@ -564,7 +577,7 @@ export default function ReturnsPage(){
                             const method=(document.getElementById('refund-method') as HTMLSelectElement)?.value ?? 'CASH';
                             if(!amt) return alert("Amount");
                             const r=await fetch("/api/returns",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:'refund', return_id: detailData.id, sale_id: detailData.sale_id, branch_id: detailData.branch_id, amount: amt, payment_method: method, operation_id: crypto.randomUUID()})});
-                            const j=await r.json(); if(!r.ok) alert(j.error); else { alert("Refund pending"); openDetail(showDetail); }
+                            const j=await r.json(); if(!r.ok) alert(j.error); else { alert("Refund pending"); invalidateAfterReturn(); openDetail(showDetail); }
                           }}>Create Refund</Button></div>
                           <p className="text-xs text-muted-foreground">Refund uses original sale price (discount/tax preserved), not current product price.</p>
                         </div>
