@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { registrationSchema, type RegistrationInput } from "@/lib/validations/auth";
+import { PLANS, getPlan, formatPlanPrice } from "@/lib/plans";
 import { createBrowserClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,7 @@ type Created = {
   reference: string;
   trial_ends_at: string;
   trial_days: number;
+  plan_tier: string;
 };
 
 export default function SignupPage() {
@@ -31,11 +33,15 @@ export default function SignupPage() {
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors },
   } = useForm<RegistrationInput>({
     resolver: zodResolver(registrationSchema),
     mode: "onBlur",
+    defaultValues: { plan_tier: "starter" },
   });
+
+  const selectedPlan = watch("plan_tier") ?? "starter";
 
   async function onSubmit(data: RegistrationInput) {
     setIsLoading(true);
@@ -55,7 +61,12 @@ export default function SignupPage() {
         return;
       }
       const reg = j.registration;
-      setCreated({ reference: reg.reference, trial_ends_at: reg.trial_ends_at, trial_days: reg.trial_days ?? 3 });
+      setCreated({
+        reference: reg.reference,
+        trial_ends_at: reg.trial_ends_at,
+        trial_days: reg.trial_days ?? 3,
+        plan_tier: reg.plan_tier ?? data.plan_tier,
+      });
 
       // Sign the owner in immediately so they land straight on their dashboard.
       const supabase = createBrowserClient();
@@ -110,8 +121,12 @@ export default function SignupPage() {
                 </div>
               </div>
               <p className="text-sm text-muted-foreground">
-                After the free trial you&apos;ll complete your <span className="font-semibold">UGX 20,000</span> monthly payment
-                and a MediFlow IQ administrator will activate your account permanently.
+                After the free trial you&apos;ll complete your{" "}
+                <span className="font-semibold">
+                  {formatPlanPrice(getPlan(created.plan_tier).price)} / month
+                </span>{" "}
+                <span className="font-semibold">{getPlan(created.plan_tier).name}</span> payment and a MediFlow IQ
+                administrator will activate your account permanently.
               </p>
               <Button onClick={() => window.location.assign("/dashboard")}>Go to Dashboard</Button>
             </CardContent>
@@ -157,6 +172,55 @@ export default function SignupPage() {
                 <option value="wholesale">Wholesale / Distributor</option>
                 <option value="">Other</option>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Choose your plan</Label>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {PLANS.map((plan) => {
+                  const active = selectedPlan === plan.tier;
+                  return (
+                    <label
+                      key={plan.tier}
+                      className={`relative cursor-pointer rounded-lg border p-3 text-left transition-colors ${
+                        active
+                          ? "border-[var(--primary)] bg-[var(--primary)]/5 ring-1 ring-[var(--primary)]"
+                          : "border-input hover:border-[var(--primary)]/50"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        value={plan.tier}
+                        disabled={isLoading}
+                        className="sr-only"
+                        {...register("plan_tier")}
+                      />
+                      <span className="flex items-center justify-between">
+                        <span className="text-sm font-semibold">{plan.name}</span>
+                        {plan.recommended && (
+                          <span className="rounded-full bg-teal-100 px-1.5 py-0.5 text-[10px] font-semibold text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
+                            Popular
+                          </span>
+                        )}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {plan.audience.replace(/^For /, "")}
+                      </span>
+                      <span className="mt-1 block text-sm font-bold text-[var(--primary)]">
+                        {formatPlanPrice(plan.price)}
+                        <span className="text-xs font-normal text-muted-foreground"> / month</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              {errors.plan_tier && (
+                <p className="text-sm text-[var(--destructive)]">{errors.plan_tier.message}</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Pick the plan that matches your business — you can change it later. Every plan currently includes the
+                full system.
+              </p>
             </div>
 
             <div className="space-y-2">

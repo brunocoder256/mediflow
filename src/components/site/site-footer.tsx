@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { MediFlowLogo } from "@/components/brand/mediflow-logo";
 import { Container } from "./container";
+import { MIN_PLAN_PRICE, formatPlanPrice } from "@/lib/plans";
 
 const PRODUCT_LINKS = [
   { label: "Features", href: "/features" },
@@ -56,7 +57,7 @@ export function SiteFooter() {
               Modern pharmacy management for better business control.
             </p>
             <p className="mt-4 text-sm font-medium text-slate-500 dark:text-slate-500">
-              UGX 20,000 / month · Simple pricing.
+              Plans from {formatPlanPrice(MIN_PLAN_PRICE)} / month.
             </p>
           </div>
           <FooterColumn title="Product" links={PRODUCT_LINKS} />

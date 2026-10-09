@@ -55,6 +55,8 @@ export const resetPasswordSchema = z
     }
   });
 
+export const planTierSchema = z.enum(["starter", "pro", "enterprise"]);
+
 export const registrationSchema = z
   .object({
     business_name: z
@@ -62,6 +64,7 @@ export const registrationSchema = z
       .min(2, "Business name is required")
       .max(200, "Business name is too long"),
     business_type: z.string().max(80, "Business type is too long").optional().or(z.literal("")),
+    plan_tier: planTierSchema,
     owner_full_name: z
       .string()
       .min(2, "Owner full name is required")

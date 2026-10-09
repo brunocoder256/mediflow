@@ -6,12 +6,14 @@ import { performLogout } from "@/lib/logout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Hourglass, Phone, LogOut, RefreshCw, Loader2 } from "lucide-react";
+import { getPlan, formatPlanPrice } from "@/lib/plans";
 
 type Gate = {
   organization_id: string | null;
   organization_name: string | null;
   status: string;
   plan: string;
+  plan_tier: string;
   trial_ends_at: string | null;
   trial_days: number;
   contact_phone_1: string;
@@ -120,7 +122,7 @@ export default function TrialExpiredPage() {
                 </a>
               </li>
             </ul>
-            <p className="mt-3 text-xs text-muted-foreground">MediFlow IQ · Pharmacy Management System · UGX 20,000/month</p>
+            <p className="mt-3 text-xs text-muted-foreground">MediFlow IQ · Pharmacy Management System · {getPlan(gate?.plan_tier).name} · {formatPlanPrice(getPlan(gate?.plan_tier).price)}/month</p>
           </div>
 
           <div className="mt-6 flex flex-col gap-2">

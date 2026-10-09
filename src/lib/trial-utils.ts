@@ -3,6 +3,7 @@ export type TrialGate = {
   organization_name: string | null;
   status: string;
   plan: string;
+  plan_tier: string;
   blocked: boolean;
   reason: string | null;
   trial_ends_at: string | null;

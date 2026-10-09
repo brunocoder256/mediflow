@@ -20,7 +20,7 @@ const SECTIONS = [
   },
   {
     title: "3. Account activation & payment",
-    body: "MediFlow IQ is currently offered at UGX 20,000 per month. Account activation is subject to payment confirmation and administrator approval. Paying for a month activates your account for that month; continued access is subject to the current billing arrangement agreed with the MediFlow IQ team.",
+    body: "MediFlow IQ is offered on three monthly plans: Starter at UGX 20,000 (drug shops), Pharmacy Pro at UGX 50,000 (retail pharmacies) and Enterprise at UGX 100,000 (chains and wholesalers). Every plan currently includes the full system, and higher plans build on the ones below. Account activation is subject to payment confirmation and administrator approval. Paying for a month activates your account for that month; continued access is subject to the current billing arrangement agreed with the MediFlow IQ team.",
   },
   {
     title: "4. Your responsibilities",

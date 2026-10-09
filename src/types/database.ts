@@ -106,6 +106,7 @@ export interface Organization {
   timezone: string | null;
   status: string;
   plan: string;
+  plan_tier: string;
   trial_ends_at: string | null;
   paid_cycles: number;
   access_ends_at: string | null;

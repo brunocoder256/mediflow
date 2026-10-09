@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { registrationSchema } from '@/lib/validations/auth';
 import { sanitizeError } from '@/lib/security';
+import { getPlan } from '@/lib/plans';
 
 /** Platform-scope organization used for audit log entries (matches register_account RPC). */
 const PLATFORM_ORG = 'f0eebc99-9c0b-4ef8-bb6d-6bb9bd380a00';
@@ -16,6 +17,9 @@ const PLATFORM_ORG = 'f0eebc99-9c0b-4ef8-bb6d-6bb9bd380a00';
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+    if (body && typeof body === 'object' && body.plan_tier == null) {
+      body.plan_tier = 'starter';
+    }
     const parsed = registrationSchema.safeParse(body);
     if (!parsed.success) {
       const issue = parsed.error.issues?.[0];
@@ -23,6 +27,8 @@ export async function POST(req: Request) {
     }
     const d = parsed.data;
     const email = d.owner_email.trim().toLowerCase();
+    const planTier = d.plan_tier ?? 'starter';
+    const plan = getPlan(planTier);
     const admin = createAdminSupabaseClient();
     const now = new Date().toISOString();
 
@@ -86,6 +92,7 @@ export async function POST(req: Request) {
         address: d.location || null,
         status: 'active',
         plan: 'trial',
+        plan_tier: plan.tier,
         trial_ends_at: trialEndsAt,
       })
       .select()
@@ -120,6 +127,7 @@ export async function POST(req: Request) {
         location: d.location || null,
         status: 'active',
         organization_id: org.id,
+        plan_tier: plan.tier,
         approved_at: now,
       })
       .select()
@@ -190,6 +198,7 @@ export async function POST(req: Request) {
         owner_email: email,
         organization_id: org.id,
         plan: 'trial',
+        plan_tier: plan.tier,
         trial_ends_at: trialEndsAt,
       },
       branch_id: null,
@@ -203,6 +212,9 @@ export async function POST(req: Request) {
           organization_id: org.id,
           status: 'active',
           plan: 'trial',
+          plan_tier: plan.tier,
+          plan_name: plan.name,
+          plan_price: plan.price,
           trial_ends_at: trialEndsAt,
           trial_days: trialDays,
           email,

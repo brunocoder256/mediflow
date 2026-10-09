@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Container } from "./container";
 import { Reveal } from "./reveal";
 import { ArrowRight } from "lucide-react";
+import { MIN_PLAN_PRICE, formatPlanPrice } from "@/lib/plans";
 
 export function CtaSection() {
   return (
@@ -32,7 +33,7 @@ export function CtaSection() {
                 Contact Us
               </Link>
             </div>
-            <p className="mt-6 text-sm font-medium text-teal-100">UGX 20,000 / month</p>
+            <p className="mt-6 text-sm font-medium text-teal-100">Plans from {formatPlanPrice(MIN_PLAN_PRICE)} / month</p>
           </div>
         </Reveal>
       </Container>

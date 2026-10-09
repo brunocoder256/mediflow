@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Container } from "./container";
 import { DashboardPreview } from "./dashboard-preview";
 import { ArrowRight, PlayCircle, Check } from "lucide-react";
+import { MIN_PLAN_PRICE, formatPlanPrice } from "@/lib/plans";
 
 const TRUST_ITEMS = ["Sales & POS", "Inventory & Expiry", "Purchasing", "Customers", "Expenses", "Reports"];
 
@@ -49,9 +50,9 @@ export function Hero() {
 
           <div className="mt-6 flex flex-col items-start gap-1 text-sm">
             <p className="font-semibold text-slate-900 dark:text-white">
-              UGX 20,000<span className="font-normal text-slate-500 dark:text-slate-400"> / month</span>
+              Plans from {formatPlanPrice(MIN_PLAN_PRICE)}<span className="font-normal text-slate-500 dark:text-slate-400"> / month</span>
             </p>
-            <p className="text-slate-500 dark:text-slate-400">Simple pricing. No complicated plans.</p>
+            <p className="text-slate-500 dark:text-slate-400">Starter, Pharmacy Pro and Enterprise.</p>
           </div>
 
           <ul className="mt-8 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-600 dark:text-slate-400">

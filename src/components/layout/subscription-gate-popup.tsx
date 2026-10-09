@@ -5,6 +5,7 @@ import { performLogout } from "@/lib/logout";
 import { Button } from "@/components/ui/button";
 import { Phone, Hourglass, X, LogOut, Loader2, Ban } from "lucide-react";
 import type { TrialGate } from "@/lib/trial-utils";
+import { getPlan, formatPlanPrice } from "@/lib/plans";
 
 /**
  * Subscription / trial gate popup.
@@ -79,9 +80,9 @@ export function SubscriptionGatePopup({ gate }: { gate: TrialGate | null }) {
         {waitingApproval ? (
           <>
             Unable to load data — <span className="font-semibold">subscription over</span>. To keep working, complete
-            your UGX 20,000/month payment with MediFlow IQ.{" "}
-            <a href={`tel:${effective.contact_phone_1 ?? "0759327843"}`} className="font-semibold underline">
-              {effective.contact_phone_1 ?? "0759327843"}
+            your {formatPlanPrice(getPlan(effective.plan_tier).price)}/month payment with MediFlow IQ.{" "}
+            <a href={`tel:${effective.contact_phone_1 ?? "0746047086"}`} className="font-semibold underline">
+              {effective.contact_phone_1 ?? "0746047086"}
             </a>
           </>
         ) : (
@@ -113,7 +114,7 @@ export function SubscriptionGatePopup({ gate }: { gate: TrialGate | null }) {
         </h2>
         <p className="mt-2 text-sm text-muted-foreground">
           {effective.organization_name ?? "This account"} can&apos;t access data until the subscription is renewed.
-          To keep working, complete your <span className="font-semibold">UGX 20,000/month</span> payment with
+          To keep working, complete your <span className="font-semibold">{formatPlanPrice(getPlan(effective.plan_tier).price)}/month</span> payment with
           MediFlow IQ.
         </p>
 
@@ -137,8 +138,8 @@ export function SubscriptionGatePopup({ gate }: { gate: TrialGate | null }) {
           <ul className="mt-3 space-y-2">
             <li className="flex items-center gap-3 font-medium">
               <Phone className="h-4 w-4 text-primary" />
-              <a href={`tel:${effective.contact_phone_1 ?? "0759327843"}`} className="hover:underline">
-                {effective.contact_phone_1 ?? "0759327843"}
+              <a href={`tel:${effective.contact_phone_1 ?? "0746047086"}`} className="hover:underline">
+                {effective.contact_phone_1 ?? "0746047086"}
               </a>
             </li>
             <li className="flex items-center gap-3 font-medium">

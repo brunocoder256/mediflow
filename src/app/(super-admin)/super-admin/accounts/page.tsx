@@ -25,6 +25,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Search } from "lucide-react";
+import { PLANS, type PlanTier, getPlan, formatPlanPrice } from "@/lib/plans";
 
 type Registration = {
   id: string;
@@ -37,6 +38,7 @@ type Registration = {
   owner_phone: string;
   location: string | null;
   status: string;
+  plan_tier: string | null;
   rejection_reason: string | null;
   info_request_message: string | null;
   approved_at: string | null;
@@ -46,6 +48,7 @@ type Registration = {
     id: string;
     name: string;
     plan: string | null;
+    plan_tier: string | null;
     status: string | null;
     trial_ends_at: string | null;
     paid_cycles: number | null;
@@ -109,6 +112,12 @@ export default function SuperAdminAccountsPage() {
   const [rejectReason, setRejectReason] = React.useState("");
   const [extendDays, setExtendDays] = React.useState(3);
   const [approveMonths, setApproveMonths] = React.useState(1);
+  const [planTier, setPlanTier] = React.useState<PlanTier>("starter");
+
+  const dialogTierFor = (r: Registration): PlanTier => {
+    const t = r.organizations?.plan_tier ?? r.plan_tier;
+    return PLANS.some((p) => p.tier === t) ? (t as PlanTier) : "starter";
+  };
 
   const load = React.useCallback(async (search = q, st = status, pg = page, showLoader = true) => {
     if (showLoader) setLoading(true);
@@ -159,6 +168,7 @@ export default function SuperAdminAccountsPage() {
         setRejectReason("");
         setExtendDays(3);
         setApproveMonths(1);
+        setPlanTier("starter");
         load(q, status, page, true);
       } else {
         toast({ title: "Action failed", description: json.error || "Something went wrong.", variant: "error" });
@@ -257,6 +267,7 @@ export default function SuperAdminAccountsPage() {
                         <td className="p-3 text-xs text-muted-foreground">{new Date(r.created_at).toLocaleDateString()}</td>
                         <td className="p-3">
                           <Badge variant={STATUS_BADGE[displayStatus(r)] as any}>{STATUS_LABEL[displayStatus(r)]}</Badge>
+                          <Badge variant="outline" className="ml-1">{getPlan(r.organizations?.plan_tier ?? r.plan_tier).name}</Badge>
                           {r.organizations?.plan === "trial" && <Badge variant="warning" className="ml-1">Trial</Badge>}
                           {r.organizations?.plan === "full" && (r.organizations?.paid_cycles ?? 0) > 0 && (
                             <Badge variant="secondary" className="ml-1">
@@ -282,6 +293,7 @@ export default function SuperAdminAccountsPage() {
                       <span className="font-mono text-xs">{r.reference}</span>
                       <span className="flex items-center gap-1">
                         <Badge variant={STATUS_BADGE[displayStatus(r)] as any}>{STATUS_LABEL[displayStatus(r)]}</Badge>
+                        <Badge variant="outline">{getPlan(r.organizations?.plan_tier ?? r.plan_tier).name}</Badge>
                         {r.organizations?.plan === "trial" && <Badge variant="warning">Trial</Badge>}
                         {r.organizations?.plan === "full" && (r.organizations?.paid_cycles ?? 0) > 0 && (
                           <Badge variant="secondary">{r.organizations?.paid_cycles} cyc.</Badge>
@@ -336,7 +348,8 @@ export default function SuperAdminAccountsPage() {
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Phone</dt><dd>{selected.owner_phone}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Location</dt><dd>{selected.location || "—"}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Registered</dt><dd>{new Date(selected.created_at).toLocaleString()}</dd></div>
-                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Plan</dt><dd>{selected.organizations?.plan === "trial" ? "Trial" : selected.organizations?.plan === "full" ? "Full" : "—"}</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Plan</dt><dd className="text-right">{getPlan(selected.organizations?.plan_tier ?? selected.plan_tier).name} · {formatPlanPrice(getPlan(selected.organizations?.plan_tier ?? selected.plan_tier).price)}/mo</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Billing</dt><dd>{selected.organizations?.plan === "trial" ? "Trial" : selected.organizations?.plan === "full" ? "Paid" : "—"}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Trial ends</dt><dd>{fmtDate(selected.organizations?.trial_ends_at)}</dd></div>
                     {(selected.organizations?.paid_cycles ?? 0) > 0 && (
                       <>
@@ -373,7 +386,7 @@ export default function SuperAdminAccountsPage() {
                 )}
                 {selected.status === "active" && selected.organizations && displayStatus(selected) !== "trial_expired" && (
                   <>
-                    <Button className="flex-1" variant="outline" onClick={() => setDialog("grant-full")}>
+                    <Button className="flex-1" variant="outline" onClick={() => { setPlanTier(dialogTierFor(selected)); setDialog("grant-full"); }}>
                       {selected.organizations.plan === "full" ? "Add Paid Cycles" : "Grant Full Access"}
                     </Button>
                     <Button variant="destructive" className="flex-1" onClick={() => setDialog("suspend")}>
@@ -386,7 +399,7 @@ export default function SuperAdminAccountsPage() {
                 )}
                 {displayStatus(selected) === "trial_expired" && (
                   <>
-                    <Button className="flex-1" onClick={() => setDialog("approve-full")}>Approve</Button>
+                    <Button className="flex-1" onClick={() => { setPlanTier(dialogTierFor(selected)); setDialog("approve-full"); }}>Approve</Button>
                     <Button variant="outline" className="flex-1" onClick={() => setDialog("extend-trial")}>Extend Trial</Button>
                     <Button variant="destructive" className="flex-1" onClick={() => setDialog("suspend")}>Suspend</Button>
                   </>
@@ -531,6 +544,14 @@ export default function SuperAdminAccountsPage() {
               <p><span className="text-muted-foreground">Contact:</span> {selected.owner_phone}</p>
             </div>
             <div className="space-y-2">
+              <Label htmlFor="approve-plan">Subscription plan</Label>
+              <Select id="approve-plan" value={planTier} onChange={(e) => setPlanTier(e.target.value as PlanTier)}>
+                {PLANS.map((p) => (
+                  <option key={p.tier} value={p.tier}>
+                    {p.name} — {formatPlanPrice(p.price)}/month
+                  </option>
+                ))}
+              </Select>
               <Label htmlFor="approve-months">Months paid upfront (cycles)</Label>
               <Input
                 id="approve-months"
@@ -541,8 +562,8 @@ export default function SuperAdminAccountsPage() {
                 onChange={(e) => setApproveMonths(Math.max(1, Math.min(24, Number(e.target.value) || 1)))}
               />
               <p className="text-xs text-muted-foreground">
-                UGX 20,000 per month · {approveMonths} month{approveMonths !== 1 ? "s" : ""} = UGX{" "}
-                {(approveMonths * 20000).toLocaleString()}
+                {formatPlanPrice(getPlan(planTier).price)} per month · {approveMonths} month{approveMonths !== 1 ? "s" : ""} = UGX{" "}
+                {(approveMonths * getPlan(planTier).price).toLocaleString()}
               </p>
               <p className="rounded-md bg-muted/30 p-2 text-xs text-muted-foreground">
                 Access will be granted until{" "}
@@ -558,7 +579,7 @@ export default function SuperAdminAccountsPage() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDialog(null)} disabled={busy !== null}>Cancel</Button>
-              <Button onClick={() => runAction("approve-full", selected.id, { months: approveMonths })} disabled={busy !== null}>
+              <Button onClick={() => runAction("approve-full", selected.id, { months: approveMonths, plan_tier: planTier })} disabled={busy !== null}>
                 {busy === "approve-full" ? "Approving..." : "Approve Account"}
               </Button>
             </DialogFooter>
@@ -581,6 +602,14 @@ export default function SuperAdminAccountsPage() {
               <p><span className="text-muted-foreground">Owner:</span> {selected.owner_full_name} ({selected.owner_email})</p>
             </div>
             <div className="space-y-2">
+              <Label htmlFor="grant-plan">Subscription plan</Label>
+              <Select id="grant-plan" value={planTier} onChange={(e) => setPlanTier(e.target.value as PlanTier)}>
+                {PLANS.map((p) => (
+                  <option key={p.tier} value={p.tier}>
+                    {p.name} — {formatPlanPrice(p.price)}/month
+                  </option>
+                ))}
+              </Select>
               <Label htmlFor="grant-months">Months paid (cycles)</Label>
               <Input
                 id="grant-months"
@@ -591,8 +620,8 @@ export default function SuperAdminAccountsPage() {
                 onChange={(e) => setApproveMonths(Math.max(1, Math.min(24, Number(e.target.value) || 1)))}
               />
               <p className="text-xs text-muted-foreground">
-                UGX 20,000 per month · {approveMonths} month{approveMonths !== 1 ? "s" : ""} = UGX{" "}
-                {(approveMonths * 20000).toLocaleString()}
+                {formatPlanPrice(getPlan(planTier).price)} per month · {approveMonths} month{approveMonths !== 1 ? "s" : ""} = UGX{" "}
+                {(approveMonths * getPlan(planTier).price).toLocaleString()}
               </p>
               <p className="rounded-md bg-muted/30 p-2 text-xs text-muted-foreground">
                 Access will be extended to{" "}
@@ -610,7 +639,7 @@ export default function SuperAdminAccountsPage() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDialog(null)} disabled={busy !== null}>Cancel</Button>
-              <Button onClick={() => runAction("grant-full", selected.id, { months: approveMonths })} disabled={busy !== null}>
+              <Button onClick={() => runAction("grant-full", selected.id, { months: approveMonths, plan_tier: planTier })} disabled={busy !== null}>
                 {busy === "grant-full" ? "Granting..." : "Grant Full Access"}
               </Button>
             </DialogFooter>

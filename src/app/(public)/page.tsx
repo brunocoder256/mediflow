@@ -3,7 +3,7 @@ import { Hero } from "@/components/site/hero";
 import { Container } from "@/components/site/container";
 import { SectionHeading } from "@/components/site/section-heading";
 import { FeatureCard } from "@/components/site/feature-card";
-import { PricingCard } from "@/components/site/pricing-card";
+import { PricingTable } from "@/components/site/pricing-card";
 import { FaqAccordion } from "@/components/site/faq-accordion";
 import { CtaSection } from "@/components/site/cta-section";
 import { Reveal } from "@/components/site/reveal";
@@ -37,7 +37,7 @@ import {
 export const metadata: Metadata = buildMetadata({
   title: "Pharmacy Management System for Drug Shops & Pharmacies",
   description:
-    "MediFlow IQ is a modern pharmacy management system for sales, inventory, purchasing, customers, suppliers, expenses and reports — with batch & expiry tracking, POS and offline mode. UGX 20,000/month.",
+    "MediFlow IQ is a modern pharmacy management system for sales, inventory, purchasing, customers, suppliers, expenses and reports — with batch & expiry tracking, POS and offline mode. Plans from UGX 20,000/month.",
   path: "/",
   keywords: [
     "pharmacy management system",
@@ -413,11 +413,11 @@ export default function HomePage() {
         <Container>
           <SectionHeading
             eyebrow="Pricing"
-            title="Simple pricing for your pharmacy."
-            description="One price. Full access. No complicated tiers."
+            title="A plan for every pharmacy."
+            description="Starter for drug shops, Pharmacy Pro for retail pharmacies, Enterprise for chains and wholesalers."
           />
           <div className="mt-12">
-            <PricingCard />
+            <PricingTable />
           </div>
         </Container>
       </section>

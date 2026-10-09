@@ -4,7 +4,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "How much does MediFlow IQ cost?",
     answer:
-      "MediFlow IQ currently costs UGX 20,000 per month — one simple price. There are no complicated tiers or hidden fees.",
+      "MediFlow IQ has three plans — Starter at UGX 20,000 per month for drug shops, Pharmacy Pro at UGX 50,000 per month for retail pharmacies, and Enterprise at UGX 100,000 per month for chains and wholesalers. Every plan currently unlocks the full system, with no hidden fees.",
   },
   {
     question: "Is there a free trial?",
