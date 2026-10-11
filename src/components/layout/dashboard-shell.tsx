@@ -5,7 +5,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { BranchProvider } from "@/hooks/branch-context";
-import { RegionProvider } from "@/hooks/region-context";
+import { PreferencesProvider } from "@/hooks/preferences-context";
 import { setupAutoSync } from "@/lib/offline/sync";
 import { invalidateCache } from "@/lib/offline/cached-fetch";
 import { tryRestoreServerSession } from "@/lib/offline/reauth";
@@ -58,7 +58,7 @@ export default function DashboardShell({
 
   return (
     <BranchProvider>
-      <RegionProvider>
+      <PreferencesProvider>
         <div className="flex h-screen overflow-hidden bg-background">
           {/* Desktop Sidebar */}
           <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
@@ -74,7 +74,7 @@ export default function DashboardShell({
             </main>
           </div>
         </div>
-      </RegionProvider>
+      </PreferencesProvider>
     </BranchProvider>
   );
 }

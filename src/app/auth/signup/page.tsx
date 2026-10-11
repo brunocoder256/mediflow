@@ -6,6 +6,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { registrationSchema, type RegistrationInput } from "@/lib/validations/auth";
 import { PLANS, getPlan, formatPlanPrice } from "@/lib/plans";
+import { COUNTRIES } from "@/lib/regions";
+import { CountryFlag } from "@/components/ui/country-flag";
+import { availableLanguages } from "@/lib/i18n/config";
 import { createBrowserClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -279,6 +282,39 @@ export default function SignupPage() {
                 disabled={isLoading}
                 {...register("location")}
               />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="country" className="flex items-center gap-2">
+                  Country / Region
+                  <CountryFlag code={watch("country")} className="h-4 w-6 rounded-[3px] shadow-sm ring-1 ring-black/10" />
+                </Label>
+                <Select id="country" disabled={isLoading} defaultValue="UG" {...register("country")}>
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
+                  ))}
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Suggests your currency, time zone and formats.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="language">Interface language</Label>
+                <Select id="language" disabled={isLoading} defaultValue="en" {...register("language")}>
+                  {availableLanguages().map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.nativeName}
+                    </option>
+                  ))}
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  You can change this any time in Settings.
+                </p>
+              </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">

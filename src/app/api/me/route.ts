@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getEffectivePermissions, getUserBranches } from '@/lib/auth';
 import { sanitizeError } from '@/lib/security';
+import { normalizePreferences } from '@/lib/preferences';
 
 /** Current authenticated user profile + effective permissions + branches (for nav/RBAC). */
 export async function GET() {
@@ -14,9 +15,7 @@ export async function GET() {
 
     const { data: profile } = await sb
       .from('profiles')
-      .select(
-        'id, full_name, email, phone, avatar_url, status, is_active, organization_id, default_branch_id, last_login_at',
-      )
+      .select('*')
       .eq('auth_user_id', user.id)
       .single();
     if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
@@ -29,16 +28,22 @@ export async function GET() {
       ? await sb.from('branches').select('id, name, code').in('id', branchIds)
       : { data: [] };
 
-    // Organization operating region (used for regional display such as the
-    // country flag in the topbar). Null when the user has no organization.
+    // Organization operating region + regional defaults (used for regional
+    // display such as the country flag and locale-aware formatting).
     let countryCode: string | null = null;
+    let orgCurrency: string | null = null;
+    let orgLocale: string | null = null;
+    let orgTimezone: string | null = null;
     if (profile.organization_id) {
       const { data: org } = await sb
         .from('organizations')
-        .select('country')
+        .select('*')
         .eq('id', profile.organization_id)
         .maybeSingle();
       countryCode = (org as any)?.country ?? null;
+      orgCurrency = (org as any)?.currency ?? null;
+      orgLocale = (org as any)?.locale ?? null;
+      orgTimezone = (org as any)?.timezone ?? null;
     }
 
     return NextResponse.json({
@@ -49,7 +54,13 @@ export async function GET() {
       permissions: [...permissions],
       branch_ids: branchIds,
       branches: branches ?? [],
+      // Personal interface preferences
+      preferences: normalizePreferences(profile),
+      // Organization-wide regional settings (read-only; currency is authoritative)
       country_code: countryCode,
+      org_currency: orgCurrency,
+      org_locale: orgLocale,
+      org_timezone: orgTimezone,
     });
   } catch (e: any) {
     console.error('[me] error:', e?.message);

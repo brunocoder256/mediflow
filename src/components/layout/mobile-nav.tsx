@@ -8,6 +8,7 @@ import { navItems } from "./sidebar-items";
 import { NAV_PERMISSION_MAP } from "@/lib/permissions-catalog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { MediFlowMark } from "@/components/brand/mediflow-logo";
+import { useT } from "@/hooks/preferences-context";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -48,6 +49,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 
 export function MobileNav({ open, onOpenChange }: MobileNavProps) {
   const pathname = usePathname();
+  const t = useT();
   const [permissions, setPermissions] = React.useState<string[] | null>(null);
 
   React.useEffect(() => {
@@ -113,7 +115,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
                     )}
                   >
                     <Icon className={cn("h-5 w-5 shrink-0", isActive ? "text-primary-foreground" : "text-muted-foreground")} />
-                    <span>{item.title}</span>
+                    <span>{t(item.titleKey)}</span>
                   </Link>
                 </li>
               );

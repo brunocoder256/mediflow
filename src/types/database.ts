@@ -105,6 +105,7 @@ export interface Organization {
   currency: string;
   timezone: string | null;
   country: string | null;
+  locale: string | null;
   status: string;
   plan: string;
   plan_tier: string;
@@ -145,6 +146,10 @@ export interface Profile {
   is_active: boolean;
   status?: 'invited' | 'active' | 'inactive' | 'suspended' | 'locked' | 'pending_invitation';
   default_branch_id?: string | null;
+  language?: string | null;
+  timezone?: string | null;
+  date_format?: string | null;
+  number_format?: string | null;
   failed_login_attempts?: number;
   locked_until?: string | null;
   invitation_sent_at?: string | null;

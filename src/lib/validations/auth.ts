@@ -75,6 +75,8 @@ export const registrationSchema = z
       .min(7, "Phone number is required")
       .max(30, "Phone number is too long"),
     location: z.string().max(200, "Location is too long").optional().or(z.literal("")),
+    country: z.string().max(2, "Use a 2-letter country code").optional().or(z.literal("")),
+    language: z.string().max(5, "Invalid language").optional().or(z.literal("")),
     password: z
       .string()
       .min(8, "Password must be at least 8 characters")

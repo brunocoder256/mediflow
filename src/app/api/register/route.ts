@@ -3,6 +3,8 @@ import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { registrationSchema } from '@/lib/validations/auth';
 import { sanitizeError } from '@/lib/security';
 import { getPlan } from '@/lib/plans';
+import { normalizeCountryCode, getCountry, DEFAULT_COUNTRY_CODE } from '@/lib/regions';
+import { normalizeLanguage } from '@/lib/i18n/config';
 
 /** Platform-scope organization used for audit log entries (matches register_account RPC). */
 const PLATFORM_ORG = 'f0eebc99-9c0b-4ef8-bb6d-6bb9bd380a00';
@@ -29,6 +31,12 @@ export async function POST(req: Request) {
     const email = d.owner_email.trim().toLowerCase();
     const planTier = d.plan_tier ?? 'starter';
     const plan = getPlan(planTier);
+    const countryCode = normalizeCountryCode(d.country) ?? DEFAULT_COUNTRY_CODE;
+    const region = getCountry(countryCode);
+    const orgCurrency = region?.currency ?? 'UGX';
+    const orgTimezone = region?.timezone ?? 'Africa/Kampala';
+    const orgLocale = region?.locale ?? null;
+    const language = normalizeLanguage(d.language);
     const admin = createAdminSupabaseClient();
     const now = new Date().toISOString();
 
@@ -94,6 +102,10 @@ export async function POST(req: Request) {
         plan: 'trial',
         plan_tier: plan.tier,
         trial_ends_at: trialEndsAt,
+        country: countryCode,
+        locale: orgLocale,
+        currency: orgCurrency,
+        timezone: orgTimezone,
       })
       .select()
       .single();
@@ -148,6 +160,7 @@ export async function POST(req: Request) {
         is_active: true,
         default_branch_id: branch.id,
         failed_login_attempts: 0,
+        language,
       })
       .select()
       .single();
@@ -178,7 +191,7 @@ export async function POST(req: Request) {
       receipt_header: `${d.business_name}\nThank you for your purchase!`,
       receipt_footer: `For inquiries: ${d.owner_phone}`,
       default_tax_rate: 18,
-      default_currency: 'UGX',
+      default_currency: orgCurrency,
       low_stock_threshold: 10,
       expiry_warning_days: 90,
     });

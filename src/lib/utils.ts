@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { formatCurrency as formatCurrencyLocalized, type FormatContext } from './format';
 
 /**
  * Merges Tailwind CSS class names with clsx.
@@ -35,19 +36,20 @@ export function formatDate(
 }
 
 /**
- * Formats a numeric value as currency.
+ * Formats a numeric value as currency in the organization's operating
+ * currency. Never converts the amount — only the presentation is localized.
  *
  * @param amount - The amount to format.
  * @param currency - ISO 4217 currency code (default: "UGX").
+ * @param ctx - Optional regional context (language, number format, timezone).
  * @returns Formatted currency string (e.g. "UGX 1,234.56").
  */
-export function formatCurrency(amount: number, currency = 'UGX'): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+export function formatCurrency(
+  amount: number,
+  currency = 'UGX',
+  ctx: FormatContext = {},
+): string {
+  return formatCurrencyLocalized(amount, { currency, ...ctx });
 }
 
 /**

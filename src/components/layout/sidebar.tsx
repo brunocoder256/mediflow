@@ -8,6 +8,7 @@ import { navItems } from "./sidebar-items";
 import { NAV_PERMISSION_MAP } from "@/lib/permissions-catalog";
 import { ChevronsLeft, ChevronsRight } from "lucide-react";
 import { MediFlowMark } from "@/components/brand/mediflow-logo";
+import { useT } from "@/hooks/preferences-context";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -16,6 +17,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
+  const t = useT();
   const [permissions, setPermissions] = React.useState<string[] | null>(null);
 
   React.useEffect(() => {
@@ -80,10 +82,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                       : "text-muted-foreground hover:bg-muted hover:text-foreground",
                     collapsed && "justify-center px-2",
                   )}
-                  title={collapsed ? item.title : undefined}
+                  title={collapsed ? t(item.titleKey) : undefined}
                 >
                   <item.icon className="h-5 w-5 shrink-0" />
-                  {!collapsed && <span>{item.title}</span>}
+                  {!collapsed && <span>{t(item.titleKey)}</span>}
                 </Link>
               </li>
             );
@@ -101,7 +103,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           ) : (
             <>
               <ChevronsLeft className="h-5 w-5" />
-              <span>Collapse</span>
+              <span>{t("common.collapse")}</span>
             </>
           )}
         </button>

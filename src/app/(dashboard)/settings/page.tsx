@@ -9,11 +9,15 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/ui/page-header";
-import { Building2, MapPin, Receipt, Save, Plus, Pencil, Trash2, Power, ChevronDown, ChevronUp, Settings2, KeyRound, ShieldCheck } from "lucide-react";
+import { Building2, MapPin, Receipt, Save, Plus, Pencil, Trash2, Power, ChevronDown, ChevronUp, Settings2, KeyRound, ShieldCheck, Globe } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCallback, useEffect, useState } from "react";
-import { COUNTRIES, flagEmoji, getCountry } from "@/lib/regions";
-import { useRegion } from "@/hooks/region-context";
+import { COUNTRIES, getCountry } from "@/lib/regions";
+import { CountryFlag } from "@/components/ui/country-flag";
+import { usePreferences } from "@/hooks/preferences-context";
+import { DATE_FORMAT_OPTIONS, NUMBER_FORMAT_OPTIONS } from "@/lib/format";
+import { TIMEZONE_OPTIONS } from "@/lib/preferences";
+import { availableLanguages } from "@/lib/i18n/config";
 import {
   hasPasscode,
   setPasscode,
@@ -27,8 +31,10 @@ export default function SettingsPage(){
   const [data,setData]=useState<any>(null);
   const [saving,setSaving]=useState(false);
   const [canManageBranches,setCanManageBranches]=useState(false);
+  const [canManageOrg,setCanManageOrg]=useState(false);
   const { toast }=useToast();
-  const { refresh: refreshRegion }=useRegion();
+  const { preferences, updatePreferences, refresh: refreshRegion }=usePreferences();
+  const [prefForm,setPrefForm]=useState({language:"en",timezone:"",date_format:"",number_format:""});
 
   // Offline passcode management
   const [passcodeConfigured,setPasscodeConfigured]=useState(false);
@@ -58,12 +64,35 @@ export default function SettingsPage(){
       const r=await fetch("/api/me");
       const j=await r.json();
       if(Array.isArray(j.permissions) && j.permissions.includes("settings.manage_branches")) setCanManageBranches(true);
+      if(Array.isArray(j.permissions) && (j.permissions.includes("settings.manage") || j.permissions.includes("users.manage"))) setCanManageOrg(true);
     }catch{/* non-blocking */}
   },[]);
 
   useEffect(()=>{ fetchData(); fetchCapabilities(); },[fetchData,fetchCapabilities]);
 
   useEffect(()=>{ setPasscodeConfigured(hasPasscode()); },[]);
+
+  useEffect(()=>{
+    setPrefForm({
+      language: preferences.language || "en",
+      timezone: preferences.timezone ?? "",
+      date_format: preferences.date_format ?? "",
+      number_format: preferences.number_format ?? "",
+    });
+  },[preferences]);
+
+  const savePreferences=async()=>{
+    setSaving(true);
+    const ok=await updatePreferences({
+      language: prefForm.language,
+      timezone: prefForm.timezone || null,
+      date_format: prefForm.date_format || null,
+      number_format: prefForm.number_format || null,
+    });
+    setSaving(false);
+    if(ok) toast({title:"Preferences saved", description:"Your personal display settings were updated."});
+    else toast({title:"Couldn't save preferences", description:"Your changes apply on this device and will retry when online.", variant:"error"});
+  };
 
   const savePasscode=async()=>{
     if(passcodeMode==="remove"){
@@ -199,14 +228,17 @@ export default function SettingsPage(){
           </div>
           <div className="space-y-2"><label className="text-sm font-medium">Address</label><Input value={data?.organization?.address ?? ""} onChange={e=>setData((d:any)=>({...d, organization:{...d.organization, address:e.target.value}}))}/></div>
           <div className="space-y-2">
-            <label className="text-sm font-medium">Country / Region</label>
+            <label className="text-sm font-medium flex items-center gap-2">
+              Country / Region
+              <CountryFlag code={data?.organization?.country} className="h-4 w-6 rounded-[3px] shadow-sm ring-1 ring-black/10" />
+            </label>
             <Select
               value={data?.organization?.country ?? ""}
               onChange={e=>setData((d:any)=>({...d, organization:{...d.organization, country:e.target.value}}))}
             >
               <option value="">Not set</option>
               {COUNTRIES.map(c=>(
-                <option key={c.code} value={c.code}>{flagEmoji(c.code)} {c.name}</option>
+                <option key={c.code} value={c.code}>{c.name}</option>
               ))}
             </Select>
             <p className="text-xs text-muted-foreground">
@@ -221,11 +253,60 @@ export default function SettingsPage(){
               </p>
             )}
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2"><label className="text-sm font-medium">Currency</label><Input value={data?.organization?.currency ?? "UGX"} onChange={e=>setData((d:any)=>({...d, organization:{...d.organization, currency:e.target.value}}))}/></div>
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="space-y-2"><label className="text-sm font-medium">Currency</label><Input value={data?.organization?.currency ?? "UGX"} disabled={!canManageOrg} onChange={e=>setData((d:any)=>({...d, organization:{...d.organization, currency:e.target.value}}))}/></div>
             <div className="space-y-2"><label className="text-sm font-medium">Timezone</label><Input value={data?.organization?.timezone ?? "Africa/Kampala"} onChange={e=>setData((d:any)=>({...d, organization:{...d.organization, timezone:e.target.value}}))}/></div>
+            <div className="space-y-2"><label className="text-sm font-medium">Business locale</label><Input value={data?.organization?.locale ?? ""} placeholder="en-UG" onChange={e=>setData((d:any)=>({...d, organization:{...d.organization, locale:e.target.value}}))}/></div>
           </div>
+          <p className="text-xs text-muted-foreground">Operating currency is used for all financial records and is never converted automatically. {canManageOrg ? "As an administrator you can change it." : "Only an organization administrator can change it."}</p>
           <Button onClick={saveOrg} disabled={saving}><Save className="h-4 w-4 mr-2"/>{saving?"Saving...":"Save Organization"}</Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10"><Globe className="h-5 w-5 text-primary"/></div>
+            <div>
+              <CardTitle>Language &amp; regional preferences</CardTitle>
+              <CardDescription>Personal display preferences — these never change your organization&apos;s currency or financial records.</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Interface language</label>
+              <Select value={prefForm.language} onChange={e=>setPrefForm(f=>({...f,language:e.target.value}))}>
+                {availableLanguages().map(l=>(<option key={l.code} value={l.code}>{l.nativeName}{l.name!==l.nativeName?` (${l.name})`:""}</option>))}
+              </Select>
+              <p className="text-xs text-muted-foreground">Additional languages are added as accurate translations become available; missing text falls back to English.</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Time zone</label>
+              <Select value={prefForm.timezone} onChange={e=>setPrefForm(f=>({...f,timezone:e.target.value}))}>
+                {TIMEZONE_OPTIONS.map(o=>(<option key={o.value||"default"} value={o.value}>{o.label}</option>))}
+              </Select>
+            </div>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Date format</label>
+              <Select value={prefForm.date_format} onChange={e=>setPrefForm(f=>({...f,date_format:e.target.value}))}>
+                <option value="">Use language default</option>
+                {DATE_FORMAT_OPTIONS.map(o=>(<option key={o.id} value={o.id}>{o.label} ({o.sample})</option>))}
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Number format</label>
+              <Select value={prefForm.number_format} onChange={e=>setPrefForm(f=>({...f,number_format:e.target.value}))}>
+                <option value="">Use language default</option>
+                {NUMBER_FORMAT_OPTIONS.map(o=>(<option key={o.id} value={o.id}>{o.label}</option>))}
+              </Select>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">Personal preferences apply only to your account and work offline.</p>
+          <Button onClick={savePreferences} disabled={saving}><Save className="h-4 w-4 mr-2"/>{saving?"Saving...":"Save preferences"}</Button>
         </CardContent>
       </Card>
 

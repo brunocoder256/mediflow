@@ -54,11 +54,39 @@ export async function PATCH(req: Request) {
     const orgId = actor.profile.organization_id;
 
     if (body.organization) {
-      const allowed = ['name', 'registration_number', 'phone', 'email', 'address', 'currency', 'timezone', 'country'];
+      const allowed = ['name', 'registration_number', 'phone', 'email', 'address', 'currency', 'timezone', 'country', 'locale'];
       const upd: any = {};
       for (const k of allowed) if (body.organization[k] !== undefined) upd[k] = body.organization[k];
       // Store only a validated ISO 3166-1 alpha-2 code (or null to clear).
       if ('country' in upd) upd.country = normalizeCountryCode(upd.country);
+
+      // The operating currency is financially sensitive: changing it is
+      // restricted to organization administrators. Unchanged values are
+      // silently dropped so non-admins can still edit other organization fields.
+      if (upd.currency !== undefined) {
+        const normalized = String(upd.currency ?? '').trim().toUpperCase();
+        const { data: currentOrg } = await sb
+          .from('organizations')
+          .select('currency')
+          .eq('id', orgId)
+          .single();
+        const current = String(currentOrg?.currency ?? '').trim().toUpperCase();
+        if (normalized !== current) {
+          const isAdmin =
+            (await hasPermission(sb, actor.profile.id, orgId, 'settings.manage')) ||
+            (await hasPermission(sb, actor.profile.id, orgId, 'users.manage'));
+          if (!isAdmin) {
+            return NextResponse.json(
+              { error: 'Only an organization administrator can change the operating currency' },
+              { status: 403 },
+            );
+          }
+          upd.currency = normalized || null;
+        } else {
+          delete upd.currency;
+        }
+      }
+
       if (Object.keys(upd).length) {
         upd.updated_at = new Date().toISOString();
         await sb.from('organizations').update(upd).eq('id', orgId);

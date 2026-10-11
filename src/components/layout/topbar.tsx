@@ -19,7 +19,8 @@ import { HelpMenu } from "./help-menu";
 import { HelpAssistantButton } from "./help-assistant-button";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { useBranch } from "@/hooks/branch-context";
-import { useRegion } from "@/hooks/region-context";
+import { useRegion, useT } from "@/hooks/preferences-context";
+import { CountryFlag } from "@/components/ui/country-flag";
 import {
   Menu,
   User,
@@ -46,7 +47,8 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
   });
   const { isOnline, wasOffline } = useOnlineStatus();
   const { branches, currentBranchId, defaultBranchId, setCurrentBranch } = useBranch();
-  const { flag, country, countryCode } = useRegion();
+  const { country, countryCode } = useRegion();
+  const t = useT();
 
   const currentBranch = branches.find((b) => b.id === currentBranchId) ?? null;
 
@@ -83,7 +85,7 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
           onClick={onMenuClick}
         >
           <Menu className="h-5 w-5" />
-          <span className="sr-only">Toggle menu</span>
+          <span className="sr-only">{t("topbar.toggleMenu")}</span>
         </Button>
         {title && (
           <h1 className="text-lg font-semibold">{title}</h1>
@@ -93,15 +95,16 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
 
       <div className="ml-auto flex items-center gap-2">
         {/* Country / Region Flag — reflects the organization's selected country */}
-        {flag && (
+        {countryCode && (
           <div
             className="hidden sm:flex items-center gap-1.5 h-9 px-2.5 rounded-md border bg-card"
-            title={country ? `Operating country: ${country}` : "Operating country"}
-            aria-label={country ? `Operating country: ${country}` : "Operating country"}
+            title={country ? t("topbar.operatingCountry", { country }) : t("topbar.operatingCountryGeneric")}
+            aria-label={country ? t("topbar.operatingCountry", { country }) : t("topbar.operatingCountryGeneric")}
           >
-            <span className="text-base leading-none" aria-hidden>
-              {flag}
-            </span>
+            <CountryFlag
+              code={countryCode}
+              className="h-4 w-6 rounded-[3px] shadow-sm ring-1 ring-black/10"
+            />
             <span className="text-xs font-medium text-muted-foreground">
               {countryCode}
             </span>
@@ -114,20 +117,20 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
             <Button
               variant="outline"
               className="hidden sm:flex items-center gap-2 h-9"
-              title="Switch branch"
+              title={t("topbar.switchBranch")}
             >
-              <span className="text-muted-foreground text-sm">Branch:</span>
+              <span className="text-muted-foreground text-sm">{t("topbar.branch")}:</span>
               <span className="font-medium text-sm">
-                {currentBranch ? currentBranch.name : defaultBranchId ? "Select branch" : "—"}
+                {currentBranch ? currentBranch.name : defaultBranchId ? t("topbar.selectBranch") : "—"}
               </span>
               <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-56" align="start">
-            <DropdownMenuLabel>Authorized branches</DropdownMenuLabel>
+            <DropdownMenuLabel>{t("topbar.authorizedBranches")}</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {branches.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-muted-foreground">No branch access</div>
+              <div className="px-3 py-2 text-sm text-muted-foreground">{t("topbar.noBranchAccess")}</div>
             ) : (
               branches.map((b) => (
                 <DropdownMenuItem key={b.id} onClick={() => setCurrentBranch(b.id)}>
@@ -141,21 +144,21 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
         </DropdownMenu>
 
         {/* Online/Offline Status — real server-reachability based */}
-        <div className="flex items-center gap-2" title={isOnline ? "Server reachable — online" : "Server unreachable — offline"}>
+        <div className="flex items-center gap-2" title={isOnline ? t("topbar.serverReachable") : t("topbar.serverUnreachable")}>
           {isOnline ? (
             <div className="flex items-center gap-1 text-green-600">
               <Wifi className="h-4 w-4" />
-              <span className="text-xs hidden sm:inline">{wasOffline ? "Back online" : "Online"}</span>
+              <span className="text-xs hidden sm:inline">{wasOffline ? t("common.backOnline") : t("common.online")}</span>
             </div>
           ) : (
             <div className="flex items-center gap-1 text-red-600">
               <WifiOff className="h-4 w-4" />
-              <span className="text-xs hidden sm:inline">Offline</span>
+              <span className="text-xs hidden sm:inline">{t("common.offline")}</span>
               <AlertCircle className="h-3.5 w-3.5 text-red-500" />
             </div>
           )}
           {wasOffline && isOnline && (
-            <span className="text-xs text-green-700 animate-pulse sm:hidden" aria-hidden>Reconnected</span>
+            <span className="text-xs text-green-700 animate-pulse sm:hidden" aria-hidden>{t("common.reconnected")}</span>
           )}
         </div>
 
@@ -173,11 +176,11 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
           variant="ghost"
           size="icon"
           className="relative h-9 w-9"
-          title="Logout"
+          title={t("topbar.logout")}
           onClick={handleLogout}
         >
           <LogOut className="h-4 w-4 text-destructive" />
-          <span className="sr-only">Logout</span>
+          <span className="sr-only">{t("topbar.logout")}</span>
         </Button>
 
         {/* Theme Toggle */}
@@ -203,11 +206,11 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => window.location.assign("/users")}>
               <User className="mr-2 h-4 w-4" />
-              <span>My account & team</span>
+              <span>{t("topbar.myAccountTeam")}</span>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => window.location.assign("/settings")}>
               <Settings className="mr-2 h-4 w-4" />
-              <span>Settings</span>
+              <span>{t("topbar.settings")}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
