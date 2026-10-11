@@ -218,8 +218,7 @@ export default function SignupPage() {
                 <p className="text-sm text-[var(--destructive)]">{errors.plan_tier.message}</p>
               )}
               <p className="text-xs text-muted-foreground">
-                Pick the plan that matches your business — you can change it later. Every plan currently includes the
-                full system.
+                Pick the plan that matches your business — you can change it later.
               </p>
             </div>
 
