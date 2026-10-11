@@ -12,7 +12,7 @@ import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
-import { Search, Download, RefreshCw, AlertTriangle, Clock, XCircle, ArrowUpDown, Package, TrendingUp, Layers, Scan, Truck, ClipboardList, History, WifiOff, Wifi, Eye, Plus, Trash2, Check, Flame } from "lucide-react";
+import { Search, Download, RefreshCw, AlertTriangle, Clock, XCircle, ArrowUpDown, Package, TrendingUp, Layers, Scan, Truck, ClipboardList, History, WifiOff, Wifi, Eye, Plus, Trash2, Check, Flame, Coins } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { cachedFetch } from "@/lib/offline/cached-fetch";
 import { usePendingStock, usePendingDisposals, useMediflowSynced } from "@/lib/offline/pending-overlay";
@@ -170,6 +170,9 @@ export default function InventoryPage() {
   // KPIs
   const totalUnits = React.useMemo(()=> stockMerge.reduce((s:any,r:any)=> s+Number(r.quantity_available),0),[stockMerge]);
   const totalValue = React.useMemo(()=> stockMerge.reduce((s:any,r:any)=> s+Number(r.quantity_available)*Number(r.purchase_price),0),[stockMerge]);
+  const retailValue = React.useMemo(()=> stockMerge.reduce((s:any,r:any)=> s+Number(r.quantity_available)*Number(r.selling_price),0),[stockMerge]);
+  const potentialMargin = retailValue - totalValue;
+  const marginPct = totalValue > 0 ? (potentialMargin / totalValue) * 100 : 0;
   const outOfStock = React.useMemo(()=> {
     const ids=new Set(stockMerge.filter((r:any)=>Number(r.quantity_available)>0).map((r:any)=>r.product_id));
     // approximate: products with no batch? Use lowStock logic; for now count products with zero total
@@ -490,8 +493,10 @@ export default function InventoryPage() {
       {error && <Card><CardContent className="p-4 text-sm text-destructive">Failed to load: {error} <Button variant="link" onClick={fetchData}>Retry</Button></CardContent></Card>}
 
       {/* KPIs */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <StatCard icon={TrendingUp} title="Total Value" value={`UGX ${totalValue.toLocaleString()}`} description={`${totalUnits.toLocaleString()} units • ${stockMerge.length} batches • FEFO cost preserved`}/>
+        <StatCard icon={Coins} accent="text-emerald-600" title="Retail Value" value={`UGX ${retailValue.toLocaleString()}`} description={`Potential revenue if all stock sells • ${totalUnits.toLocaleString()} units`}/>
+        <StatCard icon={Flame} accent="text-emerald-600" title="Potential Margin" value={<span className="text-emerald-600">UGX {potentialMargin.toLocaleString()}</span>} description={`Retail − cost • ${marginPct.toFixed(1)}% margin`}/>
         <StatCard icon={AlertTriangle} accent="text-amber-600" title="Low Stock" value={<span className="text-amber-600">{data.lowStock.length}</span>} description={<>≤ reorder level • {data.kpi?.pendingReceipts ?? 0} pending receipts{" "}<Button variant="link" size="sm" className="p-0 h-auto" onClick={()=>setActiveTab("low-stock")}>View</Button></>} />
         <StatCard icon={Clock} accent="text-amber-600" title="Expiring" value={`${data.expiring.length} (${expiringQty} units)`} description={`≤${expiryThreshold}d • Value UGX ${expiringValue.toLocaleString()}`} />
         <StatCard icon={XCircle} accent="text-destructive" title="Expired / Transfers" value={<span className="text-destructive">{data.expired.length} <span className="text-base">({expiredQty} units blocked)</span></span>} description={`Not sellable (POS excluded) • Pending transfers: ${data.kpi?.pendingTransfers ?? 0}`}/>
