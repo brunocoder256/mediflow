@@ -9,6 +9,7 @@ import { NAV_PERMISSION_MAP } from "@/lib/permissions-catalog";
 import { ChevronsLeft, ChevronsRight } from "lucide-react";
 import { MediFlowMark } from "@/components/brand/mediflow-logo";
 import { useT } from "@/hooks/preferences-context";
+import { cachedFetch } from "@/lib/offline/cached-fetch";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -24,12 +25,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/me");
-        if (!res.ok) {
-          if (!cancelled) setPermissions([]);
-          return;
-        }
-        const data = await res.json();
+        const data = await cachedFetch<{ permissions?: string[] }>("/api/me");
         if (!cancelled) setPermissions(data.permissions ?? []);
       } catch {
         if (!cancelled) setPermissions([]);

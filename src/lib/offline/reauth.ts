@@ -44,10 +44,11 @@ export async function tryRestoreServerSession(): Promise<ReauthResult> {
   const creds = readReauthToken();
   if (!creds) return { restored: false, reason: "none" };
 
-  // Fast path: exchange the stored refresh token for a fresh server session.
+  // Exchange the stored refresh token for a fresh server session. We use
+  // refreshSession (NOT setSession with an empty access token, which the API
+  // rejects) so the SDK performs the real token refresh round-trip.
   try {
-    const { data, error } = await supabase.auth.setSession({
-      access_token: "",
+    const { data, error } = await supabase.auth.refreshSession({
       refresh_token: creds.refresh_token,
     });
     if (!error && data.session?.access_token) {

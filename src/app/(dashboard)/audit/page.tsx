@@ -10,6 +10,7 @@ import { Select } from "@/components/ui/select";
 import { Search, Download, FileText, ScrollText } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { cachedFetch } from "@/lib/offline/cached-fetch";
 
 type Log = { id:string; action:string; entity_type:string; entity_id:string|null; user_name:string; created_at:string; old_values:any; new_values:any };
 
@@ -28,9 +29,10 @@ export default function AuditPage(){
     const params=new URLSearchParams({ page: String(page), perPage: String(perPage) });
     if(q) params.set("search", q);
     if(type!=="all") params.set("type", type);
-    const r=await fetch(`/api/audit?${params.toString()}`);
-    const j=await r.json();
-    if(j.error){ setData([]); } else { setData(j.data ?? []); setTotal(j.count ?? 0); }
+    try{
+      const j=await cachedFetch<any>(`/api/audit?${params.toString()}`);
+      if(j.error){ setData([]); } else { setData(j.data ?? []); setTotal(j.count ?? 0); }
+    }catch{ setData([]); setTotal(0); }
     setLoading(false);
   },[q,type,page]);
   React.useEffect(()=>{ const t=setTimeout(fetchData,300); return()=>clearTimeout(t); },[fetchData]);

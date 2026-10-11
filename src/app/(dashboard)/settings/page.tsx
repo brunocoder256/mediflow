@@ -23,6 +23,9 @@ import {
   setPasscode,
   clearPasscode,
 } from "@/lib/passcode";
+import { cachedFetch } from "@/lib/offline/cached-fetch";
+import { queueSettingsUpdate, queueBranchSave } from "@/lib/offline/sync";
+import { useOnlineStatus } from "@/hooks/use-online-status";
 
 type Branch = { id: string; name: string; code: string; phone?: string | null; address?: string | null; is_active: boolean };
 
@@ -33,6 +36,7 @@ export default function SettingsPage(){
   const [canManageBranches,setCanManageBranches]=useState(false);
   const [canManageOrg,setCanManageOrg]=useState(false);
   const { toast }=useToast();
+  const { isOnline }=useOnlineStatus();
   const { preferences, updatePreferences, refresh: refreshRegion }=usePreferences();
   const [prefForm,setPrefForm]=useState({language:"en",timezone:"",date_format:"",number_format:""});
 
@@ -52,17 +56,18 @@ export default function SettingsPage(){
 
   const fetchData=useCallback(async()=>{
     setLoading(true);
-    const r=await fetch("/api/settings");
-    const j=await r.json();
-    if(!r.ok) toast({title:"Failed to load settings", description: j.error, variant:"error"});
-    else setData(j);
+    try{
+      const j=await cachedFetch<any>("/api/settings");
+      setData(j);
+    }catch{
+      toast({title:"Failed to load settings", description:"You're offline and no cached settings are available.", variant:"error"});
+    }
     setLoading(false);
   },[toast]);
 
   const fetchCapabilities=useCallback(async()=>{
     try{
-      const r=await fetch("/api/me");
-      const j=await r.json();
+      const j=await cachedFetch<{permissions?:string[]}>("/api/me");
       if(Array.isArray(j.permissions) && j.permissions.includes("settings.manage_branches")) setCanManageBranches(true);
       if(Array.isArray(j.permissions) && (j.permissions.includes("settings.manage") || j.permissions.includes("users.manage"))) setCanManageOrg(true);
     }catch{/* non-blocking */}
@@ -129,18 +134,31 @@ export default function SettingsPage(){
 
   const saveOrg=async()=>{
     setSaving(true);
-    const r=await fetch("/api/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({organization: data.organization})});
-    const j=await r.json();
-    if(!r.ok) toast({title:"Save failed", description: j.error, variant:"error"});
-    else { toast({title:"Saved"}); void refreshRegion(); }
-    setSaving(false);
+    try{
+      if(!isOnline){
+        await queueSettingsUpdate({organization: data.organization});
+        toast({title:"Saved offline", description:"Will sync to the server when back online."});
+        void refreshRegion();
+        return;
+      }
+      const r=await fetch("/api/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({organization: data.organization})});
+      const j=await r.json();
+      if(!r.ok) toast({title:"Save failed", description: j.error, variant:"error"});
+      else { toast({title:"Saved"}); void refreshRegion(); }
+    }catch{ /* handled by isOnline guard */ }finally{ setSaving(false); }
   };
   const saveOrgSettings=async()=>{
     setSaving(true);
-    const r=await fetch("/api/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({organization_settings: data.organization_settings})});
-    const j=await r.json();
-    if(!r.ok) toast({title:"Save failed", description: j.error, variant:"error"}); else toast({title:"Receipt & tax saved"});
-    setSaving(false);
+    try{
+      if(!isOnline){
+        await queueSettingsUpdate({organization_settings: data.organization_settings});
+        toast({title:"Receipt & tax saved offline", description:"Will sync when back online."});
+        return;
+      }
+      const r=await fetch("/api/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({organization_settings: data.organization_settings})});
+      const j=await r.json();
+      if(!r.ok) toast({title:"Save failed", description: j.error, variant:"error"}); else toast({title:"Receipt & tax saved"});
+    }finally{ setSaving(false); }
   };
 
   const openAdd=()=>{ setBForm({name:"",code:"",phone:"",address:"",is_active:true}); setBranchDlg({open:true,editing:null}); };
@@ -150,16 +168,28 @@ export default function SettingsPage(){
     setSaving(true);
     const editing=branchDlg.editing;
     const body=editing ? { id: editing.id, ...bForm } : { ...bForm };
-    const r=await fetch("/api/branches",{method: editing?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-    const j=await r.json();
-    setSaving(false);
-    if(!r.ok){ toast({title: editing?"Update failed":"Create failed", description: j.error, variant:"error"}); return; }
-    toast({title: editing?"Branch updated":"Branch created"});
-    setBranchDlg({open:false,editing:null});
-    fetchData();
+    try{
+      if(!isOnline){
+        await queueBranchSave(body, editing?"update":"create");
+        toast({title: editing?"Branch update queued":"Branch created offline", description:"Will sync when back online."});
+        setBranchDlg({open:false,editing:null});
+        return;
+      }
+      const r=await fetch("/api/branches",{method: editing?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      const j=await r.json();
+      if(!r.ok){ toast({title: editing?"Update failed":"Create failed", description: j.error, variant:"error"}); return; }
+      toast({title: editing?"Branch updated":"Branch created"});
+      setBranchDlg({open:false,editing:null});
+      fetchData();
+    }finally{ setSaving(false); }
   };
 
   const toggleActive=async(b:Branch)=>{
+    if(!isOnline){
+      await queueBranchSave({id:b.id,is_active:!b.is_active},"update");
+      toast({title: `Branch ${b.is_active ? "deactivation" : "activation"} queued offline`});
+      return;
+    }
     const r=await fetch("/api/branches",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:b.id,is_active:!b.is_active})});
     const j=await r.json();
     if(!r.ok){ toast({title:"Update failed", description: j.error, variant:"error"}); return; }
@@ -169,6 +199,11 @@ export default function SettingsPage(){
 
   const deleteBranch=async(b:Branch)=>{
     if(!confirm(`Delete branch "${b.name}"? Branches with assigned users cannot be deleted.`)) return;
+    if(!isOnline){
+      await queueBranchSave({id:b.id},"delete");
+      toast({title:"Branch deletion queued offline"});
+      return;
+    }
     const r=await fetch(`/api/branches?id=${b.id}`,{method:"DELETE"});
     const j=await r.json();
     if(!r.ok){ toast({title:"Delete failed", description: j.error, variant:"error"}); return; }
@@ -179,13 +214,20 @@ export default function SettingsPage(){
   const saveBranchSettings=async(b:Branch)=>{
     const s=bsForm[b.id]; if(!s) return;
     setSaving(true);
-    const r=await fetch("/api/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({branch_settings:[{branch_id:b.id,...s}]})});
-    const j=await r.json();
-    setSaving(false);
-    if(!r.ok){ toast({title:"Save failed", description: j.error, variant:"error"}); return; }
-    toast({title:`Settings saved for ${b.name}`});
-    setExpanded(null);
-    fetchData();
+    try{
+      if(!isOnline){
+        await queueSettingsUpdate({branch_settings:[{branch_id:b.id,...s}]});
+        toast({title:`Settings queued for ${b.name}`});
+        setExpanded(null);
+        return;
+      }
+      const r=await fetch("/api/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({branch_settings:[{branch_id:b.id,...s}]})});
+      const j=await r.json();
+      if(!r.ok){ toast({title:"Save failed", description: j.error, variant:"error"}); return; }
+      toast({title:`Settings saved for ${b.name}`});
+      setExpanded(null);
+      fetchData();
+    }finally{ setSaving(false); }
   };
 
   const toggleExpand=(b:Branch)=>{

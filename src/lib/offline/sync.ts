@@ -121,23 +121,38 @@ export async function queuePurchaseCancel(purchase_order_id: string): Promise<st
 // for offline replay. Idempotent via idempotency_key so a retry can't double-pay.
 export async function queueSupplierPayment(payload: Record<string, unknown>): Promise<string> {
   const op = crypto.randomUUID();
+  const id = crypto.randomUUID();
   await db.syncQueue.add({
     id: crypto.randomUUID(),
     operation_id: op,
     table_name: "supplier_payments",
     operation: "create",
-    payload: { ...payload, _operationId: op, idempotency_key: op },
+    payload: { ...payload, _offlineId: id, _operationId: op, idempotency_key: op },
     status: "pending",
     created_at: new Date().toISOString(),
     retries: 0,
     error: null,
   });
+  try {
+    await db.cachedSupplierPayments.add({
+      id,
+      supplier_id: String((payload as any).supplier_id ?? ""),
+      purchase_order_id: (payload as any).purchase_order_id ?? null,
+      branch_id: String((payload as any).branch_id ?? ""),
+      sync_status: "pending",
+      operation_id: op,
+      payload,
+      created_at: new Date().toISOString(),
+    } as any);
+  } catch {}
   return op;
 }
 
 export async function getSupplierPaymentPendingCount(): Promise<number> {
   try {
-    return await db.syncQueue.where("table_name").equals("supplier_payments").count();
+    const c = await db.cachedSupplierPayments.where("sync_status").equals("pending").count();
+    const q = await db.syncQueue.where("table_name").equals("supplier_payments").and((e) => e.status === "pending").count();
+    return Math.max(c, q);
   } catch { return 0; }
 }
 
@@ -477,6 +492,296 @@ export async function getDisposalPendingCount(): Promise<number> {
   } catch { return 0; }
 }
 
+// ---------------------------------------------------------------------------
+// Offline transfers support
+// ---------------------------------------------------------------------------
+
+export async function queueTransferCreate(payload: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  const id = crypto.randomUUID();
+  await db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "transfers",
+    operation: "create",
+    payload: { ...payload, _localTransferId: id, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  });
+  try {
+    await db.cachedTransfers.add({
+      id,
+      branch_id: String((payload as any).source_branch_id ?? (payload as any).branch_id ?? ""),
+      source_branch_id: (payload as any).source_branch_id ?? null,
+      destination_branch_id: (payload as any).destination_branch_id ?? null,
+      status: "DRAFT",
+      payload,
+      sync_status: "pending",
+      operation_id: op,
+      created_at: new Date().toISOString(),
+    } as any);
+  } catch {}
+  return op;
+}
+
+export function queueTransferStatus(localId: string, action: "request" | "approve" | "ship" | "receive" | "cancel"): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "transfers",
+    operation: "update",
+    payload: { action, _localTransferId: localId, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+export async function getTransferPendingCount(): Promise<number> {
+  try {
+    const c = await db.cachedTransfers.where("sync_status").equals("pending").count();
+    const q = await db.syncQueue.where("table_name").equals("transfers").count();
+    return Math.max(c, q);
+  } catch { return 0; }
+}
+
+// ---------------------------------------------------------------------------
+// Offline stock counts support
+// ---------------------------------------------------------------------------
+
+export async function queueStockCountCreate(payload: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  const id = crypto.randomUUID();
+  await db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "stock_counts",
+    operation: "create",
+    payload: { ...payload, _localStockCountId: id, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  });
+  try {
+    await db.cachedStockCounts.add({
+      id,
+      branch_id: String((payload as any).branch_id ?? ""),
+      status: "DRAFT",
+      payload,
+      sync_status: "pending",
+      operation_id: op,
+      created_at: new Date().toISOString(),
+    } as any);
+  } catch {}
+  return op;
+}
+
+export function queueStockCountAction(localId: string, action: "approve" | "post", extra?: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "stock_counts",
+    operation: "update",
+    payload: { action, _localStockCountId: localId, _operationId: op, ...(extra ?? {}) },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+export async function getStockCountPendingCount(): Promise<number> {
+  try {
+    const c = await db.cachedStockCounts.where("sync_status").equals("pending").count();
+    const q = await db.syncQueue.where("table_name").equals("stock_counts").count();
+    return Math.max(c, q);
+  } catch { return 0; }
+}
+
+// ---------------------------------------------------------------------------
+// Offline expense actions / update / delete
+// ---------------------------------------------------------------------------
+
+export function queueExpenseAction(id: string, action: string, extra?: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "expenses",
+    operation: "update",
+    payload: { id, action, _operationId: op, ...(extra ?? {}) },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+export function queueExpenseUpdate(id: string, payload: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "expenses",
+    operation: "update",
+    payload: { id, ...payload, _operationId: op, _expenseEdit: true },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+export function queueExpenseDelete(id: string): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "expenses",
+    operation: "delete",
+    payload: { id, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+// ---------------------------------------------------------------------------
+// Offline customer / supplier actions (delete, block, deactivate, merge)
+// ---------------------------------------------------------------------------
+
+export function queueCustomerAction(id: string, action: string, extra?: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "customers",
+    operation: "update",
+    payload: { id, action, _operationId: op, ...(extra ?? {}) },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+export function queueCustomerDelete(id: string): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "customers",
+    operation: "delete",
+    payload: { id, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+export function queueSupplierDelete(id: string): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "suppliers",
+    operation: "delete",
+    payload: { id, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+// ---------------------------------------------------------------------------
+// Offline sales void / held-sale cancel
+// ---------------------------------------------------------------------------
+
+export function queueSaleVoid(saleId: string, reason?: string): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "sales",
+    operation: "update",
+    payload: { action: "void", sale_id: saleId, reason: reason ?? "Voided offline", _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+// ---------------------------------------------------------------------------
+// Offline return status transitions / refunds
+// ---------------------------------------------------------------------------
+
+export function queueReturnAction(id: string, action: string, extra?: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "returns",
+    operation: "update",
+    payload: { action, id, _operationId: op, ...(extra ?? {}) },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+export async function getPendingCountByTable(table: string): Promise<number> {
+  try { return await db.syncQueue.where("table_name").equals(table).count(); } catch { return 0; }
+}
+
+// ---------------------------------------------------------------------------
+// Offline settings / branches support
+// ---------------------------------------------------------------------------
+
+export function queueSettingsUpdate(payload: Record<string, unknown>): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "settings",
+    operation: "update",
+    payload: { ...payload, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+export function queueBranchSave(payload: Record<string, unknown>, operation: "create" | "update" | "delete"): Promise<string> {
+  const op = crypto.randomUUID();
+  return db.syncQueue.add({
+    id: crypto.randomUUID(),
+    operation_id: op,
+    table_name: "branches",
+    operation,
+    payload: { ...payload, _operationId: op },
+    status: "pending",
+    created_at: new Date().toISOString(),
+    retries: 0,
+    error: null,
+  }).then(() => op);
+}
+
+export async function getBranchPendingCount(): Promise<number> {
+  try { return await db.syncQueue.where("table_name").equals("branches").and((e) => e.status === "pending").count(); } catch { return 0; }
+}
+
 export async function processSyncQueue(): Promise<{
   processed: number;
   failed: number;
@@ -497,11 +802,22 @@ export async function processSyncQueue(): Promise<{
 
       let response: Response;
       if (entry.table_name === "sales") {
-        response = await fetch("/api/sales", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(entry.payload),
-        });
+        const payload: any = entry.payload;
+        if (entry.operation === "update" && payload.action === "void") {
+          const clean: any = { ...payload };
+          delete clean._operationId;
+          response = await fetch("/api/sales", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "void", sale_id: clean.sale_id, reason: clean.reason }),
+          });
+        } else {
+          response = await fetch("/api/sales", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(entry.payload),
+          });
+        }
       } else if (entry.table_name === "purchases") {
         const payload: any = entry.payload;
         if (entry.operation === "create" && !payload.action) {
@@ -531,7 +847,9 @@ export async function processSyncQueue(): Promise<{
         }
       } else if (entry.table_name === "returns") {
         const payload:any=entry.payload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const rType=payload._returnType ?? "SALES"; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId; delete clean._returnType;
-        if(rType==="PURCHASE"){
+        if (entry.operation === "update") {
+          response = await fetch("/api/returns",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(clean) });
+        } else if(rType==="PURCHASE"){
           response = await fetch("/api/purchase-returns",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, operation_id: op }) });
         } else {
           response = await fetch("/api/returns",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, operation_id: op }) });
@@ -541,8 +859,14 @@ export async function processSyncQueue(): Promise<{
           else if(op){ try{ const c=await db.cachedReturns.where("operation_id").equals(op).first(); if(c) await db.cachedReturns.update(c.id,{ sync_status:"synced" as any }); }catch{} }
         }
       } else if (entry.table_name === "expenses") {
-        const payload:any=entry.payload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId; // keep idempotency_key
-        response = await fetch("/api/expenses",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, idempotency_key: op }) });
+        const payload:any=entry.payload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId;
+        if (entry.operation === "delete") {
+          response = await fetch(`/api/expenses?id=${encodeURIComponent(clean.id)}`,{ method:"DELETE" });
+        } else if (entry.operation === "update") {
+          response = await fetch(`/api/expenses?id=${encodeURIComponent(clean.id)}`,{ method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, idempotency_key: op }) });
+        } else {
+          response = await fetch("/api/expenses",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, idempotency_key: op }) });
+        }
         if(response.ok){
           if(offId){ try{ await db.cachedExpenses.update(offId,{ sync_status:"synced" as any }); }catch{} }
           else if(op){ try{ const c=await db.cachedExpenses.where("operation_id").equals(op).first(); if(c) await db.cachedExpenses.update(c.id,{ sync_status:"synced" as any }); }catch{} }
@@ -551,6 +875,8 @@ export async function processSyncQueue(): Promise<{
         const payload:any=entry.payload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId;
         if(entry.operation==="create"){
           response = await fetch("/api/customers",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, continue_anyway: false }) });
+        } else if(entry.operation==="delete"){
+          response = await fetch("/api/customers",{ method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ id: clean.id, action: "delete" }) });
         } else {
           const cid=clean.id; delete clean.id;
           response = await fetch("/api/customers",{ method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ id: cid, ...clean }) });
@@ -579,6 +905,10 @@ export async function processSyncQueue(): Promise<{
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(clean),
+          });
+        } else if (entry.operation === "delete") {
+          response = await fetch(`/api/suppliers?id=${encodeURIComponent(clean.id)}`, {
+            method: "DELETE",
           });
         } else {
           const sid = clean.id;
@@ -705,8 +1035,129 @@ export async function processSyncQueue(): Promise<{
             try { await db.cachedDisposals.update(localId, { sync_status: "synced" as any }); } catch {}
           }
         }
+      } else if (entry.table_name === "transfers") {
+        const payload: any = entry.payload;
+        const op = payload._operationId ?? entry.operation_id;
+        const localId = payload._localTransferId;
+        const clean: any = { ...payload };
+        delete clean._operationId; delete clean._localTransferId;
+        if (entry.operation === "create") {
+          response = await fetch("/api/transfers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(clean),
+          });
+          const createdJson: any = await response.clone().json().catch(() => ({}));
+          if (response.ok && localId) {
+            const serverId = createdJson?.id ?? createdJson?.data?.id;
+            if (serverId) {
+              try { await db.cachedTransfers.update(localId, { sync_status: "synced" as any, operation_id: op }); } catch {}
+              try {
+                const siblings = await db.syncQueue.where("status").equals("pending").toArray();
+                for (const sib of siblings) {
+                  const sp = (sib.payload as any) ?? {};
+                  if ((sib.id !== entry.id) && sp._localTransferId === localId && !sp.serverTransferId) {
+                    await db.syncQueue.update(sib.id, { payload: { ...sp, serverTransferId: serverId } });
+                  }
+                }
+              } catch {}
+            }
+          }
+        } else {
+          const serverId = clean.serverTransferId;
+          delete clean.serverTransferId;
+          const action = clean.action ?? "approve";
+          delete clean.action;
+          response = await fetch("/api/transfers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action, id: serverId, ...clean }),
+          });
+          if (response.ok && localId) {
+            try { await db.cachedTransfers.update(localId, { sync_status: "synced" as any }); } catch {}
+          }
+        }
+      } else if (entry.table_name === "stock_counts") {
+        const payload: any = entry.payload;
+        const op = payload._operationId ?? entry.operation_id;
+        const localId = payload._localStockCountId;
+        const clean: any = { ...payload };
+        delete clean._operationId; delete clean._localStockCountId;
+        if (entry.operation === "create") {
+          response = await fetch("/api/stock-counts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(clean),
+          });
+          const createdJson: any = await response.clone().json().catch(() => ({}));
+          if (response.ok && localId) {
+            const serverId = createdJson?.id ?? createdJson?.data?.id;
+            if (serverId) {
+              try { await db.cachedStockCounts.update(localId, { sync_status: "synced" as any, operation_id: op }); } catch {}
+              try {
+                const siblings = await db.syncQueue.where("status").equals("pending").toArray();
+                for (const sib of siblings) {
+                  const sp = (sib.payload as any) ?? {};
+                  if ((sib.id !== entry.id) && sp._localStockCountId === localId && !sp.serverStockCountId) {
+                    await db.syncQueue.update(sib.id, { payload: { ...sp, serverStockCountId: serverId } });
+                  }
+                }
+              } catch {}
+            }
+          }
+        } else {
+          const serverId = clean.serverStockCountId;
+          delete clean.serverStockCountId;
+          const action = clean.action ?? "approve";
+          delete clean.action;
+          response = await fetch("/api/stock-counts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action, id: serverId, ...clean }),
+          });
+          if (response.ok && localId) {
+            try { await db.cachedStockCounts.update(localId, { sync_status: "synced" as any }); } catch {}
+          }
+        }
+      } else if (entry.table_name === "stock_movements") {
+        const payload: any = entry.payload;
+        const clean: any = { ...payload };
+        response = await fetch("/api/stock-movements", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...clean, operation_id: entry.operation_id }),
+        });
+      } else if (entry.table_name === "settings") {
+        const payload: any = entry.payload;
+        const clean: any = { ...payload };
+        delete clean._operationId;
+        response = await fetch("/api/settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(clean),
+        });
+      } else if (entry.table_name === "branches") {
+        const payload: any = entry.payload;
+        const clean: any = { ...payload };
+        delete clean._operationId;
+        if (entry.operation === "create") {
+          response = await fetch("/api/branches", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(clean),
+          });
+        } else if (entry.operation === "delete") {
+          response = await fetch(`/api/branches?id=${encodeURIComponent(clean.id)}`, { method: "DELETE" });
+        } else {
+          response = await fetch("/api/branches", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(clean),
+          });
+        }
       } else if (entry.table_name === "supplier_payments") {
         const payload: any = entry.payload;
+        const op = payload._operationId ?? entry.operation_id;
         const clean: any = { ...payload };
         delete clean._operationId; delete clean.idempotency_key; delete clean._offlineId;
         response = await fetch("/api/supplier-payments", {
@@ -714,25 +1165,38 @@ export async function processSyncQueue(): Promise<{
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(clean),
         });
+        if (response.ok && op) {
+          try { const c = await db.cachedSupplierPayments.where("operation_id").equals(op).first(); if(c) await db.cachedSupplierPayments.update(c.id, { sync_status: "synced", operation_id: op }); } catch {}
+        }
       } else {
-        response = await fetch("/api/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            operation_id: entry.operation_id,
-            table_name: entry.table_name,
-            operation: entry.operation,
-            payload: entry.payload,
-          }),
-        });
+        // No replay handler for this table: fail loudly instead of hitting a
+        // non-existent endpoint (previously /api/sync -> 404 -> silent retries).
+        response = new Response(
+          JSON.stringify({ error: `Unsupported offline operation: ${entry.table_name}` }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        );
       }
 
       const json = await response.json().catch(() => ({}));
 
       if (!response.ok) {
         const msg: string = json?.error ?? `Sync failed: ${response.status}`;
-        const isConflict = /insufficient|stock|expired|unauthorized|branch|duplicate/i.test(msg);
+        const isAuth = response.status === 401 || response.status === 403;
+        // 4xx that are not auth are permanent domain errors (validation,
+        // insufficient stock, expired batch, duplicate, etc). 5xx and network
+        // failures are transient and retried with a bounded count.
+        const isConflict = response.status >= 400 && response.status < 500 && !isAuth;
         const retries = entry.retries + 1;
+        if (isAuth) {
+          // Keep it queued; retried automatically after re-authentication.
+          await db.syncQueue.update(entry.id, {
+            status: "pending",
+            error: `Sign-in required: ${msg}`,
+            last_attempt_at: new Date().toISOString(),
+          } as any);
+          failed++;
+          continue;
+        }
         if (isConflict) {
           await db.syncQueue.update(entry.id, {
             status: "failed",
@@ -759,6 +1223,12 @@ export async function processSyncQueue(): Promise<{
             if(ccm) await db.cachedCashMovements.update(ccm.id, { sync_status: "failed" as any });
             const cpr = await db.cachedProducts.where("operation_id").equals(op).first();
             if(cpr) await db.cachedProducts.update(cpr.id, { sync_status: "failed" as any });
+            const ct = await db.cachedTransfers.where("operation_id").equals(op).first();
+            if(ct) await db.cachedTransfers.update(ct.id, { sync_status: "failed" as any });
+            const csc = await db.cachedStockCounts.where("operation_id").equals(op).first();
+            if(csc) await db.cachedStockCounts.update(csc.id, { sync_status: "failed" as any });
+            const csp = await db.cachedSupplierPayments.where("operation_id").equals(op).first();
+            if(csp) await db.cachedSupplierPayments.update(csp.id, { sync_status: "failed" as any });
           }catch{}
         } else {
           await db.syncQueue.update(entry.id, {
@@ -792,19 +1262,61 @@ export async function processSyncQueue(): Promise<{
   return { processed, failed, pending: remaining };
 }
 
-// Auto-sync when coming back online
+// Lightweight reachability probe so we don't drain retries against dead WiFi
+// (link up, no Internet) or a down backend.
+async function reachable(): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch("/api/health", {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: { "x-mediflow-probe": "1" },
+    });
+    clearTimeout(timer);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Auto-sync when coming back online (foreground), on tab focus, and when the
+// service worker requests a Background Sync flush.
 export function setupAutoSync(onUpdate?: (result: { processed: number; failed: number; pending: number }) => void) {
   if (typeof window === "undefined") return () => {};
+  let running = false;
   const handler = async () => {
-    if (navigator.onLine) {
+    if (running) return;
+    if (!navigator.onLine) return;
+    running = true;
+    try {
+      if (!(await reachable())) return;
       const result = await processSyncQueue();
       onUpdate?.(result);
+    } finally {
+      running = false;
     }
   };
+
+  const onMessage = (event: MessageEvent) => {
+    if (event.data?.type === "mediflow:flush") void handler();
+  };
+  const onVisible = () => {
+    if (document.visibilityState === "visible") void handler();
+  };
+
   window.addEventListener("online", handler);
+  document.addEventListener("visibilitychange", onVisible);
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.addEventListener("message", onMessage);
+  }
   const interval = window.setInterval(handler, 15000);
   return () => {
     window.removeEventListener("online", handler);
+    document.removeEventListener("visibilitychange", onVisible);
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.removeEventListener("message", onMessage);
+    }
     clearInterval(interval);
   };
 }

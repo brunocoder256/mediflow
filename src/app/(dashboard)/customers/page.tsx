@@ -17,8 +17,9 @@ import { StatCard } from "@/components/ui/stat-card";
 import { Search, Plus, Eye, Edit, Trash2, Ban, RefreshCw, UserCircle, Building2, Users, Phone, Mail, MapPin, Calendar, CreditCard, Receipt, RotateCcw, FileText, Activity, Heart, StickyNote, Download, Upload, Filter, X, ChevronLeft, ChevronRight, AlertTriangle, Check, Printer, ArrowLeftRight, Shield, ShoppingCart } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { db } from "@/lib/offline/db";
-import { queueCustomerCreate } from "@/lib/offline/sync";
+import { queueCustomerCreate, queueCustomerUpdate, queueCustomerAction, queueCustomerDelete } from "@/lib/offline/sync";
 import { usePendingCustomers } from "@/lib/offline/pending-overlay";
+import { cachedFetch } from "@/lib/offline/cached-fetch";
 
 type Customer = {
   id:string; organization_id?:string; customer_code?: string|null; customer_type?: string; name:string; display_name?:string|null; company_name?:string|null; first_name?:string|null; last_name?:string|null;

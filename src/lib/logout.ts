@@ -21,6 +21,7 @@
 
 import { createBrowserClient } from "@/lib/supabase/client";
 import { expireOfflineSessionSignal } from "@/lib/offline/session-signal";
+import { clearReauthToken } from "@/lib/passcode";
 
 // Best-effort: expire any sb-* cookies that were written without httpOnly.
 function expireBrowserAuthCookies(): void {
@@ -41,8 +42,11 @@ function expireBrowserAuthCookies(): void {
 async function clearLocalSessionData(): Promise<void> {
   // Intentionally keep the cached user context (mediflow_user_context), the
   // Dexie offline caches and the pending write queues so offline passcode
-  // re-entry can resume uninterrupted. Clear only the offline-session signal.
+  // re-entry can resume uninterrupted. Clear the offline-session signal and the
+  // stored reauth refresh token — the latter is a live credential and must not
+  // survive an explicit logout.
   expireOfflineSessionSignal();
+  clearReauthToken();
   try {
     window.localStorage.removeItem("mediflow_last_sync");
   } catch {

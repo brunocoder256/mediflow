@@ -14,13 +14,27 @@
 
 const SESSION_LOCAL_KEY = "mediflow_offline_session";
 export const OFFLINE_SESSION_COOKIE = "mediflow_offline_session";
-const COOKIE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — long offline windows
+// Offline access is a shift-length grant: re-enter the passcode daily rather
+// than staying unlocked for a month (stolen/loaned device risk).
+const COOKIE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+
+interface OfflineGrant {
+  exp: number;
+  granted_at: string;
+  nonce: string;
+}
 
 /** Marks this device as passcode-authorized for offline use (survives page loads). */
-export function authorizeOfflineSessionSignal(): void {
+export function authorizeOfflineSessionSignal(ttlMs: number = COOKIE_TTL_MS): void {
   try {
-    window.localStorage.setItem(SESSION_LOCAL_KEY, new Date().toISOString());
-    const expires = new Date(Date.now() + COOKIE_TTL_MS).toUTCString();
+    const exp = Date.now() + ttlMs;
+    const grant: OfflineGrant = {
+      exp,
+      granted_at: new Date().toISOString(),
+      nonce: crypto.randomUUID(),
+    };
+    window.localStorage.setItem(SESSION_LOCAL_KEY, JSON.stringify(grant));
+    const expires = new Date(exp).toUTCString();
     document.cookie = `${OFFLINE_SESSION_COOKIE}=1; Path=/; Expires=${expires}; SameSite=Lax`;
   } catch {
     /* ignore */
@@ -29,7 +43,16 @@ export function authorizeOfflineSessionSignal(): void {
 
 export function isOfflineSessionAuthorized(): boolean {
   try {
-    return window.localStorage.getItem(SESSION_LOCAL_KEY) !== null;
+    const raw = window.localStorage.getItem(SESSION_LOCAL_KEY);
+    if (!raw) return false;
+    // Backwards-compat: legacy value was an ISO timestamp string.
+    if (!raw.startsWith("{")) return true;
+    const grant = JSON.parse(raw) as OfflineGrant;
+    if (!grant?.exp || Date.now() > grant.exp) {
+      expireOfflineSessionSignal();
+      return false;
+    }
+    return true;
   } catch {
     return false;
   }

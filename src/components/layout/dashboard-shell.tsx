@@ -9,6 +9,9 @@ import { PreferencesProvider } from "@/hooks/preferences-context";
 import { setupAutoSync } from "@/lib/offline/sync";
 import { invalidateCache } from "@/lib/offline/cached-fetch";
 import { tryRestoreServerSession } from "@/lib/offline/reauth";
+import { isOfflineSessionAuthorized } from "@/lib/offline/session-signal";
+import { createBrowserClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 
 export default function DashboardShell({
@@ -17,8 +20,36 @@ export default function DashboardShell({
   children: React.ReactNode;
 }) {
   const { toast } = useToast();
+  const router = useRouter();
   const [collapsed, setCollapsed] = React.useState(false);
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
+
+  // Offline auth guard. The service worker serves cached app-shell HTML when the
+  // server is unreachable, so Next middleware NEVER runs offline. Without this
+  // guard, opening the installed PWA offline would drop straight into the app
+  // shell + local Dexie cache with no passcode. Allow entry only when there is a
+  // valid offline passcode grant OR a still-valid cached Supabase session.
+  React.useEffect(() => {
+    let cancelled = false;
+    const verify = async () => {
+      if (typeof navigator === "undefined" || navigator.onLine) return;
+      if (isOfflineSessionAuthorized()) return;
+      try {
+        const supabase = createBrowserClient();
+        const { data } = await supabase.auth.getSession();
+        if (data.session) return;
+      } catch {
+        /* offline: session refresh unavailable */
+      }
+      if (!cancelled) router.replace("/auth/login");
+    };
+    void verify();
+    window.addEventListener("offline", verify);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("offline", verify);
+    };
+  }, [router]);
 
   // Global offline-sync: when the device regains connectivity (or every 15s),
   // flush any queued offline writes (products, sales, purchases, customers, ...).

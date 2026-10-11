@@ -66,8 +66,11 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   const isNavigate = req.mode === "navigate";
 
+  // Never intercept /api/health - used for online status probes
+  if (url.pathname === "/api/health") return;
+
   // GET /api/* read endpoints: network-first with Cache API fallback.
-  if (url.pathname.startsWith("/api/") && !url.pathname.startsWith("/api/health")) {
+  if (url.pathname.startsWith("/api/")) {
     event.respondWith(
       fetch(req)
         .then((res) => {
@@ -116,6 +119,24 @@ self.addEventListener("fetch", (event) => {
           return res;
         })
         .catch(() => offlineResponse());
+    })
+  );
+});
+
+// Background Sync: when connectivity returns, wake any open client and ask it
+// to flush the Dexie write queue. If no client is open we open the app shell so
+// the queued writes have a chance to sync.
+self.addEventListener("sync", (event) => {
+  if (event.tag !== "mediflow-sync") return;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (clients) {
+      if (clients && clients.length) {
+        clients.forEach(function (client) {
+          client.postMessage({ type: "mediflow:flush" });
+        });
+        return;
+      }
+      if (self.clients.openWindow) return self.clients.openWindow("/dashboard");
     })
   );
 });

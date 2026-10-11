@@ -10,6 +10,9 @@ import { Plus, Eye, Check, Loader2, ClipboardList } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { cachedFetch } from "@/lib/offline/cached-fetch";
+import { queueStockCountCreate, queueStockCountAction } from "@/lib/offline/sync";
+import { useOnlineStatus } from "@/hooks/use-online-status";
 
 export default function StockCountsPage(){
   const [loading,setLoading]=React.useState(true);
@@ -18,25 +21,39 @@ export default function StockCountsPage(){
   const [form,setForm]=React.useState({branch_id:"b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22", name:"", scope_type:"ALL"});
   const [view,setView]=React.useState<any>(null);
   const [viewLoading,setViewLoading]=React.useState(false);
+  const { isOnline }=useOnlineStatus();
   const fetchData=React.useCallback(async()=>{
     setLoading(true);
-    const r=await fetch("/api/stock-counts");
-    const j=await r.json();
-    setData(j.data ?? []);
+    try{
+      const j=await cachedFetch<any>("/api/stock-counts");
+      setData(j.data ?? []);
+    }catch{ /* offline without cache */ }
     setLoading(false);
   },[]);
   React.useEffect(()=>{ fetchData(); },[fetchData]);
   const create=async()=>{
+    if(!isOnline){
+      await queueStockCountCreate(form);
+      alert("Offline — stock count queued. It will sync when online.");
+      setShow(false); fetchData(); return;
+    }
     const r=await fetch("/api/stock-counts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(form)});
     const j=await r.json();
     if(!r.ok) alert(j.error); else { setShow(false); fetchData(); }
   };
+  const approve=async(id:string)=>{
+    if(!isOnline){
+      await queueStockCountAction(id,"approve");
+      alert("Offline — approval queued. It will sync when online.");
+      return;
+    }
+    await fetch("/api/stock-counts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"approve", id})});
+    fetchData();
+  };
   const openView=async(id:string)=>{
     setViewLoading(true); setView(null);
     try{
-      const r=await fetch(`/api/stock-counts?id=${encodeURIComponent(id)}`);
-      const j=await r.json();
-      if(!r.ok){ alert(j.error); return; }
+      const j=await cachedFetch<any>(`/api/stock-counts?id=${encodeURIComponent(id)}`);
       setView(j);
     }catch{ alert("Failed to load count details"); }
     setViewLoading(false);
@@ -55,7 +72,7 @@ export default function StockCountsPage(){
         : data.length===0 ? <EmptyState icon={ClipboardList} title="No counts" description="Create a count to reconcile physical stock."/>
         : <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Branch</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Variance</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
           {data.map((c:any)=>(
-            <TableRow key={c.id}><TableCell>{c.name}</TableCell><TableCell className="font-mono text-xs">{c.branch_id.slice(0,8)}</TableCell><TableCell>{badge(c.status)}</TableCell><TableCell className="text-right">{c.variance_total ?? 0}</TableCell><TableCell className="text-right space-x-1"><Button variant="ghost" size="icon" title="Approve" onClick={()=>fetch(`/api/stock-counts`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"approve", id:c.id})}).then(()=>fetchData())}><Check className="h-4 w-4"/></Button><Button variant="ghost" size="icon" title="View details" onClick={()=>openView(c.id)}><Eye className="h-4 w-4"/></Button></TableCell></TableRow>
+            <TableRow key={c.id}><TableCell>{c.name}</TableCell><TableCell className="font-mono text-xs">{c.branch_id.slice(0,8)}</TableCell><TableCell>{badge(c.status)}</TableCell><TableCell className="text-right">{c.variance_total ?? 0}</TableCell><TableCell className="text-right space-x-1"><Button variant="ghost" size="icon" title="Approve" onClick={()=>approve(c.id)}><Check className="h-4 w-4"/></Button><Button variant="ghost" size="icon" title="View details" onClick={()=>openView(c.id)}><Eye className="h-4 w-4"/></Button></TableCell></TableRow>
           ))}
         </TableBody></Table>}
       </CardContent></Card>

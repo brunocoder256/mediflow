@@ -1,6 +1,46 @@
 import { NextResponse } from 'next/server';
 import { sanitizeError } from '@/lib/security';
-import { getSB } from '@/lib/services/supabase';
+import { getSB, getOrgId } from '@/lib/services/supabase';
+
+// Replay an offline inventory adjustment queued as table_name:"stock_movements".
+// Idempotent via operation_id (stored as reference_id) so a retry can't apply
+// the same adjustment twice.
+export async function POST(req: Request){
+  try{
+    const body = await req.json();
+    const batch_id = body.batch_id as string;
+    const quantity = Number(body.quantity ?? 0);
+    const reason = (body.reason as string) || null;
+    const operation_id = (body.operation_id ?? body._operationId) as string | undefined;
+    if(!batch_id || !quantity) return NextResponse.json({ error: 'batch_id and quantity required' },{status:400});
+    const sb:any = await getSB();
+    const orgId = await getOrgId();
+    if(operation_id){
+      const { data: existing } = await sb.from('stock_movements').select('id').eq('reference_type','ADJUSTMENT').eq('reference_id', operation_id).eq('organization_id', orgId).maybeSingle();
+      if(existing) return NextResponse.json({ ok:true, id: existing.id, deduped:true });
+    }
+    const { data: batch, error: bErr } = await sb.from('product_batches').select('*').eq('id', batch_id).eq('organization_id', orgId).single();
+    if(bErr || !batch) return NextResponse.json({ error: 'Batch not found' },{status:404});
+    const newQty = Number(batch.quantity_available ?? 0) + quantity;
+    if(newQty < 0) return NextResponse.json({ error: 'Result would be negative stock' },{status:400});
+    const { error: uErr } = await sb.from('product_batches').update({ quantity_available: newQty, updated_at: new Date().toISOString() }).eq('id', batch_id);
+    if(uErr) throw new Error(uErr.message);
+    const { data: mov, error: mErr } = await sb.from('stock_movements').insert({
+      organization_id: orgId,
+      branch_id: batch.branch_id,
+      product_id: batch.product_id,
+      batch_id: batch.id,
+      movement_type: quantity > 0 ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT',
+      quantity,
+      reference_type: 'ADJUSTMENT',
+      reference_id: operation_id ?? null,
+      unit_cost: batch.purchase_price ?? batch.cost_price ?? null,
+      notes: reason,
+    }).select('id').single();
+    if(mErr) throw new Error(mErr.message);
+    return NextResponse.json({ ok:true, id: mov?.id, quantity_available: newQty },{status:201});
+  }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:400}); }
+}
 
 export async function GET(req: Request){
   try{

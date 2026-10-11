@@ -255,6 +255,14 @@ class MediFlowDB extends Dexie {
   cachedCashMovements!: EntityTable<CachedCashMovement, "id">;
   cachedProducts!: EntityTable<CachedProduct, "id">;
   cachedDisposals!: EntityTable<CachedDisposal, "id">;
+  cachedTransfers!: EntityTable<CachedTransfer, "id">;
+  cachedStockCounts!: EntityTable<CachedStockCount, "id">;
+  cachedSupplierPayments!: EntityTable<CachedSupplierPayment, "id">;
+  cachedPayments!: EntityTable<CachedPayment, "id">;
+  cachedSettings!: EntityTable<CachedSettings, "id">;
+  cachedBranches!: EntityTable<CachedBranch, "id">;
+  cachedUsers!: EntityTable<CachedUser, "id">;
+  cachedRoles!: EntityTable<CachedRole, "id">;
 
   constructor() {
     super("MediFlowDB");
@@ -389,9 +397,123 @@ class MediFlowDB extends Dexie {
     }).upgrade(async (tx) => {
       // v9 disposals offline
     });
+
+    this.version(10).stores({
+      products: null,
+      batches: null,
+      cart: null,
+      pendingSales: null,
+      syncQueue: "id, operation_id, status, table_name, created_at",
+      cachedPurchases: "id, branch_id, supplier_id, status, sync_status",
+      cachedSuppliers: "id, name, supplier_code, status, sync_status",
+      cachedReturns: "id, branch_id, return_type, status, sync_status",
+      cachedExpenses: "id, branch_id, expense_number, approval_status, payment_status, sync_status",
+      cachedCustomers: "id, customer_code, name, phone, email, branch_id, sync_status",
+      dataCache: "id, url, cached_at",
+      cachedCashRegisters: "id, branch_id, sync_status",
+      cachedCashSessions: "id, register_id, branch_id, status, sync_status, operation_id",
+      cachedCashMovements: "id, session_id, branch_id, type, direction, sync_status, operation_id",
+      cachedProducts: "id, name, sku, barcode, is_active, sync_status",
+      cachedDisposals: "id, branch_id, product_id, type, status, sync_status, server_id, operation_id",
+      cachedTransfers: "id, branch_id, source_branch_id, destination_branch_id, status, sync_status, operation_id",
+      cachedStockCounts: "id, branch_id, status, sync_status, operation_id",
+      cachedSupplierPayments: "id, supplier_id, purchase_order_id, branch_id, sync_status, operation_id",
+      cachedPayments: "id, customer_id, branch_id, sync_status, operation_id",
+      cachedSettings: "id, organization_id, updated_at",
+      cachedBranches: "id, organization_id, is_active",
+      cachedUsers: "id, organization_id, branch_id",
+      cachedRoles: "id, organization_id",
+    }).upgrade(async (tx) => {
+      // v10 cleanup + add indexes
+    });
   }
 }
 
 export const db = new MediFlowDB();
 
-export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier, CachedReturn, CachedExpense, CachedCustomer, DataCacheEntry, CachedCashRegister, CachedCashSession, CachedCashMovement, CachedProduct, CachedDisposal };
+// Whenever a new write is queued, ask the service worker to schedule a
+// Background Sync so the queue flushes even if the tab is later closed.
+if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+  db.syncQueue.hook("creating", () => {
+    void import("./background-sync")
+      .then((m) => m.requestBackgroundSync())
+      .catch(() => {});
+  });
+}
+
+
+interface CachedTransfer {
+  id: string;
+  branch_id: string;
+  source_branch_id?: string | null;
+  destination_branch_id?: string | null;
+  status: string;
+  sync_status: "synced" | "pending" | "failed" | "pending_sync";
+  operation_id?: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string;
+}
+
+interface CachedStockCount {
+  id: string;
+  branch_id: string;
+  status: string;
+  sync_status: "synced" | "pending" | "failed" | "pending_sync";
+  operation_id?: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string;
+}
+
+interface CachedSupplierPayment {
+  id: string;
+  supplier_id: string;
+  purchase_order_id?: string | null;
+  branch_id: string;
+  sync_status: string;
+  operation_id?: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+interface CachedPayment {
+  id: string;
+  customer_id: string;
+  branch_id: string;
+  sync_status: string;
+  operation_id?: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+interface CachedSettings {
+  id: string;
+  organization_id: string;
+  updated_at: string;
+  payload: Record<string, unknown>;
+}
+
+interface CachedBranch {
+  id: string;
+  organization_id: string;
+  is_active?: boolean;
+  payload: Record<string, unknown>;
+  sync_status?: string;
+}
+
+interface CachedUser {
+  id: string;
+  organization_id: string;
+  branch_id?: string | null;
+  payload: Record<string, unknown>;
+  sync_status?: string;
+}
+
+interface CachedRole {
+  id: string;
+  organization_id: string;
+  payload: Record<string, unknown>;
+}
+
+export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier, CachedReturn, CachedExpense, CachedCustomer, DataCacheEntry, CachedCashRegister, CachedCashSession, CachedCashMovement, CachedProduct, CachedDisposal, CachedTransfer, CachedStockCount, CachedSupplierPayment, CachedPayment, CachedSettings, CachedBranch, CachedUser, CachedRole };

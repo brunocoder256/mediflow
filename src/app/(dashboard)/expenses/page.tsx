@@ -16,8 +16,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatCard } from "@/components/ui/stat-card";
 import { Search, Plus, DollarSign, Eye, Edit, Trash2, Download, Filter, Wifi, WifiOff, RefreshCw, Receipt, Building2, Users, Calendar, CreditCard, FileText, History, Undo2, Copy, Printer, Paperclip, AlertTriangle, TrendingUp } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
-import { queueExpenseCreate, getExpensePendingCount } from "@/lib/offline/sync";
+import { queueExpenseCreate, queueExpenseAction, queueExpenseUpdate, queueExpenseDelete, getExpensePendingCount } from "@/lib/offline/sync";
 import { usePendingExpenses, useMediflowSynced } from "@/lib/offline/pending-overlay";
+import { cachedFetch } from "@/lib/offline/cached-fetch";
 
 type Expense = { id:string; expense_number?:string; expense_date:string; category:string; category_id?:string; supplier_id?:string; description:string; amount:number; tax_amount?:number; total_amount?:number; payment_method:string; payment_status:string; approval_status:string; posting_status:string; branch_id:string; reference_number?:string; notes?:string; created_by?:string; suppliers?:{name:string}; branches?:{name:string}; expense_categories?:{name:string; code:string} };
 
@@ -88,11 +89,11 @@ export default function ExpensesPage(){
     params.set("page", String(page));
     params.set("perPage", String(perPage));
     const [ex, catRes, supRes, setRes, kpiRes]=await Promise.all([
-      fetch(`/api/expenses?${params.toString()}`).then(r=>r.json()).catch(()=>({data:[], count:0})),
-      fetch(`/api/expenses?categories=1`).then(r=>r.json()).catch(()=>[]),
-      fetch(`/api/suppliers`).then(r=>r.json()).catch(()=>[]),
-      fetch(`/api/settings`).then(r=>r.json()).catch(()=>({branches:[]})),
-      fetch(`/api/expenses?kpi=1${branchFilter!=="all"?`&branch_id=${branchFilter}`:""}`).then(r=>r.json()).catch(()=>null),
+      cachedFetch(`/api/expenses?${params.toString()}`).then((j:any)=>j).catch(()=>({data:[], count:0})),
+      cachedFetch(`/api/expenses?categories=1`).then((j:any)=>j).catch(()=>[]),
+      cachedFetch(`/api/suppliers`).then((j:any)=>j).catch(()=>[]),
+      cachedFetch(`/api/settings`).then((j:any)=>j).catch(()=>({branches:[]})),
+      cachedFetch(`/api/expenses?kpi=1${branchFilter!=="all"?`&branch_id=${branchFilter}`:""}`).then((j:any)=>j).catch(()=>null),
     ]);
     const list = ex.data ?? [];
     setData(list);
@@ -107,7 +108,7 @@ export default function ExpensesPage(){
     setBranches(br);
     // cash accounts: registers + fallback
     try{
-      const r = await fetch(`/api/cash?registers=1${branchFilter!=="all"?`&branch_id=${branchFilter}`:""}`).then(x=>x.json()).catch(()=>[]);
+      const r = await cachedFetch<any>(`/api/cash?registers=1${branchFilter!=="all"?`&branch_id=${branchFilter}`:""}`);
       setCashAccounts(Array.isArray(r)?r: r.data ?? []);
     }catch{}
     if(!form.branch_id && br[0]) setForm(f=>({...f, branch_id: br[0].id}));
@@ -171,15 +172,21 @@ export default function ExpensesPage(){
     setShowDetail(p);
     setDetailTab("overview");
     if((p as any).pendingSync){ setDetailData({ ...(p as any) }); return; }
-    const r=await fetch(`/api/expenses?id=${p.id}`);
-    const j=await r.json();
-    setDetailData(j);
+    try{
+      const j=await cachedFetch<any>(`/api/expenses?id=${p.id}`);
+      setDetailData(j);
+    }catch{ setDetailData(p); }
   };
   const handleAction=async(id:string, action:string, extra?:any)=>{
     if(action==='approve' && !confirm("Approve this expense?")) return;
     if(action==='pay' && !confirm("Mark as Paid? This will create cash movement & post to ledger.")) return;
     if(action==='cancel' && !confirm("Cancel this expense?")) return;
     const body:any={id, action, ...extra};
+    if(!isOnline){
+      await queueExpenseAction(id, action, extra);
+      alert(`${action} queued offline — will sync when back online.`);
+      fetchAll(); if(showDetail) openDetail(showDetail); setShowReject(null); setShowReverse(null); return;
+    }
     const r=await fetch("/api/expenses",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
     const j=await r.json();
     if(!r.ok) alert(j.error); else { fetchAll(); if(showDetail) openDetail(showDetail); setShowReject(null); setShowReverse(null); }
@@ -189,12 +196,18 @@ export default function ExpensesPage(){
     const payload:any={...editForm};
     if(payload.amount) payload.amount=Number(payload.amount);
     if(payload.tax_amount) payload.tax_amount=Number(payload.tax_amount);
+    if(!isOnline){
+      await queueExpenseUpdate(showEdit.id, payload);
+      alert("Edit queued offline — will sync when back online.");
+      setShowEdit(null); fetchAll(); if(showDetail) openDetail(showDetail); return;
+    }
     const r=await fetch(`/api/expenses?id=${showEdit.id}`,{method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
     const j=await r.json();
     if(!r.ok) alert(j.error); else { setShowEdit(null); fetchAll(); if(showDetail) openDetail(showDetail); }
   };
   const handleDuplicate=async(id:string)=>{
     if(!confirm("Duplicate this expense as new DRAFT?")) return;
+    if(!isOnline) return alert("Duplicating needs a connection — retry when online.");
     const r=await fetch("/api/expenses",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({duplicate_id:id})});
     const j=await r.json();
     if(!r.ok) alert(j.error); else { alert(`Duplicated as ${j.expense_number ?? j.id}`); fetchAll(); }
@@ -202,6 +215,7 @@ export default function ExpensesPage(){
   const handleAttach=async()=>{
     if(!showDetail) return;
     if(!attachForm.file_name || !attachForm.file_url) return alert("File name and URL required");
+    if(!isOnline) return alert("Attachments need a connection — please retry when online.");
     const r=await fetch("/api/expenses",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({expense_id: showDetail.id, file_name: attachForm.file_name, file_url: attachForm.file_url, document_type: attachForm.document_type})});
     const j=await r.json();
     if(!r.ok) alert(j.error); else { setAttachForm({file_name:"", file_url:"", document_type:"RECEIPT"}); openDetail(showDetail); }
@@ -493,7 +507,8 @@ export default function ExpensesPage(){
                         <Table><TableHeader><TableRow><TableHead>File</TableHead><TableHead>Type</TableHead><TableHead>Link</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
                           {(detailData.attachments ?? []).map((a:any)=><TableRow key={a.id}><TableCell className="text-xs">{a.file_name}</TableCell><TableCell><Badge variant="outline">{a.document_type}</Badge></TableCell><TableCell><a href={a.file_url} target="_blank" rel="noreferrer" className="underline text-xs">View</a></TableCell><TableCell className="text-right"><Button size="sm" variant="ghost" onClick={async()=>{
                             if(!confirm("Remove attachment? Not allowed if posted.")) return;
-                            const r=await fetch(`/api/expenses?attachment_id=${a.id}`,{method:"DELETE", headers:{"Content-Type":"application/json"}, body:JSON.stringify({attachment_id:a.id})});
+                            if(!isOnline) return alert("Attachments need a connection — retry when online.");
+                const r=await fetch(`/api/expenses?attachment_id=${a.id}`,{method:"DELETE", headers:{"Content-Type":"application/json"}, body:JSON.stringify({attachment_id:a.id})});
                             const j=await r.json(); if(!r.ok) alert(j.error); else openDetail(detailData);
                           }}><Trash2 className="h-4 w-4"/></Button></TableCell></TableRow>)}
                         </TableBody></Table>

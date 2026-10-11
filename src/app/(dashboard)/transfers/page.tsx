@@ -14,6 +14,9 @@ import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Plus, ArrowRight, Check, Truck, Package, X, Search, Send, Ban } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { cachedFetch } from "@/lib/offline/cached-fetch";
+import { queueTransferCreate, queueTransferStatus } from "@/lib/offline/sync";
+import { useOnlineStatus } from "@/hooks/use-online-status";
 
 type Branch = { id: string; name: string; code: string; is_active?: boolean };
 type Capabilities = { canManage: boolean; branchIds: string[] };
@@ -31,6 +34,7 @@ const STATUS_BADGE: Record<string, string> = {
 export default function TransfersPage(){
   const { toast } = useToast();
   const { currentBranchId } = useBranch();
+  const { isOnline }=useOnlineStatus();
   const [loading,setLoading]=React.useState(true);
   const [data,setData]=React.useState<any[]>([]);
   const [status,setStatus]=React.useState("all");
@@ -44,21 +48,25 @@ export default function TransfersPage(){
     if(status!=="all") params.set("status", status.toUpperCase());
     if(currentBranchId) params.set("branch_id", currentBranchId);
     try{
-      const res=await fetch(`/api/transfers?${params.toString()}`);
-      const j=await res.json();
+      const j=await cachedFetch<any>(`/api/transfers?${params.toString()}`);
       setData(Array.isArray(j)?j:[]);
     }catch{ setData([]); }
     setLoading(false);
   },[status,currentBranchId]);
 
   React.useEffect(()=>{
-    fetch("/api/branches").then(r=>r.ok?r.json():[]).then((j:any)=>setAllBranches(Array.isArray(j)?j:[])).catch(()=>{});
-    fetch("/api/transfers?capabilities=1").then(r=>r.ok?r.json():null).then((j:any)=>{ if(j) setCaps({ canManage: !!j.canManage, branchIds: Array.isArray(j.branchIds)?j.branchIds:[] }); }).catch(()=>{});
+    cachedFetch<any>("/api/branches").then((j:any)=>setAllBranches(Array.isArray(j)?j:[])).catch(()=>{});
+    cachedFetch<any>("/api/transfers?capabilities=1").then((j:any)=>{ if(j) setCaps({ canManage: !!j?.canManage, branchIds: Array.isArray(j?.branchIds)?j.branchIds:[] }); }).catch(()=>{});
   },[]);
 
   React.useEffect(()=>{ fetchData(); },[fetchData]);
 
   const runAction=async(id:string, action:string, successMsg:string)=>{
+    if(!isOnline){
+      await queueTransferStatus(id, action as any);
+      toast({title:`${successMsg} queued offline`, description:"Will sync when back online."});
+      return true;
+    }
     const r=await fetch("/api/transfers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,id})});
     const j=await r.json();
     if(!r.ok){ toast({title:"Action failed", description: j.error, variant:"error"}); return false; }
@@ -144,6 +152,7 @@ function NewTransferDialog(props:{
 }){
   const { open,onOpenChange,branches,defaultSource,onSaved } = props;
   const { toast } = useToast();
+  const { isOnline }=useOnlineStatus();
   const [src,setSrc]=React.useState(defaultSource);
   const [dst,setDst]=React.useState("");
   const [notes,setNotes]=React.useState("");
@@ -161,8 +170,7 @@ function NewTransferDialog(props:{
     if(!q.trim() || !src) return;
     setSearching(true);
     try{
-      const r=await fetch(`/api/products?search=${encodeURIComponent(q)}&pos=1&branch_id=${src}`);
-      const j=await r.json();
+      const j=await cachedFetch<any>(`/api/products?search=${encodeURIComponent(q)}&pos=1&branch_id=${src}`);
       setResults(Array.isArray(j)?j:[]);
     }catch{ setResults([]); }
     setSearching(false);
@@ -180,6 +188,16 @@ function NewTransferDialog(props:{
     if(!src || !dst){ toast({title:"Select source and destination branches", variant:"error"}); return; }
     if(!items.length){ toast({title:"Add at least one item", variant:"error"}); return; }
     setSaving(true);
+    if(!isOnline){
+      await queueTransferCreate({
+        source_branch_id: src, destination_branch_id: dst, notes: notes||undefined,
+        items: items.map(i=>({product_id:i.product_id, quantity:i.quantity, unit_cost:i.unit_cost}))
+      });
+      setSaving(false);
+      toast({title:"Transfer draft queued offline", description:"It will sync when back online."});
+      onSaved(true);
+      return;
+    }
     const r=await fetch("/api/transfers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       source_branch_id: src, destination_branch_id: dst, notes: notes||undefined,
       items: items.map(i=>({product_id:i.product_id, quantity:i.quantity, unit_cost:i.unit_cost}))
