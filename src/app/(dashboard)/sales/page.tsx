@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatCard } from "@/components/ui/stat-card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useOnlineStatus } from "@/hooks/use-online-status";
+import { queueSaleVoid } from "@/lib/offline/sync";
 import { usePendingSales, useMediflowSynced } from "@/lib/offline/pending-overlay";
 import { cachedFetch } from "@/lib/offline/cached-fetch";
 import { readUserContext, writeUserContext } from "@/lib/offline/user-context";
@@ -186,6 +187,12 @@ export default function SalesPage(){
   const voidSale=async(id:string)=>{
     if(!confirm("Void this sale? This creates a SALE_RETURN movement (+qty back to batch) and audit log. Irreversible.")) return;
     const reason=prompt("Reason for void") ?? "User void";
+    if(!isOnline){
+      await queueSaleVoid(id, reason);
+      alert("Void queued offline — stock restoration + audit will apply once online (idempotent).");
+      setDetail(null); fetchData();
+      return;
+    }
     const r=await fetch(`/api/sales`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"void", sale_id:id, reason})});
     const j=await r.json();
     if(!r.ok) alert(j.error);

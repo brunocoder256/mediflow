@@ -846,9 +846,10 @@ export async function processSyncQueue(): Promise<{
           }
         }
       } else if (entry.table_name === "returns") {
-        const payload:any=entry.payload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const rType=payload._returnType ?? "SALES"; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId; delete clean._returnType;
+        const payload:any=entry.payload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const rType=payload._returnType ?? (payload as any)._type === "PURCHASE" ? "PURCHASE" : "SALES"; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId; delete clean._returnType; delete clean._type;
         if (entry.operation === "update") {
-          response = await fetch("/api/returns",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(clean) });
+          const isPurchase = rType === "PURCHASE" || clean.return_id === undefined;
+          response = await fetch(isPurchase ? "/api/purchase-returns" : "/api/returns",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, operation_id: op }) });
         } else if(rType==="PURCHASE"){
           response = await fetch("/api/purchase-returns",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, operation_id: op }) });
         } else {

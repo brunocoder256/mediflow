@@ -15,7 +15,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useOnlineStatus } from "@/hooks/use-online-status";
-import { queueSupplierCreate, queueSupplierUpdate, queueSupplierPayment, getSupplierPendingCount } from "@/lib/offline/sync";
+import { queueSupplierCreate, queueSupplierUpdate, queueSupplierPayment, queueSupplierDelete, getSupplierPendingCount } from "@/lib/offline/sync";
 import { usePendingSuppliers } from "@/lib/offline/pending-overlay";
 import { cachedFetch, invalidateCache } from "@/lib/offline/cached-fetch";
 import { Search, Plus, Eye, Edit, Building2, Phone, Mail, MapPin, CreditCard, Package, Truck, Undo2, FileText, History, TrendingUp, Layers, DollarSign, Clock, AlertTriangle, CheckCircle, XCircle, Wifi, WifiOff, RefreshCw, Download, Trash2, ShieldCheck, Users, FileArchive, MessageSquare, ScanLine, Upload, FileSpreadsheet, Printer, Bell } from "lucide-react";
@@ -265,6 +265,11 @@ const [sRes, bRes, pRes]=await Promise.all([
   };
   const handleDelete=async(s:Supplier)=>{
     if(!confirm(`Delete ${s.name}? Only allowed if no purchases/payments/history. Otherwise use Inactive.`)) return;
+    if(!isOnline){
+      await queueSupplierDelete(s.id);
+      alert("Delete queued offline — server will re-check constraints when back online.");
+      fetchData(); return;
+    }
     const r=await fetch(`/api/suppliers?id=${s.id}`,{method:"DELETE"});
     const j=await r.json();
     if(!r.ok) alert(j.error); else fetchData();

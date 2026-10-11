@@ -17,10 +17,10 @@ import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatCard } from "@/components/ui/stat-card";
 import { useOnlineStatus } from "@/hooks/use-online-status";
-import { queueReturnCreate, getReturnsPendingCount } from "@/lib/offline/sync";
+import { queueReturnCreate, queueReturnAction, getReturnsPendingCount } from "@/lib/offline/sync";
 import { db } from "@/lib/offline/db";
 import { usePendingReturns, useMediflowSynced } from "@/lib/offline/pending-overlay";
-import { invalidateCache } from "@/lib/offline/cached-fetch";
+import { cachedFetch, invalidateCache } from "@/lib/offline/cached-fetch";
 
 // A return changes stock and revenue — drop cached snapshots so Inventory /
 // Dashboard re-fetch fresh data instead of silently serving the stale one.
@@ -116,11 +116,11 @@ export default function ReturnsPage(){
       if(dateTo) params.set("date_to", dateTo);
       params.set("page", String(page)); params.set("perPage", String(perPage));
       const [salesRes, purchRes, bRes, prodRes, kpiRes]=await Promise.all([
-        fetch(`/api/returns?${params.toString()}`).then(r=>r.json()).catch(()=>({data:[]})),
-        fetch(`/api/purchase-returns?${params.toString()}`).then(r=>r.json()).catch(()=>({data:[]})),
-        fetch("/api/settings").then(r=>r.json()).catch(()=>({branches:[]})),
-        fetch("/api/products?perPage=200").then(r=>r.json()).catch(()=>({data:[]})),
-        fetch(`/api/returns?kpi=1${branchFilter!=='all'?`&branch_id=${branchFilter}`:""}`).then(r=>r.json()).catch(()=>null),
+        cachedFetch<any>(`/api/returns?${params.toString()}`).catch(()=>({data:[]})),
+        cachedFetch<any>(`/api/purchase-returns?${params.toString()}`).catch(()=>({data:[]})),
+        cachedFetch<any>("/api/settings").catch(()=>({branches:[]})),
+        cachedFetch<any>("/api/products?perPage=200").catch(()=>({data:[]})),
+        cachedFetch<any>(`/api/returns?kpi=1${branchFilter!=='all'?`&branch_id=${branchFilter}`:""}`).catch(()=>null),
       ]);
       let salesList = (Array.isArray(salesRes?.data) ? salesRes.data : Array.isArray(salesRes) ? salesRes : []) as any[];
       salesList = salesList.filter(Boolean).map((r:any)=>({...r, _type:'SALES' as const, _orig: r?.sale_id ?? null, _counterparty: r?.sales?.customers?.name ?? r?.customer_id ?? "Walk-in"}));
@@ -186,9 +186,9 @@ export default function ReturnsPage(){
     if(row.pendingSync){ setDetailData({ ...row }); return; }
     try{
       if(row._type==='SALES'){
-        const r=await fetch(`/api/returns?id=${row.id}`); const j=await r.json(); if(r.ok) setDetailData({ ...j, _type:'SALES' });
+        const j:any=await cachedFetch<any>(`/api/returns?id=${row.id}`); if(j && !j.error) setDetailData({ ...j, _type:'SALES' });
       } else {
-        const r=await fetch(`/api/purchase-returns?id=${row.id}`); const j=await r.json(); if(r.ok) setDetailData({ ...j, _type:'PURCHASE' });
+        const j:any=await cachedFetch<any>(`/api/purchase-returns?id=${row.id}`); if(j && !j.error) setDetailData({ ...j, _type:'PURCHASE' });
       }
     }catch{}
   };
@@ -199,10 +199,10 @@ export default function ReturnsPage(){
     const j=await r.json();
     if(j.error || !j.id) {
       // try sale_number search
-      const s2=await fetch(`/api/sales?search=${encodeURIComponent(saleId.trim())}`).then(x=>x.json()).catch(()=>null);
+      const s2=await cachedFetch<any>(`/api/sales?search=${encodeURIComponent(saleId.trim())}`).catch(()=>null);
       const cand = s2?.data?.[0] ?? s2?.[0];
-      if(cand){ const d=await fetch(`/api/sales?id=${cand.id}`).then(x=>x.json()); if(d.id) { setSaleDetail(d); return; } }
-      return alert(j.error || "Sale not found");
+      if(cand){ const d=await cachedFetch<any>(`/api/sales?id=${cand.id}`).catch(()=>null); if(d?.id) { setSaleDetail(d); return; } }
+      return alert(j.error || "Sale not found — offline sale search needs a cached snapshot.");
     }
     setSaleDetail(j);
     // reset qty maps
@@ -214,12 +214,12 @@ export default function ReturnsPage(){
     let j:any=null;
     try{ const r=await fetch(`/api/purchases?id=${poId.trim()}`); j=await r.json(); if(j?.id) { setPoDetail(j); return; } }catch{}
     // search
-    const s2=await fetch(`/api/purchases?search=${encodeURIComponent(poId.trim())}&perPage=5`).then(x=>x.json()).catch(()=>null);
+    const s2=await cachedFetch<any>(`/api/purchases?search=${encodeURIComponent(poId.trim())}&perPage=5`).catch(()=>null);
     const cand=s2?.data?.[0] ?? s2?.[0];
     if(cand){
-      const d=await fetch(`/api/purchases?id=${cand.id}`).then(x=>x.json());
+      const d=await cachedFetch<any>(`/api/purchases?id=${cand.id}`).catch(()=>null);
       if(d?.id) setPoDetail(d);
-      else alert("Purchase not found");
+      else alert("Purchase not found — offline PO lookup needs a cached snapshot.");
     } else alert("Purchase/GRN not found");
   };
 
@@ -309,6 +309,12 @@ export default function ReturnsPage(){
         url="/api/purchase-returns"; body={ action, return_id: row.id, id: row.id };
         if(action==='approve') body={ action:'approve', return_id: row.id };
         else if(action==='complete') body={ action:'complete', return_id: row.id };
+      }
+      if(!isOnline){
+        await queueReturnAction(row.id, action, { _type: row._type });
+        alert(`${action} queued offline — will sync when back online.`);
+        invalidateAfterReturn(); fetchAll(); if(showDetail?.id===row.id) openDetail(row);
+        setSubmitting(false); return;
       }
       const r=await fetch(url,{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
       const j=await r.json();
@@ -576,6 +582,11 @@ export default function ReturnsPage(){
                             const amt=Number((document.getElementById('refund-amt') as HTMLInputElement)?.value);
                             const method=(document.getElementById('refund-method') as HTMLSelectElement)?.value ?? 'CASH';
                             if(!amt) return alert("Amount");
+                            if(!isOnline){
+                              await queueReturnAction(detailData.id, "refund", { return_id: detailData.id, sale_id: detailData.sale_id, branch_id: detailData.branch_id, amount: amt, payment_method: method });
+                              alert("Refund queued offline — will sync when back online.");
+                              invalidateAfterReturn(); openDetail(showDetail); return;
+                            }
                             const r=await fetch("/api/returns",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:'refund', return_id: detailData.id, sale_id: detailData.sale_id, branch_id: detailData.branch_id, amount: amt, payment_method: method, operation_id: crypto.randomUUID()})});
                             const j=await r.json(); if(!r.ok) alert(j.error); else { alert("Refund pending"); invalidateAfterReturn(); openDetail(showDetail); }
                           }}>Create Refund</Button></div>
