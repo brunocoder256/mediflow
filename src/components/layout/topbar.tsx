@@ -19,6 +19,7 @@ import { HelpMenu } from "./help-menu";
 import { HelpAssistantButton } from "./help-assistant-button";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { useBranch } from "@/hooks/branch-context";
+import { useRegion } from "@/hooks/region-context";
 import {
   Menu,
   User,
@@ -45,6 +46,7 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
   });
   const { isOnline, wasOffline } = useOnlineStatus();
   const { branches, currentBranchId, defaultBranchId, setCurrentBranch } = useBranch();
+  const { flag, country, countryCode } = useRegion();
 
   const currentBranch = branches.find((b) => b.id === currentBranchId) ?? null;
 
@@ -90,6 +92,22 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        {/* Country / Region Flag — reflects the organization's selected country */}
+        {flag && (
+          <div
+            className="hidden sm:flex items-center gap-1.5 h-9 px-2.5 rounded-md border bg-card"
+            title={country ? `Operating country: ${country}` : "Operating country"}
+            aria-label={country ? `Operating country: ${country}` : "Operating country"}
+          >
+            <span className="text-base leading-none" aria-hidden>
+              {flag}
+            </span>
+            <span className="text-xs font-medium text-muted-foreground">
+              {countryCode}
+            </span>
+          </div>
+        )}
+
         {/* Branch Selector — only authorized branches */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

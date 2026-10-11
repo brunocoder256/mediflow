@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { sanitizeError } from '@/lib/security';
 import { getSB } from '@/lib/services/supabase';
 import { hasPermission } from '@/lib/auth';
+import { normalizeCountryCode } from '@/lib/regions';
 
 async function getActor(sb: any) {
   const {
@@ -53,9 +54,11 @@ export async function PATCH(req: Request) {
     const orgId = actor.profile.organization_id;
 
     if (body.organization) {
-      const allowed = ['name', 'registration_number', 'phone', 'email', 'address', 'currency', 'timezone'];
+      const allowed = ['name', 'registration_number', 'phone', 'email', 'address', 'currency', 'timezone', 'country'];
       const upd: any = {};
       for (const k of allowed) if (body.organization[k] !== undefined) upd[k] = body.organization[k];
+      // Store only a validated ISO 3166-1 alpha-2 code (or null to clear).
+      if ('country' in upd) upd.country = normalizeCountryCode(upd.country);
       if (Object.keys(upd).length) {
         upd.updated_at = new Date().toISOString();
         await sb.from('organizations').update(upd).eq('id', orgId);

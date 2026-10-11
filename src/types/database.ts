@@ -104,6 +104,7 @@ export interface Organization {
   logo_url: string | null;
   currency: string;
   timezone: string | null;
+  country: string | null;
   status: string;
   plan: string;
   plan_tier: string;

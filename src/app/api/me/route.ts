@@ -29,6 +29,18 @@ export async function GET() {
       ? await sb.from('branches').select('id, name, code').in('id', branchIds)
       : { data: [] };
 
+    // Organization operating region (used for regional display such as the
+    // country flag in the topbar). Null when the user has no organization.
+    let countryCode: string | null = null;
+    if (profile.organization_id) {
+      const { data: org } = await sb
+        .from('organizations')
+        .select('country')
+        .eq('id', profile.organization_id)
+        .maybeSingle();
+      countryCode = (org as any)?.country ?? null;
+    }
+
     return NextResponse.json({
       ...profile,
       email: profile.email || user.email,
@@ -37,6 +49,7 @@ export async function GET() {
       permissions: [...permissions],
       branch_ids: branchIds,
       branches: branches ?? [],
+      country_code: countryCode,
     });
   } catch (e: any) {
     console.error('[me] error:', e?.message);

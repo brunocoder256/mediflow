@@ -12,6 +12,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Building2, MapPin, Receipt, Save, Plus, Pencil, Trash2, Power, ChevronDown, ChevronUp, Settings2, KeyRound, ShieldCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCallback, useEffect, useState } from "react";
+import { COUNTRIES, flagEmoji, getCountry } from "@/lib/regions";
+import { useRegion } from "@/hooks/region-context";
 import {
   hasPasscode,
   setPasscode,
@@ -26,6 +28,7 @@ export default function SettingsPage(){
   const [saving,setSaving]=useState(false);
   const [canManageBranches,setCanManageBranches]=useState(false);
   const { toast }=useToast();
+  const { refresh: refreshRegion }=useRegion();
 
   // Offline passcode management
   const [passcodeConfigured,setPasscodeConfigured]=useState(false);
@@ -99,7 +102,8 @@ export default function SettingsPage(){
     setSaving(true);
     const r=await fetch("/api/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({organization: data.organization})});
     const j=await r.json();
-    if(!r.ok) toast({title:"Save failed", description: j.error, variant:"error"}); else toast({title:"Saved"});
+    if(!r.ok) toast({title:"Save failed", description: j.error, variant:"error"});
+    else { toast({title:"Saved"}); void refreshRegion(); }
     setSaving(false);
   };
   const saveOrgSettings=async()=>{
@@ -166,6 +170,18 @@ export default function SettingsPage(){
 
   const branches:Branch[] = Array.isArray(data?.branches) ? data.branches : [];
 
+  const selectedRegion = getCountry(data?.organization?.country);
+  const canApplySuggestions = Boolean(
+    selectedRegion &&
+    ((data?.organization?.currency && data.organization.currency !== selectedRegion.currency) ||
+      (data?.organization?.timezone && data.organization.timezone !== selectedRegion.timezone))
+  );
+  const applySuggestions = () => {
+    if(!selectedRegion) return;
+    setData((d:any)=>({...d, organization:{...d.organization, currency:selectedRegion.currency, timezone:selectedRegion.timezone}}));
+    toast({title:"Suggested defaults applied", description:"Review and save to persist."});
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader icon={Settings2} title="Settings" description="Organization, branches, tax, receipt — RLS isolated, audited"/>
@@ -182,6 +198,29 @@ export default function SettingsPage(){
             <div className="space-y-2"><label className="text-sm font-medium">Phone</label><Input value={data?.organization?.phone ?? ""} onChange={e=>setData((d:any)=>({...d, organization:{...d.organization, phone:e.target.value}}))}/></div>
           </div>
           <div className="space-y-2"><label className="text-sm font-medium">Address</label><Input value={data?.organization?.address ?? ""} onChange={e=>setData((d:any)=>({...d, organization:{...d.organization, address:e.target.value}}))}/></div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Country / Region</label>
+            <Select
+              value={data?.organization?.country ?? ""}
+              onChange={e=>setData((d:any)=>({...d, organization:{...d.organization, country:e.target.value}}))}
+            >
+              <option value="">Not set</option>
+              {COUNTRIES.map(c=>(
+                <option key={c.code} value={c.code}>{flagEmoji(c.code)} {c.name}</option>
+              ))}
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Shown as a flag in the topbar. Selecting a country never changes your operating currency or financial records automatically.
+            </p>
+            {selectedRegion && canApplySuggestions && (
+              <p className="text-xs text-muted-foreground">
+                Suggested for {selectedRegion.name}: {selectedRegion.currency} · {selectedRegion.timezone}.{" "}
+                <button type="button" className="text-primary underline" onClick={applySuggestions}>
+                  Apply suggested defaults
+                </button>
+              </p>
+            )}
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2"><label className="text-sm font-medium">Currency</label><Input value={data?.organization?.currency ?? "UGX"} onChange={e=>setData((d:any)=>({...d, organization:{...d.organization, currency:e.target.value}}))}/></div>
             <div className="space-y-2"><label className="text-sm font-medium">Timezone</label><Input value={data?.organization?.timezone ?? "Africa/Kampala"} onChange={e=>setData((d:any)=>({...d, organization:{...d.organization, timezone:e.target.value}}))}/></div>
