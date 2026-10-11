@@ -3,14 +3,15 @@
 import { getOne, insertOne, updateOne, createAuditLog, getSB, getOrgId, getProfileId } from './supabase';
 
 export async function getSalesList(params: {
-    branch_id?: string; page?: number; perPage?: number; status?: string;
+    branch_id?: string; page?: number; perPage?: number; status?: string; handover_status?: string;
 }) {
     const sb = await getSB();
-    const { branch_id, page = 1, perPage = 20, status } = params;
+    const { branch_id, page = 1, perPage = 20, status, handover_status } = params;
     // sale_items included so offline (cached) searches can match product name/SKU/barcode
-    let query = sb.from('sales').select('*, customers(name, phone), profiles!sales_cashier_id_fkey(full_name), sale_items(product_id, batch_id, products(name,sku,barcode))', { count: 'exact' });
+    let query = sb.from('sales').select('*, customers(name, phone), profiles!sales_cashier_id_fkey(full_name), salesperson:profiles!sales_salesperson_id_fkey(full_name), sale_items(product_id, batch_id, products(name,sku,barcode))', { count: 'exact' });
     if (branch_id && branch_id !== 'all') query = query.eq('branch_id', branch_id);
     if (status && status !== 'all') query = query.eq('status', status);
+    if (handover_status && handover_status !== 'all') query = query.eq('handover_status', handover_status);
     query = query.order('sold_at', { ascending: false });
     const from = (page - 1) * perPage;
     const { data, error, count } = await query.range(from, from + perPage - 1);
@@ -21,7 +22,7 @@ export async function getSalesList(params: {
 export async function getSaleById(id: string) {
     const sb = await getSB();
     const { data, error } = await sb.from('sales')
-        .select(`*, sale_items(*, products(name,sku,barcode), product_batches!sale_items_batch_id_fkey(batch_number, expiry_date)), payments(*), customers(name, phone, email), profiles!sales_cashier_id_fkey(full_name)`)
+        .select(`*, sale_items(*, products(name,sku,barcode), product_batches!sale_items_batch_id_fkey(batch_number, expiry_date)), payments(*), customers(name, phone, email), profiles!sales_cashier_id_fkey(full_name), salesperson:profiles!sales_salesperson_id_fkey(full_name)`)
         .eq('id', id)
         .single();
     if (error) {
@@ -88,7 +89,7 @@ export async function getSalesHistory(params: {
 }) {
     const sb = await getSB();
     const { branch_id, page = 1, perPage = 20, search, product_id, batch_id, category_id, amount_min, amount_max, ...filters } = params as any;
-    let query = sb.from('sales').select('*, customers(name, phone), profiles!sales_cashier_id_fkey(full_name), sale_items(product_id, batch_id, products(name,sku,barcode))', { count: 'exact' });
+    let query = sb.from('sales').select('*, customers(name, phone), profiles!sales_cashier_id_fkey(full_name), salesperson:profiles!sales_salesperson_id_fkey(full_name), sale_items(product_id, batch_id, products(name,sku,barcode))', { count: 'exact' });
     // exact filters
     Object.entries(filters).forEach(([key, value]) => {
         if (value && value!=='all') query = query.eq(key as any, value);
@@ -215,4 +216,86 @@ async function increaseBatchQty(batchId: string, quantity: number) {
     if(!existing) return;
     await sb.from('product_batches')
         .update({ quantity_available: Number((existing as any).quantity_available) + quantity, updated_at: new Date().toISOString() }).eq('id', batchId);
+}
+
+function genOpId(): string {
+    const c: any = (globalThis as any).crypto;
+    if (c?.randomUUID) return c.randomUUID();
+    return `op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Workflow B — salesperson submits a bill. Creates a single persistent sale in
+ * AWAITING_PAYMENT state (no stock decrement) that the cashier later completes.
+ * The backend re-validates the org plan, workflow, permission, branch access and
+ * discounts; the browser-supplied total is never trusted.
+ */
+export async function submitBill(input: {
+    branch_id: string;
+    customer_id?: string;
+    items: Array<{ product_id: string; quantity: number; discount?: number; discount_type?: 'fixed'|'percent' }>;
+    operation_id?: string;
+    sold_at?: string;
+}) {
+    const sb = await getSB();
+    const op = input.operation_id ?? genOpId();
+    const { data, error } = await sb.rpc('submit_bill', {
+        p_branch_id: input.branch_id,
+        p_customer_id: input.customer_id ?? null,
+        p_items: JSON.parse(JSON.stringify(input.items)),
+        p_operation_id: op,
+        p_sold_at: input.sold_at ?? null,
+    });
+    if (error) throw new Error(error.message);
+    const res: any = data;
+    const { data: sale } = await sb.from('sales').select('*, customers(name, phone)').eq('id', res.sale_id).maybeSingle();
+    const { data: items } = await sb.from('sale_items').select('*, products(name,sku,barcode), product_batches!sale_items_batch_id_fkey(batch_number, expiry_date)').eq('sale_id', res.sale_id);
+    return { sale: sale ?? { id: res.sale_id, sale_number: res.sale_number, status: res.status, total: data.total }, items: data?.items ?? [], billTotal: data?.total, billSubtotal: data?.subtotal, duplicate: !!data?.duplicate };
+}
+
+/**
+ * Workflow B — cashier completes the original bill. Revalidates stock/expiry
+ * atomically, records exactly one payment set and completes the existing sale
+ * (a second sale is never created). Idempotent via payment_operation_id.
+ */
+export async function completeBillPayment(input: {
+    sale_id: string;
+    payments: Array<{ method: 'CASH'|'MOBILE_MONEY'|'CARD'|'BANK'|'OTHER'; amount: number; reference?: string; provider?: string }>;
+    payment_operation_id?: string;
+}) {
+    const sb = await getSB();
+    const op = input.payment_operation_id ?? genOpId();
+    const { data, error } = await sb.rpc('complete_bill_payment', {
+        p_sale_id: input.sale_id,
+        p_payments: JSON.parse(JSON.stringify(input.payments)),
+        p_payment_operation_id: op,
+    });
+    if (error) throw new Error(error.message);
+    const res: any = data;
+    let sale: any = null, items: any[] = [];
+    if (!res.duplicate) {
+        const { data: s } = await sb.from('sales').select('*').eq('id', input.sale_id).single();
+        const { data: its } = await sb.from('sale_items').select('*').eq('sale_id', input.sale_id);
+        sale = s; items = its ?? [];
+    } else {
+        const { data: s } = await sb.from('sales').select('*').eq('id', input.sale_id).maybeSingle();
+        sale = s;
+    }
+    return { sale, items, saleTotal: res.total ?? sale?.total, saleSubtotal: res.subtotal ?? sale?.subtotal, duplicate: !!res.duplicate };
+}
+
+/** Cancel a pending bill (only valid while AWAITING_PAYMENT; nothing is reserved). */
+export async function cancelBill(saleId: string, reason: string) {
+    const sb = await getSB();
+    const { data, error } = await sb.rpc('cancel_bill', { p_sale_id: saleId, p_reason: reason ?? 'Cancelled' });
+    if (error) throw new Error(error.message);
+    return data;
+}
+
+/** Three-stage workflow — confirm that the medicines were handed to the customer. */
+export async function confirmHandover(saleId: string) {
+    const sb = await getSB();
+    const { data, error } = await sb.rpc('confirm_handover', { p_sale_id: saleId });
+    if (error) throw new Error(error.message);
+    return data;
 }

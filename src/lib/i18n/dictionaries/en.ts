@@ -39,6 +39,7 @@ const en = {
   nav: {
     dashboard: "Dashboard",
     pos: "POS",
+    cashier: "Cashier",
     cash: "Cash",
     products: "Products",
     inventory: "Inventory",

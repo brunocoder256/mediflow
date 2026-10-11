@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { navItems } from "./sidebar-items";
 import { NAV_PERMISSION_MAP } from "@/lib/permissions-catalog";
+import { Banknote } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { MediFlowMark } from "@/components/brand/mediflow-logo";
 import { useT } from "@/hooks/preferences-context";
@@ -34,6 +35,7 @@ interface MobileNavProps {
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   "/dashboard": LayoutDashboard,
   "/pos": ShoppingCart,
+  "/cashier": Banknote,
   "/products": Package,
   "/inventory": Warehouse,
   "/purchases": Truck,

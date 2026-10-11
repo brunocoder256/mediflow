@@ -3,6 +3,7 @@ import { sanitizeError } from '@/lib/security';
 import { getSB } from '@/lib/services/supabase';
 import { hasPermission } from '@/lib/auth';
 import { normalizeCountryCode } from '@/lib/regions';
+import { isCheckoutWorkflow, planAllowsSeparateCheckout, DEFAULT_CHECKOUT_WORKFLOW } from '@/lib/checkout-workflow';
 
 async function getActor(sb: any) {
   const {
@@ -94,6 +95,31 @@ export async function PATCH(req: Request) {
     }
     if (body.organization_settings) {
       const s = body.organization_settings;
+      const forCheckout: any = {};
+      if (s.checkout_workflow !== undefined) {
+        // Only administrators may change the checkout workflow, and only the
+        // Pharmacy (pro) / Enterprise plans may enable a multi-person checkout.
+        // This prevents bypassing the setting through a direct API request.
+        if (!isCheckoutWorkflow(s.checkout_workflow)) {
+          return NextResponse.json({ error: 'Invalid checkout workflow' }, { status: 400 });
+        }
+        const isAdmin =
+          (await hasPermission(sb, actor.profile.id, orgId, 'settings.manage')) ||
+          (await hasPermission(sb, actor.profile.id, orgId, 'users.manage'));
+        if (!isAdmin) {
+          return NextResponse.json({ error: 'Only an organization administrator can change the checkout workflow' }, { status: 403 });
+        }
+        if (s.checkout_workflow !== DEFAULT_CHECKOUT_WORKFLOW) {
+          const { data: orgRow } = await sb.from('organizations').select('plan_tier').eq('id', orgId).single();
+          if (!planAllowsSeparateCheckout(orgRow?.plan_tier)) {
+            return NextResponse.json(
+              { error: 'Separate salesperson/cashier checkout is available on the Pharmacy and Enterprise plans only' },
+              { status: 403 },
+            );
+          }
+        }
+        forCheckout.checkout_workflow = s.checkout_workflow;
+      }
       const payload: any = {
         organization_id: orgId,
         receipt_header: s.receipt_header,
@@ -102,6 +128,7 @@ export async function PATCH(req: Request) {
         default_currency: s.default_currency,
         low_stock_threshold: s.low_stock_threshold,
         expiry_warning_days: s.expiry_warning_days,
+        ...forCheckout,
         updated_at: new Date().toISOString(),
       };
       // upsert

@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/ui/page-header";
-import { Building2, MapPin, Receipt, Save, Plus, Pencil, Trash2, Power, ChevronDown, ChevronUp, Settings2, KeyRound, ShieldCheck, Globe } from "lucide-react";
+import { Building2, MapPin, Receipt, Save, Plus, Pencil, Trash2, Power, ChevronDown, ChevronUp, Settings2, KeyRound, ShieldCheck, Globe, ShoppingCart, Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCallback, useEffect, useState } from "react";
 import { COUNTRIES, getCountry } from "@/lib/regions";
@@ -26,6 +26,7 @@ import {
 import { cachedFetch } from "@/lib/offline/cached-fetch";
 import { queueSettingsUpdate, queueBranchSave } from "@/lib/offline/sync";
 import { useOnlineStatus } from "@/hooks/use-online-status";
+import { CHECKOUT_WORKFLOWS, CHECKOUT_WORKFLOW_LABELS, normalizeCheckoutWorkflow, planAllowsSeparateCheckout, DEFAULT_CHECKOUT_WORKFLOW } from "@/lib/checkout-workflow";
 
 type Branch = { id: string; name: string; code: string; phone?: string | null; address?: string | null; is_active: boolean };
 
@@ -157,7 +158,28 @@ export default function SettingsPage(){
       }
       const r=await fetch("/api/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({organization_settings: data.organization_settings})});
       const j=await r.json();
-      if(!r.ok) toast({title:"Save failed", description: j.error, variant:"error"}); else toast({title:"Receipt & tax saved"});
+      if(!r.ok){ toast({title:"Save failed", description: j.error, variant:"error"}); } else toast({title:"Receipt & tax saved"});
+    }finally{ setSaving(false); }
+  };
+
+  const saveCheckoutWorkflow=async()=>{
+    const workflow=normalizeCheckoutWorkflow(data?.organization_settings?.checkout_workflow);
+    if(!planAllowsSeparateCheckout(data?.organization?.plan_tier) && workflow!==DEFAULT_CHECKOUT_WORKFLOW){
+      toast({title:"Plan upgrade required", description:"Separate salesperson/cashier checkout is available on the Pharmacy and Enterprise plans only.", variant:"error"});
+      return;
+    }
+    setSaving(true);
+    const body={organization_settings:{ checkout_workflow: workflow }};
+    try{
+      if(!isOnline){
+        await queueSettingsUpdate(body as any);
+        toast({title:"Checkout workflow saved offline", description:"Will sync when back online."});
+        return;
+      }
+      const r=await fetch("/api/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      const j=await r.json();
+      if(!r.ok){ toast({title:"Save failed", description: j.error, variant:"error"}); return; }
+      toast({title:"Checkout workflow saved"});
     }finally{ setSaving(false); }
   };
 
@@ -379,6 +401,35 @@ export default function SettingsPage(){
           </div>
           <p className="text-xs text-muted-foreground">Fiscal/EFRIS information pending integration — placeholders only.</p>
           <Button onClick={saveOrgSettings} disabled={saving}><Save className="h-4 w-4 mr-2"/>Save Receipt & Tax</Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10"><ShoppingCart className="h-5 w-5 text-primary"/></div><div><CardTitle>Sales &amp; POS</CardTitle><CardDescription>How sales are completed at the point of sale</CardDescription></div></div></CardHeader>
+        <CardContent className="space-y-4">
+          {planAllowsSeparateCheckout(data?.organization?.plan_tier) ? (
+            <>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Checkout workflow</label>
+                <Select
+                  value={normalizeCheckoutWorkflow(data?.organization_settings?.checkout_workflow)}
+                  onChange={e=>setData((d:any)=>({...d, organization_settings:{...d.organization_settings, checkout_workflow:e.target.value}}))}
+                >
+                  {CHECKOUT_WORKFLOWS.map(w=>(<option key={w} value={w}>{CHECKOUT_WORKFLOW_LABELS[w].name}</option>))}
+                </Select>
+                <p className="text-xs text-muted-foreground">{CHECKOUT_WORKFLOW_LABELS[normalizeCheckoutWorkflow(data?.organization_settings?.checkout_workflow)].description}</p>
+              </div>
+              <Button onClick={saveCheckoutWorkflow} disabled={saving}><Save className="h-4 w-4 mr-2"/>Save Checkout Workflow</Button>
+            </>
+          ) : (
+            <div className="flex items-start gap-2 rounded-md border bg-muted/40 p-3 text-sm">
+              <Lock className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground"/>
+              <div>
+                <p className="font-medium">Single-Person POS (current plan)</p>
+                <p className="text-muted-foreground">Separate salesperson &amp; cashier checkout — with payment hand-off and optional handover confirmation — is available on the Pharmacy and Enterprise plans.</p>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

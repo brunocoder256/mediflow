@@ -18,12 +18,18 @@ type ReceiptProps = {
   payment_reference?: string;
   currency?: string;
   footer?: string;
+  salesperson?: string;
+  awaiting_payment?: boolean;
+  handover_status?: string | null;
 };
 
-export function Receipt({ organization, branch, receipt_number, sold_at, cashier, customer, items, subtotal, discount, tax, total, payment_method, payment_reference, currency='UGX', footer }: ReceiptProps) {
+export function Receipt({ organization, branch, receipt_number, sold_at, cashier, customer, items, subtotal, discount, tax, total, payment_method, payment_reference, currency='UGX', footer, salesperson, awaiting_payment, handover_status }: ReceiptProps) {
   const date = new Date(sold_at);
   return (
     <div id="receipt" className="bg-white text-black p-4 max-w-[80mm] mx-auto font-mono text-xs leading-tight print:shadow-none">
+      {awaiting_payment && (
+        <div className="text-center border border-black py-1 mb-2 font-bold">BILL — NOT A RECEIPT · AWAITING PAYMENT</div>
+      )}
       <div className="text-center border-b border-dashed pb-2 mb-2">
         <h2 className="font-bold text-sm uppercase">{organization.name}</h2>
         <p>{branch.name}</p>
@@ -32,13 +38,15 @@ export function Receipt({ organization, branch, receipt_number, sold_at, cashier
         {organization.registration_number && <p>TIN: {organization.registration_number}</p>}
       </div>
       <div className="flex justify-between text-[11px] mb-2">
-        <span>Receipt: {receipt_number}</span>
+        <span>{awaiting_payment ? 'Bill' : 'Receipt'}: {receipt_number}</span>
         <span>{date.toLocaleDateString()} {date.toLocaleTimeString()}</span>
       </div>
       <div className="text-[11px] mb-2">
         <p>Cashier: {cashier}</p>
+        {salesperson && <p>Salesperson: {salesperson}</p>}
         {customer && <p>Customer: {customer}</p>}
         <p>Payment: {payment_method}{payment_reference ? ` (${payment_reference})` : ''}</p>
+        {handover_status === 'PENDING' && <p className="font-bold">Handover: awaiting confirmation</p>}
       </div>
       <table className="w-full border-y border-dashed py-1 mb-2">
         <thead><tr className="text-left"><th>Item</th><th className="text-right">Qty</th><th className="text-right">Price</th><th className="text-right">Total</th></tr></thead>

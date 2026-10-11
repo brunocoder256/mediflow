@@ -17,6 +17,7 @@ import { applyOfflineSaleStockAdjustment, fefoDecrement, type OfflineSaleLine } 
 import { readUserContext, writeUserContext, getCachedCashierName } from "@/lib/offline/user-context";
 import { rankProducts, matchesProduct, type PosSearchable } from "@/lib/pos-search";
 import { usePendingCash } from "@/lib/offline/pending-overlay";
+import { isSeparateCheckout, requiresHandover } from "@/lib/checkout-workflow";
 
 type Product = {
   id: string;
@@ -178,6 +179,10 @@ export default function PosPage(){
   const pendingCash = usePendingCash();
   const pendingSessionOpen = pendingCash.sessions.some((s:any)=> s.branch_id===branchId);
   const hasOpenSession = !!cashSession || pendingSessionOpen;
+  // Workflow B: when the organization runs a separate salesperson/cashier checkout,
+  // this POS prepares and submits a bill instead of collecting payment.
+  const separateCheckout = isSeparateCheckout(orgSettings?.checkout_workflow, organization?.plan_tier);
+  const handoverRequired = requiresHandover(orgSettings?.checkout_workflow, organization?.plan_tier);
 
   const fetchProducts = React.useCallback(async (bId:string)=>{
     if(!bId) return;
@@ -690,6 +695,65 @@ export default function PosPage(){
     setBusy(false);
   };
 
+  // Workflow B — prepare a bill for the cashier. No stock is decremented and no
+  // second sale is created; the cashier completes the exact bill on the same
+  // `sales` row. Online-only by design (server-confirmed bills).
+  const submitBillToCashier=async()=>{
+    if(busy) return;
+    if(!cart.length || !branchId) return;
+    if(!isOnline){
+      alert("Submitting a bill requires an internet connection. Reconnect to send this bill to the cashier, or use Hold to keep the cart and complete it later.");
+      return;
+    }
+    setBusy(true);
+    const op=crypto.randomUUID();
+    let itemsForPayload: Array<{product_id:string; quantity:number; discount:number; discount_type:'fixed'|'percent'}>;
+    if(saleDiscount>0 && subtotal>0){
+      let remaining=saleDiscount;
+      itemsForPayload = cart.map((c, idx)=>{
+        const lineDiscFixed = c.discount_type==='percent' ? Math.round(c.quantity*c.unit_price*(c.discount/100)*100)/100 : c.discount;
+        const lineTotal = c.quantity*c.unit_price - lineDiscFixed;
+        const share = idx===cart.length-1 ? Math.round(remaining*100)/100 : Math.round((lineTotal/subtotal)*saleDiscount*100)/100;
+        remaining = Math.round((remaining - share)*100)/100;
+        return { product_id:c.product_id, quantity:c.quantity, discount: Math.round((lineDiscFixed + share)*100)/100, discount_type: 'fixed' as const };
+      });
+    } else {
+      itemsForPayload = cart.map(c=>({product_id:c.product_id, quantity:c.quantity, discount:c.discount, discount_type:c.discount_type ?? 'fixed'}));
+    }
+    try{
+      const r=await fetch("/api/sales",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        action:'submit_bill',
+        branch_id: branchId,
+        customer_id: selectedCustomer?.id || undefined,
+        items: itemsForPayload,
+        operation_id: op,
+        sold_at: new Date().toISOString(),
+      })});
+      const j=await r.json();
+      if(!r.ok){ alert(j.error ?? 'Submit failed'); setBusy(false); return; }
+      const localItems = cart.map((c:any)=>{
+        const lineDisc = c.discount_type==='percent' ? Math.round(c.quantity*c.unit_price*c.discount/100*100)/100 : c.discount;
+        return { product_id:c.product_id, name:c.name, quantity:c.quantity, qty:c.quantity, unit_price:c.unit_price, discount: lineDisc, tax:0, batch_id:null, subtotal: Math.round((c.quantity*c.unit_price - lineDisc)*100)/100 };
+      });
+      setReceiptData({
+        sale: { ...(j.sale ?? {}), sale_number: j.sale?.sale_number ?? j.sale_number, status: 'AWAITING_PAYMENT' },
+        items: (j.items && j.items.length) ? j.items : localItems,
+        total: j.billTotal ?? j.total ?? totalAfterSaleDisc,
+        subtotal: j.billSubtotal ?? j.subtotal ?? subtotal,
+        discount: saleDiscount,
+        branchId,
+        paymentMethod: 'Awaiting cashier',
+        change: 0,
+        customer: selectedCustomer?.name,
+        awaitingPayment: true,
+      });
+      setCart([]); setSaleDiscount(0); setSplitPayments([]); setSplitMode(false);
+      setShowPay(false); setShowMobilePay(false); setAmountReceived(""); setPaymentRef("");
+      await fetchProducts(branchId);
+    }catch(e:any){ alert(e.message); }
+    setBusy(false);
+  };
+
   const ProductCard=({product}:{product:Product})=>{
     const expInfo = product.batches?.[0] ? expiryLabel(product.batches.find(b=> Number(b.quantity_available)>0 && new Date(b.expiry_date)>new Date())?.expiry_date ?? '', expiryWarningDays) : null;
     const isExpired = product.expiry_status==='expired';
@@ -713,11 +777,13 @@ export default function PosPage(){
 
   if(receiptData){
     const pendingReceipt = !!receiptData.offlinePending;
+    const awaiting = !!receiptData.awaitingPayment;
     return (
       <div className="max-w-md mx-auto p-4 space-y-4">
         <div className="text-center py-2">
-          <p className={`text-sm font-semibold flex items-center justify-center gap-2 ${pendingReceipt ? "text-amber-600" : "text-green-600"}`}>{pendingReceipt ? <>✓ Sale queued offline</> : <>✓ Sale Completed</>}</p>
-          <p className="text-xs text-muted-foreground">Receipt #{receiptData.sale.sale_number}{pendingReceipt ? ` · will sync automatically` : ''}</p>
+          <p className={`text-sm font-semibold flex items-center justify-center gap-2 ${awaiting ? "text-blue-600" : pendingReceipt ? "text-amber-600" : "text-green-600"}`}>{awaiting ? <>✓ Bill submitted to cashier</> : pendingReceipt ? <>✓ Sale queued offline</> : <>✓ Sale Completed</>}</p>
+          <p className="text-xs text-muted-foreground">{awaiting ? 'Bill' : 'Receipt'} #{receiptData.sale.sale_number}{pendingReceipt ? ` · will sync automatically` : ''}</p>
+          {awaiting && <p className="text-xs text-blue-600 mt-1">Awaiting payment. The cashier will collect payment and complete this sale. Stock is deducted only at payment.</p>}
           {pendingReceipt && <p className="text-xs text-amber-600 mt-1">This receipt is a local preview. The sale will sync when you are back online — server re-validates stock and FEFO.</p>}
         </div>
         <Receipt
@@ -726,6 +792,8 @@ export default function PosPage(){
           receipt_number={receiptData.sale.sale_number}
           sold_at={receiptData.sale.sold_at ?? new Date().toISOString()}
           cashier={cashierName}
+          salesperson={awaiting ? cashierName : undefined}
+          awaiting_payment={awaiting || undefined}
           customer={receiptData.customer}
           items={receiptData.items.map((it:any)=>({ name: it.name ?? products.find(p=>p.id===it.product_id)?.name ?? it.product_id.slice(0,8), quantity: it.quantity ?? it.qty, unit_price: it.unit_price, discount: it.discount ?? 0, tax: it.tax ?? 0, subtotal: it.subtotal ?? Math.round(((it.quantity??it.qty))*it.unit_price - (it.discount??0)) }))}
           subtotal={receiptData.subtotal}
@@ -913,19 +981,28 @@ export default function PosPage(){
               <div className="flex justify-between font-bold text-base border-t pt-2"><span>TOTAL</span><span>{formatUGX(totalAfterSaleDisc)}</span></div>
               {paymentMethod==='CASH' && amountReceived && <div className="flex justify-between text-sm"><span>Change</span><span className="font-medium text-green-600">{formatUGX(change)}</span></div>}
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <Button variant={paymentMethod==='CASH'?"default":"outline"} size="sm" onClick={()=>setPaymentMethod('CASH')}><Banknote className="h-4 w-4 mr-1"/>Cash</Button>
-              <Button variant={paymentMethod==='MOBILE_MONEY'?"default":"outline"} size="sm" onClick={()=>setPaymentMethod('MOBILE_MONEY')}><Smartphone className="h-4 w-4 mr-1"/>Mobile</Button>
-              <Button variant={paymentMethod==='CARD'?"default":"outline"} size="sm" onClick={()=>setPaymentMethod('CARD')}><CreditCard className="h-4 w-4 mr-1"/>Card</Button>
-            </div>
-            {/* inline payment fields for desktop */}
-            {paymentMethod==='CASH' ? (
-              <Input placeholder="Amount received (UGX)" type="number" value={amountReceived} onChange={e=>setAmountReceived(e.target.value)} className="h-10" aria-label="Amount received"/>
+            {separateCheckout ? (
+              <div className="rounded border bg-muted/10 p-2 text-xs text-muted-foreground flex items-start gap-2">
+                <User className="h-4 w-4 mt-0.5 shrink-0"/>
+                <span>Separate checkout is enabled — this prepares a bill for the cashier to collect payment{handoverRequired ? ' and confirm handover' : ''}. No stock is deducted and no payment is taken here.</span>
+              </div>
             ) : (
-              <Input placeholder="Transaction reference" value={paymentRef} onChange={e=>setPaymentRef(e.target.value)} className="h-10" aria-label="Reference"/>
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  <Button variant={paymentMethod==='CASH'?"default":"outline"} size="sm" onClick={()=>setPaymentMethod('CASH')}><Banknote className="h-4 w-4 mr-1"/>Cash</Button>
+                  <Button variant={paymentMethod==='MOBILE_MONEY'?"default":"outline"} size="sm" onClick={()=>setPaymentMethod('MOBILE_MONEY')}><Smartphone className="h-4 w-4 mr-1"/>Mobile</Button>
+                  <Button variant={paymentMethod==='CARD'?"default":"outline"} size="sm" onClick={()=>setPaymentMethod('CARD')}><CreditCard className="h-4 w-4 mr-1"/>Card</Button>
+                </div>
+                {/* inline payment fields for desktop */}
+                {paymentMethod==='CASH' ? (
+                  <Input placeholder="Amount received (UGX)" type="number" value={amountReceived} onChange={e=>setAmountReceived(e.target.value)} className="h-10" aria-label="Amount received"/>
+                ) : (
+                  <Input placeholder="Transaction reference" value={paymentRef} onChange={e=>setPaymentRef(e.target.value)} className="h-10" aria-label="Reference"/>
+                )}
+              </>
             )}
 <div className="flex gap-2">
-                  <Button className="flex-1 h-12 text-base" size="lg" disabled={!cart.length || busy} onClick={openPay}>{busy?"Processing...":`Complete Sale — ${formatUGX(totalAfterSaleDisc)}`}</Button>
+                  <Button className="flex-1 h-12 text-base" size="lg" disabled={!cart.length || busy} onClick={separateCheckout ? submitBillToCashier : openPay}>{busy?"Processing...":(separateCheckout ? `Submit Bill — ${formatUGX(totalAfterSaleDisc)}` : `Complete Sale — ${formatUGX(totalAfterSaleDisc)}`)}</Button>
                 </div>
             <p className="text-xs text-muted-foreground text-center">Enter validates • Esc closes dialogs • FEFO auto • Server price authoritative</p>
           </div>
@@ -1008,20 +1085,26 @@ export default function PosPage(){
                   </div>
                   <div className="flex justify-between font-bold text-base border-t pt-1"><span>TOTAL</span><span>{formatUGX(totalAfterSaleDisc)}</span></div>
                 </div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  <Button variant={paymentMethod==='CASH'?"default":"outline"} size="sm" className="text-xs h-8" onClick={()=>setPaymentMethod('CASH')}><Banknote className="h-3.5 w-3.5 mr-1"/>Cash</Button>
-                  <Button variant={paymentMethod==='MOBILE_MONEY'?"default":"outline"} size="sm" className="text-xs h-8" onClick={()=>setPaymentMethod('MOBILE_MONEY')}><Smartphone className="h-3.5 w-3.5 mr-1"/>Mobile</Button>
-                  <Button variant={paymentMethod==='CARD'?"default":"outline"} size="sm" className="text-xs h-8" onClick={()=>setPaymentMethod('CARD')}><CreditCard className="h-3.5 w-3.5 mr-1"/>Card</Button>
-                </div>
-                {paymentMethod==='CASH' ? (
-                  <div className="space-y-1.5">
-                    <Input placeholder="Amount received" type="number" value={amountReceived} onChange={e=>setAmountReceived(e.target.value)} className="h-9"/>
-                    {amountReceived && <p className="text-xs flex justify-between"><span className="text-muted-foreground">Change</span><span className="font-bold text-green-600">{formatUGX(change)}</span></p>}
-                  </div>
+                {separateCheckout ? (
+                  <p className="text-xs text-muted-foreground rounded border bg-muted/10 p-2">Separate checkout — submits a bill for the cashier.</p>
                 ) : (
-                  <Input placeholder="Transaction reference" value={paymentRef} onChange={e=>setPaymentRef(e.target.value)} className="h-9"/>
+                  <>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <Button variant={paymentMethod==='CASH'?"default":"outline"} size="sm" className="text-xs h-8" onClick={()=>setPaymentMethod('CASH')}><Banknote className="h-3.5 w-3.5 mr-1"/>Cash</Button>
+                      <Button variant={paymentMethod==='MOBILE_MONEY'?"default":"outline"} size="sm" className="text-xs h-8" onClick={()=>setPaymentMethod('MOBILE_MONEY')}><Smartphone className="h-3.5 w-3.5 mr-1"/>Mobile</Button>
+                      <Button variant={paymentMethod==='CARD'?"default":"outline"} size="sm" className="text-xs h-8" onClick={()=>setPaymentMethod('CARD')}><CreditCard className="h-3.5 w-3.5 mr-1"/>Card</Button>
+                    </div>
+                    {paymentMethod==='CASH' ? (
+                      <div className="space-y-1.5">
+                        <Input placeholder="Amount received" type="number" value={amountReceived} onChange={e=>setAmountReceived(e.target.value)} className="h-9"/>
+                        {amountReceived && <p className="text-xs flex justify-between"><span className="text-muted-foreground">Change</span><span className="font-bold text-green-600">{formatUGX(change)}</span></p>}
+                      </div>
+                    ) : (
+                      <Input placeholder="Transaction reference" value={paymentRef} onChange={e=>setPaymentRef(e.target.value)} className="h-9"/>
+                    )}
+                  </>
                 )}
-                <Button className="w-full h-11 text-sm font-semibold" disabled={!canPay} onClick={()=>{ checkout(); }}>{busy?"Processing...":`Complete Sale — ${formatUGX(totalAfterSaleDisc)}`}</Button>
+                <Button className="w-full h-11 text-sm font-semibold" disabled={separateCheckout ? (!cart.length || busy) : !canPay} onClick={()=>{ separateCheckout ? submitBillToCashier() : checkout(); }}>{busy?"Processing...":(separateCheckout ? `Submit Bill — ${formatUGX(totalAfterSaleDisc)}` : `Complete Sale — ${formatUGX(totalAfterSaleDisc)}`)}</Button>
                 <div className="h-[env(safe-area-inset-bottom)]" />
               </div>
             )}

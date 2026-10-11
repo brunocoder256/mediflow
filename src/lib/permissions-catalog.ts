@@ -32,6 +32,9 @@ export const PERMISSION_CATALOG: Array<{ module: string; code: string; name: str
   { module: 'sales', code: 'sales.return', name: 'Process Returns', description: 'Sales returns' },
   { module: 'sales', code: 'sales.discount', name: 'Apply Discount', description: 'Apply discounts' },
   { module: 'sales', code: 'sales.price_override', name: 'Price Override', description: 'Override selling price' },
+  { module: 'sales', code: 'sales.submit_bill', name: 'Submit Bills', description: 'Prepare and submit a bill to the cashier (salesperson)' },
+  { module: 'sales', code: 'sales.handover', name: 'Confirm Handover', description: 'Confirm medicine handover in the three-stage workflow' },
+  { module: 'cashier', code: 'cashier.process_payment', name: 'Process Bill Payment', description: 'Collect and record payment for a pending bill (cashier)' },
   { module: 'expenses', code: 'expenses.view', name: 'View Expenses', description: 'View expenses' },
   { module: 'expenses', code: 'expenses.create', name: 'Create Expenses', description: 'Create expenses' },
   { module: 'expenses', code: 'expenses.approve', name: 'Approve Expenses', description: 'Approve expenses' },
@@ -64,6 +67,7 @@ export const PERMISSION_CATALOG: Array<{ module: string; code: string; name: str
 export const NAV_PERMISSION_MAP: Record<string, string | null> = {
   '/dashboard': 'dashboard.view',
   '/pos': 'sales.create',
+  '/cashier': 'cashier.process_payment',
   '/cash': 'sales.create',
   '/products': 'products.view',
   '/inventory': 'inventory.view',

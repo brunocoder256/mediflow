@@ -45,6 +45,12 @@ export const navItems: NavItem[] = [
     icon: Banknote,
   },
   {
+    title: "Cashier",
+    titleKey: "nav.cashier",
+    href: "/cashier",
+    icon: Banknote,
+  },
+  {
     title: "Products",
     titleKey: "nav.products",
     href: "/products",
