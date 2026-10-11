@@ -98,7 +98,7 @@ export default function CustomersPage(){
 
   // load branches
   React.useEffect(()=>{
-    fetch("/api/settings").then(r=>r.json()).then(j=>{ if(j.branches) setBranches(j.branches); }).catch(()=>{});
+    cachedFetch<any>("/api/settings").then(j=>{ if(j?.branches) setBranches(j.branches); }).catch(()=>{});
   },[]);
   React.useEffect(()=>{
     (async()=>{ try{ const c=await db.syncQueue.where("table_name").equals("customers").count(); setPendingCount(c);}catch{} })();
@@ -119,8 +119,8 @@ export default function CustomersPage(){
       if(dateTo) params.set("date_to", dateTo);
       params.set("page", String(page)); params.set("perPage", String(perPage));
       const [listRes,kpiRes]=await Promise.all([
-        fetch(`/api/customers?${params.toString()}`).then(r=>r.json()),
-        fetch(`/api/customers?kpi=1${branchFilter!=='all'?`&branch_id=${branchFilter}`:''}`).then(r=>r.json()).catch(()=>null),
+        cachedFetch<any>(`/api/customers?${params.toString()}`),
+        cachedFetch<any>(`/api/customers?kpi=1${branchFilter!=='all'?`&branch_id=${branchFilter}`:''}`).catch(()=>null),
       ]);
       if(listRes.data){ setData(listRes.data); setTotalCount(listRes.count ?? listRes.data.length); }
       else if(Array.isArray(listRes)){ setData(listRes); setTotalCount(listRes.length); }
@@ -133,8 +133,8 @@ export default function CustomersPage(){
 
   const fetchKpiOnly=React.useCallback(async()=>{
     try{
-      const r=await fetch(`/api/customers?kpi=1${branchFilter!=='all'?`&branch_id=${branchFilter}`:''}`);
-      const j=await r.json(); if(r.ok) setKpi(j);
+      const j=await cachedFetch<any>(`/api/customers?kpi=1${branchFilter!=='all'?`&branch_id=${branchFilter}`:''}`);
+      if(j && !j.error) setKpi(j);
     }catch{}
   },[branchFilter]);
 
@@ -143,12 +143,11 @@ export default function CustomersPage(){
     setProfileId(id); setProfileTab("overview"); setProfile(null); setStatementData(null);
     setProfileLoading(true);
     try{
-      const r=await fetch(`/api/customers/detail?id=${id}&tab=overview`);
-      const j=await r.json();
-      if(r.ok) setProfile(j);
+      const j=await cachedFetch<any>(`/api/customers/detail?id=${id}&tab=overview`);
+      if(j && !j.error) setProfile(j);
       else{
-        const r2=await fetch(`/api/customers/detail?id=${id}`);
-        const j2=await r2.json(); setProfile({customer:j2});
+        const j2=await cachedFetch<any>(`/api/customers/detail?id=${id}`);
+        setProfile({customer:j2});
       }
     }catch{ setProfile(null); }
     setProfileLoading(false);
@@ -157,8 +156,8 @@ export default function CustomersPage(){
     if(!profileId) return;
     setProfileLoading(true);
     try{
-      const r=await fetch(`/api/customers/detail?id=${profileId}&tab=overview`);
-      const j=await r.json(); if(r.ok) setProfile(j);
+      const j=await cachedFetch<any>(`/api/customers/detail?id=${profileId}&tab=overview`);
+      if(j && !j.error) setProfile(j);
     }catch{}
     setProfileLoading(false);
   };
@@ -168,13 +167,20 @@ export default function CustomersPage(){
     p.set("customer_id", profileId);
     if(statementFrom) p.set("from", statementFrom);
     if(statementTo) p.set("to", statementTo);
-    const r=await fetch(`/api/customers/statement?${p.toString()}`);
-    const j=await r.json(); if(r.ok) setStatementData(j);
+    try{
+      const j=await cachedFetch<any>(`/api/customers/statement?${p.toString()}`);
+      if(j && !j.error) setStatementData(j);
+    }catch{}
   };
 
   const handleDeactivate=async(id:string, current:boolean)=>{
     if(!confirm(current ? "Deactivate customer? Historical transactions remain intact — use INACTIVE not delete." : "Reactivate customer?")) return;
     const action=current?"deactivate":"reactivate";
+    if(!isOnline){
+      await queueCustomerAction(id, action);
+      alert(`${action} queued offline — will sync when back online.`);
+      fetchData(); if(profileId===id) openProfile(id); return;
+    }
     const r=await fetch("/api/customers",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id, action})});
     const j=await r.json(); if(!r.ok) return alert(j.error);
     fetchData(); if(profileId===id) openProfile(id);
@@ -182,23 +188,39 @@ export default function CustomersPage(){
   const handleBlock=async(id:string, isBlocked:boolean)=>{
     if(isBlocked){
       if(!confirm("Unblock customer (reactivate)?")) return;
+      if(!isOnline){
+        await queueCustomerAction(id, "reactivate");
+        alert("Reactivate queued offline — will sync when back online.");
+        fetchData(); if(profileId===id) openProfile(id); return;
+      }
       const r=await fetch("/api/customers",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id, action:"reactivate"})});
       if(!r.ok){ const j=await r.json(); alert(j.error); return; }
       fetchData(); if(profileId===id) openProfile(id); return;
     }
     const reason=prompt("Block reason (audited)") ?? "Blocked by manager";
+    if(!isOnline){
+      await queueCustomerAction(id, "block", {reason});
+      alert("Block queued offline — will sync when back online.");
+      fetchData(); if(profileId===id) openProfile(id); return;
+    }
     const r=await fetch("/api/customers",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id, action:"block", reason})});
     const j=await r.json(); if(!r.ok) return alert(j.error);
     fetchData(); if(profileId===id) openProfile(id);
   };
   const handleDeleteHard=async(id:string)=>{
     if(!confirm("Hard delete? Only allowed if customer has NO sales/payments/returns. Otherwise use Deactivate. Continue?")) return;
+    if(!isOnline){
+      await queueCustomerDelete(id);
+      alert("Delete queued offline — will sync server-side check when back online.");
+      fetchData(); setProfileId(null); return;
+    }
     const r=await fetch(`/api/customers?id=${id}`,{method:"DELETE"});
     const j=await r.json(); if(!r.ok) return alert(j.error);
     alert("Customer deleted"); fetchData(); setProfileId(null);
   };
 
   const validateAndPreviewDuplicates=async():Promise<boolean>=>{
+    if(!isOnline) return true; // dup prevention runs server-side on sync
     // check duplicates via API
     const params=new URLSearchParams();
     if(form.phone) params.set("phone", form.phone);
@@ -218,7 +240,7 @@ export default function CustomersPage(){
     if(!form.customer_type) return alert("Customer type required");
     setSaving(true);
     try{
-      if(!force){
+      if(!force && isOnline){
         const params=new URLSearchParams();
         if(form.phone) params.set("phone", form.phone);
         if(form.email) params.set("email", form.email);
@@ -252,6 +274,14 @@ export default function CustomersPage(){
         continue_anyway: force,
       };
       if(editing){
+        if(!isOnline){
+          await queueCustomerUpdate(editing.id, payload);
+          alert("OFFLINE — customer edit queued locally. Will sync when online.");
+          setShowAdd(false); setEditing(null); setDupWarn([]); setShowDupPrompt(false);
+          setForm({ display_name:"", company_name:"", first_name:"", last_name:"", customer_type:"INDIVIDUAL", phone:"", alternate_phone:"", email:"", address:"", city:"", branch_id:"", credit_limit:"0", tax_id:"", external_reference:"", notes:"", preferred_contact:"PHONE", sms_opt_in:false, email_opt_in:false, marketing_opt_in:false, contact_person:"" });
+          fetchData(); if(profileId===editing.id) openProfile(editing.id);
+          return;
+        }
         const r=await fetch("/api/customers",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id: editing.id, ...payload})});
         const j=await r.json(); if(!r.ok) throw new Error(j.error);
         setShowAdd(false); setEditing(null); setDupWarn([]); setShowDupPrompt(false);
@@ -283,6 +313,7 @@ export default function CustomersPage(){
   const handleMerge=async()=>{
     if(!profileId || !mergeTarget) return alert("Select master and duplicate. Enter duplicate ID or select from list.");
     if(!confirm(`Merge ${mergeTarget} INTO ${profileId}? Sales, payments, returns, loyalty, notes move to master. Duplicate will be deactivated and audited. Irreversible. Continue?`)) return;
+    if(!isOnline) return alert("Merge needs a connection — retry when online.");
     const r=await fetch("/api/customers/merge",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ masterId: profileId, duplicateId: mergeTarget })});
     const j=await r.json(); if(!r.ok) return alert(j.error);
     alert(`Merged — moved ${j.salesMoved} sales, ${j.returnsMoved} returns`);
@@ -291,6 +322,8 @@ export default function CustomersPage(){
 
   const handleAddNote=async()=>{
     if(!profileId || !noteContent.trim()) return;
+    if(!noteContent.trim()) return alert("Note content required");
+    if(!isOnline) return alert("Adding notes needs a connection — retry when online.");
     const r=await fetch("/api/customers/notes",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({customer_id: profileId, content: noteContent.trim()})});
     const j=await r.json(); if(!r.ok) return alert(j.error);
     setNoteContent(""); refreshProfile();
@@ -324,7 +357,7 @@ export default function CustomersPage(){
     if(statusFilter!=="all") params.set("status", statusFilter);
     if(branchFilter!=="all") params.set("branch_id", branchFilter);
     const r=await fetch(`/api/customers/export?${params.toString()}`);
-    const j=await r.json(); if(!r.ok) return alert(j.error);
+    const j=await r.json(); if(!r.ok) return alert(j.error || "Export failed");
     const rows=j.data as any[];
     const header=["Customer Code","Display Name","Name","Company","Type","Phone","Alternate Phone","Email","City","Branch","Status","Total Purchases","Outstanding","Last Purchase","Credit Limit"];
     const lines=rows.map((c:any)=>[c.customer_code??"", c.display_name??c.name??"", c.name??"", c.company_name??"", c.customer_type??"", c.phone??"", c.alternate_phone??"", c.email??"", c.city??"", branches.find(b=>b.id===c.branch_id)?.name??c.branch_id??"", c.status??(c.is_active?"ACTIVE":"INACTIVE"), c.total_purchases??0, c.outstanding_balance??0, c.last_purchase??"", c.credit_limit??0].map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(","));
@@ -644,7 +677,7 @@ export default function CustomersPage(){
                 <TabsContent value="sales" className="mt-4">
                   <Card><CardHeader><CardTitle className="text-sm">Sales — Existing Sales module (no duplication)</CardTitle><CardDescription>Click sale to open Sales detail page (single implementation)</CardDescription></CardHeader><CardContent>
                     <div className="space-y-3">
-                      <Button size="sm" variant="outline" onClick={async()=>{ const d=await fetch(`/api/customers/detail?id=${profile.customer.id}&tab=sales`).then(r=>r.json()); setProfile((p:any)=>({...p, sales: d})); }}>Refresh Sales</Button>
+                      <Button size="sm" variant="outline" onClick={async()=>{ const d=await cachedFetch<any>(`/api/customers/detail?id=${profile.customer.id}&tab=sales`); setProfile((p:any)=>({...p, sales: d})); }}>Refresh Sales</Button>
                       {(profile.sales?.data?.length??0)===0 ? <p className="text-sm text-muted-foreground py-8 text-center">No sales for this customer yet.</p>
                       : <Table><TableHeader><TableRow><TableHead>Sale #</TableHead><TableHead>Date</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Status</TableHead><TableHead>Branch</TableHead><TableHead>Cashier</TableHead></TableRow></TableHeader><TableBody>
                         {profile.sales.data.map((s:any)=><TableRow key={s.id} className="cursor-pointer hover:bg-muted/40" onClick={()=> window.location.href=`/sales?id=${s.id}`}><TableCell className="font-mono text-xs">{s.sale_number}</TableCell><TableCell className="text-xs">{new Date(s.sold_at).toLocaleDateString()}</TableCell><TableCell className="text-right font-mono text-xs">{formatUGX(Number(s.total))}</TableCell><TableCell><Badge>{s.status}</Badge></TableCell><TableCell className="text-xs">{branches.find(b=>b.id===s.branch_id)?.code ?? s.branch_id?.slice(0,6)}</TableCell><TableCell className="text-xs">{s.cashier_id?.slice(0,8) ?? "—"}</TableCell></TableRow>)}
@@ -713,6 +746,7 @@ export default function CustomersPage(){
                         const v=prompt("New credit limit (UGX)", String(profile.customer.credit_limit ?? 0));
                         if(v===null) return;
                         const n=Number(v); if(!Number.isFinite(n)||n<0) return alert("Invalid");
+                        if(!isOnline){ queueCustomerAction(profile.customer.id, "credit_limit", {credit_limit:n, reason:"Credit limit change"}).then(()=>{ refreshProfile(); fetchData(); }); return; }
                         fetch("/api/customers",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id: profile.customer.id, credit_limit: n, reason: "Credit limit change"})}).then(r=>r.json()).then(j=>{ if(j.error) alert(j.error); else { refreshProfile(); fetchData(); }});
                       }}><CreditCard className="h-4 w-4 mr-1"/>Change Limit (Audited)</Button>
                       <Button size="sm" variant="outline" onClick={()=>{ setProfileTab("statement"); loadStatement(); }}>View Statement</Button>

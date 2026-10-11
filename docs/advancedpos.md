@@ -322,3 +322,4 @@ When finished, report:
 - Any incomplete items or known risks.
 
 **Acceptance criterion:** A pharmacy can retain the existing one-person POS or enable a separate salesperson-and-cashier workflow, while both modes use the same reliable transaction, inventory, payment, receipt, audit, and reporting infrastructure wherever applicable.
+NOTE: THIS FUNTIONALITY SHOULD ONLY BE FOR A PHARMCY AND ENTERPRISE PLAN, NOT DRUG SHOP OR STARTER, only pharmcy and enterprise plan should access that multi-workflow setting of POS
