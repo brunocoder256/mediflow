@@ -16,6 +16,7 @@ import {
 import { ThemeToggle } from "./theme-toggle";
 import { NotificationsMenu } from "./notifications-menu";
 import { HelpMenu } from "./help-menu";
+import { HelpAssistantButton } from "./help-assistant-button";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { useBranch } from "@/hooks/branch-context";
 import {
@@ -142,6 +143,9 @@ export function Topbar({ onMenuClick, title, children }: TopbarProps) {
 
         {/* Notifications — real, live from the database */}
         <NotificationsMenu />
+
+        {/* Ask MediFlow IQ — context-aware help assistant */}
+        <HelpAssistantButton />
 
         {/* Help — in-app documentation & tutorials */}
         <HelpMenu />

@@ -21,6 +21,7 @@ import {
   ExternalLink,
   Lightbulb,
   BookOpen,
+  Sparkles,
 } from "lucide-react";
 import { HELP_SECTIONS, HELP_VIDEOS, type HelpSection } from "@/lib/help-content";
 
@@ -190,6 +191,25 @@ export function HelpMenu() {
                 <SectionCard section={s} />
               </div>
             ))}
+
+            {/* Entry point to the interactive Ask MediFlow IQ assistant */}
+            <div className="mt-4 flex flex-col items-center gap-2 rounded-lg border bg-primary/5 p-4 text-center">
+              <p className="text-sm font-medium">Can&apos;t find what you need?</p>
+              <p className="text-xs text-muted-foreground">
+                Ask a question and get step-by-step help for the module you are working in.
+              </p>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setOpen(false);
+                  const from = typeof window !== "undefined" ? window.location.pathname : "/dashboard";
+                  window.location.assign(`/help?from=${encodeURIComponent(from)}`);
+                }}
+              >
+                <Sparkles className="mr-1 h-4 w-4" />
+                Ask MediFlow IQ
+              </Button>
+            </div>
 
             <div className="mt-4 flex justify-center">
               <Button
