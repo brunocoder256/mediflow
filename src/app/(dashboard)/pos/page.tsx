@@ -1104,7 +1104,7 @@ export default function PosPage(){
                     )}
                   </>
                 )}
-                <Button className="w-full h-11 text-sm font-semibold" disabled={separateCheckout ? (!cart.length || busy) : !canPay} onClick={()=>{ separateCheckout ? submitBillToCashier() : checkout(); }}>{busy?"Processing...":(separateCheckout ? `Submit Bill — ${formatUGX(totalAfterSaleDisc)}` : `Complete Sale — ${formatUGX(totalAfterSaleDisc)}`)}</Button>
+                <Button className="w-full h-11 text-sm font-semibold" disabled={separateCheckout ? (!cart.length || busy) : !canPay} onClick={()=>{ if(separateCheckout){ submitBillToCashier(); } else { checkout(); } }}>{busy?"Processing...":(separateCheckout ? `Submit Bill — ${formatUGX(totalAfterSaleDisc)}` : `Complete Sale — ${formatUGX(totalAfterSaleDisc)}`)}</Button>
                 <div className="h-[env(safe-area-inset-bottom)]" />
               </div>
             )}
