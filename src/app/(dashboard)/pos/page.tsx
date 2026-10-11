@@ -282,6 +282,66 @@ export default function PosPage(){
     }
   },[branchId, fetchProducts]);
 
+  // Persist the cart to IndexedDB (debounced) so a reload / accidental navigation
+  // restores exactly what the cashier had. Keyed per branch.
+  const cartPersistTimer = React.useRef<number | null>(null);
+  React.useEffect(()=>{
+    if(!branchId) return;
+    if(cartPersistTimer.current) window.clearTimeout(cartPersistTimer.current);
+    cartPersistTimer.current = window.setTimeout(async()=>{
+      try{
+        const orgId = organization?.id ?? "unknown";
+        await db.cart.where("branch_id").equals(branchId).delete();
+        if(cart.length){
+          const rows = cart.map(c=>({
+            id:`pos-${branchId}-${c.product_id}`,
+            organization_id: orgId,
+            branch_id: branchId,
+            product_id: c.product_id,
+            batch_id: (c.batches as any)?.[0]?.id ?? null,
+            name: c.name,
+            unit_price: Number(c.unit_price),
+            quantity: Number(c.quantity),
+            added_at: new Date().toISOString(),
+            discount: Number(c.discount ?? 0),
+            discount_type: c.discount_type ?? 'fixed',
+            generic: c.generic ?? null,
+            batches: c.batches ?? undefined,
+          }));
+          await db.cart.bulkPut(rows as any);
+        }
+      }catch{}
+    }, 350);
+    return ()=>{ if(cartPersistTimer.current) window.clearTimeout(cartPersistTimer.current); };
+  },[cart, branchId, organization?.id]);
+
+  // Restore a previously persisted cart once per branch, only if the cashier has
+  // not already added lines this session (keeps live edits intact).
+  const hydratedBranch = React.useRef<string | null>(null);
+  React.useEffect(()=>{
+    if(!branchId || hydratedBranch.current===branchId) return;
+    hydratedBranch.current = branchId;
+    (async()=>{
+      try{
+        const rows:any[] = await db.cart.where("branch_id").equals(branchId).toArray();
+        if(!rows.length) return;
+        const restored = rows.map((r:any)=>({
+          product_id: r.product_id,
+          name: r.name,
+          quantity: Number(r.quantity)||1,
+          unit_price: Number(r.unit_price)||0,
+          discount: Number(r.discount ?? 0),
+          discount_type: r.discount_type ?? 'fixed',
+          generic: r.generic ?? null,
+          batches: r.batches ?? undefined,
+        }));
+        setCart(prev => prev.length ? prev : restored);
+        const c=await db.cart.where("branch_id").equals(branchId).delete();
+        void c;
+      }catch{}
+    })();
+  },[branchId]);
+
   // pending sync count polling + auto sync
   const [failedCount,setFailedCount]=React.useState(0);
   React.useEffect(()=>{
@@ -507,6 +567,7 @@ export default function PosPage(){
   };
 
   const checkout=async()=>{
+    if(busy) return;
     if(!cart.length || !branchId) return;
     setBusy(true);
     const op=crypto.randomUUID();
@@ -591,7 +652,41 @@ export default function PosPage(){
       // refresh products (stock)
       fetchProducts(branchId);
       const c=await db.syncQueue.where("status").equals("pending").count(); setPendingCount(c);
-    }catch(e:any){ alert(e.message + " — if offline, sale queued. Check Sync Center. Duplicate prevented via operation_id."); }
+    }catch(e:any){
+      // Network failure mid-transaction (e.g. went offline after mount): queue the
+      // sale as pending so nothing is lost. Server re-validates via operation_id.
+      const isNetErr = e instanceof TypeError || /failed to fetch|network error|load failed|fetch failed/i.test(String(e?.message ?? e));
+      if(isNetErr){
+        try{
+          await queuePosSale(payload as any, op);
+          await applyOfflineSaleStockAdjustment(payload.items, branchId);
+          setProducts(prev => applyOfflineProductDecrement(prev, payload.items, expiryWarningDays));
+          setPendingCount(await db.syncQueue.where("status").equals("pending").count());
+          const now=new Date().toISOString();
+          const localSale:any = {
+            id: `pending-${op}`,
+            sale_number: `PENDING-${op.slice(0,8).toUpperCase()}`,
+            sold_at: now,
+            status: "PENDING_SYNC",
+            total: totalAfterSaleDisc,
+            subtotal,
+            branch_id: branchId,
+            customer_id: selectedCustomer?.id ?? null,
+            operation_id: op,
+          };
+          const localItems = cart.map((c:any)=>{
+            const lineDisc = c.discount_type==='percent' ? Math.round(c.quantity*c.unit_price*c.discount/100*100)/100 : c.discount;
+            const lineTotal = Math.round((c.quantity*c.unit_price - lineDisc)*100)/100;
+            return { product_id:c.product_id, name:c.name, quantity:c.quantity, qty:c.quantity, unit_price:c.unit_price, discount: lineDisc, tax:0, batch_id:null, subtotal: lineTotal };
+          });
+          const paySummary = (splitMode && splitPayments.length) ? splitPayments.map(p=>`${p.method}:${formatUGX(Number(p.amount))}${p.reference?`(${p.reference})`:''}`).join(' + ') : paymentMethod;
+          setReceiptData({ sale: localSale, items: localItems, total: totalAfterSaleDisc, subtotal, discount: saleDiscount, branchId, paymentMethod: paySummary, change, customer: selectedCustomer?.name, offlinePending: true });
+          setCart([]); setSaleDiscount(0); setShowPay(false); setShowMobilePay(false); setAmountReceived(""); setPaymentRef(""); setSplitPayments([]); setSplitMode(false);
+        }catch(e2:any){ alert('Queue failed: '+e2.message); }
+      } else {
+        alert(e.message + " — if offline, sale queued. Check Sync Center. Duplicate prevented via operation_id.");
+      }
+    }
     setBusy(false);
   };
 
