@@ -37,6 +37,7 @@ export default function CashierPage(){
   const [splitMode,setSplitMode]=React.useState(false);
   const [splitPayments,setSplitPayments]=React.useState<Array<{id:string; method:PaymentMethod; amount:string; reference:string}>>([]);
   const [receiptData,setReceiptData]=React.useState<any>(null);
+  const [error,setError]=React.useState("");
 
   const { isOnline }=useOnlineStatus();
   const { toast }=useToast();
@@ -86,12 +87,13 @@ export default function CashierPage(){
       const sale=j?.sale ?? j;
       const items=j?.sale_items ?? j?.items ?? sale?.sale_items ?? [];
       setSelected({ ...sale, items });
+      setError("");
       setPaymentMethod('CASH'); setAmountReceived(""); setPaymentRef(""); setSplitMode(false);
       setSplitPayments([{ id:genOpId(), method:'CASH', amount:String(sale?.total ?? b.total), reference:'' }]);
     }catch(e:any){ toast({ title:"Failed to open bill", description:e.message, variant:"error" }); }
   };
 
-  const closeBill=()=>{ setSelected(null); };
+  const closeBill=()=>{ setSelected(null); setError(""); };
 
   const billTotal=Number(selected?.total ?? 0);
   const change=(()=>{
@@ -123,16 +125,25 @@ export default function CashierPage(){
     if(!selected || busy) return;
     if(!isOnline){ toast({ title:"Connection required", description:"Collecting payment requires the server to record it.", variant:"error" }); return; }
     setBusy(true);
+    setError("");
     const op=genOpId();
     const payments = splitMode && splitPayments.length
       ? splitPayments.map(p=>({ method:p.method, amount: Math.round(Number(p.amount||0)*100)/100, reference: p.method!=='CASH' ? (p.reference||undefined) : undefined }))
       : [{ method:paymentMethod, amount: Math.round(billTotal*100)/100, reference: paymentMethod!=='CASH' ? (paymentRef||undefined) : undefined }];
+    const controller=new AbortController();
+    const timeout=setTimeout(()=> controller.abort(), 25000);
     try{
-      const r=await fetch("/api/sales",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      const r=await fetch("/api/sales",{method:"POST",headers:{"Content-Type":"application/json"},signal:controller.signal,body:JSON.stringify({
         action:'complete_bill', sale_id: selected.id, payments, payment_operation_id: op,
       })});
-      const j=await r.json();
-      if(!r.ok){ toast({ title:"Payment failed", description:j.error ?? "Could not complete payment", variant:"error" }); setBusy(false); return; }
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){
+        const msg=j.error ? `${j.error} (HTTP ${r.status})` : `Could not complete payment (HTTP ${r.status})`;
+        console.error('[cashier] complete_bill failed:', r.status, j);
+        setError(msg);
+        toast({ title:"Payment failed", description:msg, variant:"error" });
+        setBusy(false); return;
+      }
       const paySummary = payments.map(p=>`${p.method}${p.reference?`(${p.reference})`:''}`).join(' + ');
       setReceiptData({
         sale: j.sale ?? { ...selected, status: 'COMPLETED' },
@@ -150,7 +161,12 @@ export default function CashierPage(){
       toast({ title:"Payment recorded", description:`Bill ${selected.sale_number ?? ''} completed.` });
       setSelected(null);
       refresh();
-    }catch(e:any){ toast({ title:"Payment failed", description:e.message, variant:"error" }); }
+    }catch(e:any){
+      const msg=e?.name==='AbortError' ? "Request timed out — the payment was not recorded. Check your connection and try again." : (e?.message ?? 'Payment failed');
+      console.error('[cashier] complete_bill error:', e);
+      setError(msg);
+      toast({ title:"Payment failed", description:msg, variant:"error" });
+    }finally{ clearTimeout(timeout); }
     setBusy(false);
   };
 
@@ -360,6 +376,13 @@ export default function CashierPage(){
                   </div>
                 )}
               </>
+            )}
+
+            {error && (
+              <div role="alert" className="text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded px-3 py-2 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0"/>
+                <span>{error}</span>
+              </div>
             )}
 
             <div className="flex gap-2">
