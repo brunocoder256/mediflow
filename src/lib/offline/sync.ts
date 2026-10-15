@@ -782,11 +782,30 @@ export async function getBranchPendingCount(): Promise<number> {
   try { return await db.syncQueue.where("table_name").equals("branches").and((e) => e.status === "pending").count(); } catch { return 0; }
 }
 
-export async function processSyncQueue(): Promise<{
+async function runSyncQueue(): Promise<{
   processed: number;
   failed: number;
   pending: number;
 }> {
+  // Recover entries that were interrupted mid-flight (tab closed, crash, or the
+  // network dropping while an entry was marked "processing"). Without this they
+  // stay "processing" forever: they are excluded from the pending count and from
+  // this drain, so the Sync Center shows "Syncing" indefinitely and the queued
+  // write silently never reaches the server.
+  try {
+    const STALE_MS = 60_000;
+    const now = Date.now();
+    const stuck = await db.syncQueue.where("status").equals("processing").toArray();
+    for (const s of stuck) {
+      const at = s.last_attempt_at ? new Date(s.last_attempt_at).getTime() : 0;
+      if (!at || now - at > STALE_MS) {
+        await db.syncQueue.update(s.id, { status: "pending" } as any);
+      }
+    }
+  } catch {
+    /* recovery is best-effort — never block a drain */
+  }
+
   const pending = (await db.syncQueue.where("status").equals("pending").toArray())
     // Replay in the order work was queued — critical for offline POS + cash:
     // a queued session open must reach the server before the cash sales /
@@ -846,9 +865,18 @@ export async function processSyncQueue(): Promise<{
           }
         }
       } else if (entry.table_name === "returns") {
-        const payload:any=entry.payload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id; const rType=payload._returnType ?? (payload as any)._type === "PURCHASE" ? "PURCHASE" : "SALES"; const clean:any={...payload}; delete clean._offlineId; delete clean._operationId; delete clean._returnType; delete clean._type;
+        const payload:any=entry.payload; const offId=payload._offlineId; const op=payload._operationId ?? entry.operation_id;
+        // Return type must be resolved explicitly. `_returnType` is set on create
+        // (queueReturnCreate) and `_type` on status actions (queueReturnAction).
+        // NOTE: this used to be `payload._returnType ?? payload._type === "PURCHASE"
+        // ? "PURCHASE" : "SALES"`, which due to operator precedence parsed as
+        // `(a ?? b) ? "PURCHASE" : "SALES"` and so routed EVERY offline sales
+        // return create to /api/purchase-returns — the source of failed syncs.
+        const rawType = payload._returnType ?? payload._type;
+        const rType = rawType === "PURCHASE" ? "PURCHASE" : "SALES";
+        const clean:any={...payload}; delete clean._offlineId; delete clean._operationId; delete clean._returnType; delete clean._type;
         if (entry.operation === "update") {
-          const isPurchase = rType === "PURCHASE" || clean.return_id === undefined;
+          const isPurchase = rType === "PURCHASE";
           response = await fetch(isPurchase ? "/api/purchase-returns" : "/api/returns",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, operation_id: op }) });
         } else if(rType==="PURCHASE"){
           response = await fetch("/api/purchase-returns",{ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ...clean, operation_id: op }) });
@@ -1261,6 +1289,21 @@ export async function processSyncQueue(): Promise<{
   }
   const remaining = await db.syncQueue.where("status").equals("pending").count();
   return { processed, failed, pending: remaining };
+}
+
+// Single-flight guard for the queue drain. Multiple triggers can fire at once —
+// the dashboard auto-sync (setupAutoSync), the POS page's own auto-sync, the
+// Sync Center's manual "Sync Now", multiple tabs — and each would read the same
+// pending rows before any is marked "processing", replaying them twice. The
+// guard makes concurrent callers await the same in-flight drain instead.
+let syncInFlight: Promise<{ processed: number; failed: number; pending: number }> | null = null;
+
+export function processSyncQueue(): Promise<{ processed: number; failed: number; pending: number }> {
+  if (syncInFlight) return syncInFlight;
+  syncInFlight = runSyncQueue().finally(() => {
+    syncInFlight = null;
+  });
+  return syncInFlight;
 }
 
 // Lightweight reachability probe so we don't drain retries against dead WiFi

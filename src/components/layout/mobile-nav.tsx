@@ -24,6 +24,7 @@ import {
   UserCircle,
   BarChart3,
   FileText,
+  CloudSync,
   Settings,
 } from "lucide-react";
 
@@ -47,6 +48,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   "/reports": BarChart3,
   "/users": Users,
   "/audit": FileText,
+  "/sync": CloudSync,
   "/settings": Settings,
 };
 

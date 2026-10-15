@@ -12,6 +12,7 @@ import {
   UserCircle,
   BarChart3,
   FileText,
+  CloudSync,
   Settings,
   type LucideIcon,
 } from "lucide-react";
@@ -115,6 +116,12 @@ export const navItems: NavItem[] = [
     titleKey: "nav.audit",
     href: "/audit",
     icon: FileText,
+  },
+  {
+    title: "Sync Center",
+    titleKey: "nav.sync",
+    href: "/sync",
+    icon: CloudSync,
   },
   {
     title: "Settings",

@@ -52,6 +52,7 @@ const en = {
     reports: "Reports",
     users: "Users",
     audit: "Audit",
+    sync: "Sync Center",
     settings: "Settings",
   },
   topbar: {
