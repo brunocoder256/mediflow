@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from "dexie";
+import { getSyncOwner } from "./identity";
 
 interface Product {
   id: string;
@@ -37,7 +38,7 @@ interface CartItem {
   added_at: string;
 }
 
-interface SyncQueueEntry {
+export interface SyncQueueEntry {
   id: string;
   operation_id: string;
   table_name: string;
@@ -48,6 +49,10 @@ interface SyncQueueEntry {
   retries: number;
   error?: string | null;
   last_attempt_at?: string | null;
+  // Owning tenant/user, stamped automatically by the syncQueue "creating" hook.
+  // Null on entries queued before multi-account scoping (claimed on next drain).
+  organization_id?: string | null;
+  user_id?: string | null;
 }
 
 interface PendingSale {
@@ -426,19 +431,76 @@ class MediFlowDB extends Dexie {
     }).upgrade(async (tx) => {
       // v10 cleanup + add indexes
     });
+
+    this.version(11).stores({
+      products: null,
+      batches: null,
+      cart: null,
+      pendingSales: null,
+      // Add owner indexes so the sync queue can be scoped per organization/user.
+      // A browser-scoped IndexedDB is shared by every account that signs in on
+      // the device, so without an owner a queued write from one organization
+      // would surface (and replay) under another's session.
+      syncQueue: "id, operation_id, status, table_name, created_at, organization_id, user_id",
+      cachedPurchases: "id, branch_id, supplier_id, status, sync_status",
+      cachedSuppliers: "id, name, supplier_code, status, sync_status",
+      cachedReturns: "id, branch_id, return_type, status, sync_status",
+      cachedExpenses: "id, branch_id, expense_number, approval_status, payment_status, sync_status",
+      cachedCustomers: "id, customer_code, name, phone, email, branch_id, sync_status",
+      dataCache: "id, url, cached_at",
+      cachedCashRegisters: "id, branch_id, sync_status",
+      cachedCashSessions: "id, register_id, branch_id, status, sync_status, operation_id",
+      cachedCashMovements: "id, session_id, branch_id, type, direction, sync_status, operation_id",
+      cachedProducts: "id, name, sku, barcode, is_active, sync_status",
+      cachedDisposals: "id, branch_id, product_id, type, status, sync_status, server_id, operation_id",
+      cachedTransfers: "id, branch_id, source_branch_id, destination_branch_id, status, sync_status, operation_id",
+      cachedStockCounts: "id, branch_id, status, sync_status, operation_id",
+      cachedSupplierPayments: "id, supplier_id, purchase_order_id, branch_id, sync_status, operation_id",
+      cachedPayments: "id, customer_id, branch_id, sync_status, operation_id",
+      cachedSettings: "id, organization_id, updated_at",
+      cachedBranches: "id, organization_id, is_active",
+      cachedUsers: "id, organization_id, branch_id",
+      cachedRoles: "id, organization_id",
+    }).upgrade(async (tx) => {
+      // Existing queued rows have no owner. Leave organization_id/user_id null;
+      // the next drain claims them for the organization that is signed in then.
+    });
   }
 }
 
 export const db = new MediFlowDB();
 
-// Whenever a new write is queued, ask the service worker to schedule a
-// Background Sync so the queue flushes even if the tab is later closed.
-if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-  db.syncQueue.hook("creating", () => {
-    void import("./background-sync")
-      .then((m) => m.requestBackgroundSync())
-      .catch(() => {});
+// Stamp every queued write with the owning organization/user so the queue can
+// be partitioned per account (a single browser IndexedDB is shared by all
+// accounts on the device). Registered outside the service-worker guard so
+// stamping always happens.
+if (typeof window !== "undefined") {
+  db.syncQueue.hook("creating", (_primKey, obj) => {
+    try {
+      const entry = obj as SyncQueueEntry;
+      if (entry.organization_id == null || entry.user_id == null) {
+        const owner = getSyncOwner();
+        if (entry.organization_id == null && owner.organization_id) {
+          entry.organization_id = owner.organization_id;
+        }
+        if (entry.user_id == null && owner.user_id) {
+          entry.user_id = owner.user_id;
+        }
+      }
+    } catch {
+      // never block a queued write on identity resolution
+    }
   });
+
+  // Whenever a new write is queued, ask the service worker to schedule a
+  // Background Sync so the queue flushes even if the tab is later closed.
+  if ("serviceWorker" in navigator) {
+    db.syncQueue.hook("creating", () => {
+      void import("./background-sync")
+        .then((m) => m.requestBackgroundSync())
+        .catch(() => {});
+    });
+  }
 }
 
 
@@ -516,4 +578,4 @@ interface CachedRole {
   payload: Record<string, unknown>;
 }
 
-export type { Product, Batch, CartItem, SyncQueueEntry, PendingSale, CachedPurchase, CachedSupplier, CachedReturn, CachedExpense, CachedCustomer, DataCacheEntry, CachedCashRegister, CachedCashSession, CachedCashMovement, CachedProduct, CachedDisposal, CachedTransfer, CachedStockCount, CachedSupplierPayment, CachedPayment, CachedSettings, CachedBranch, CachedUser, CachedRole };
+export type { Product, Batch, CartItem, PendingSale, CachedPurchase, CachedSupplier, CachedReturn, CachedExpense, CachedCustomer, DataCacheEntry, CachedCashRegister, CachedCashSession, CachedCashMovement, CachedProduct, CachedDisposal, CachedTransfer, CachedStockCount, CachedSupplierPayment, CachedPayment, CachedSettings, CachedBranch, CachedUser, CachedRole };

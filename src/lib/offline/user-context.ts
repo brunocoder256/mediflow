@@ -17,6 +17,8 @@ interface UserContext {
   full_name: string;
   email?: string | null;
   organization_id?: string | null;
+  /** Profile id of the signed-in user (for attributing offline writes). */
+  user_id?: string | null;
   branch?: string | null;
   branches?: Array<{ id: string; name: string; code: string }>;
   organization?: Record<string, unknown> | null;

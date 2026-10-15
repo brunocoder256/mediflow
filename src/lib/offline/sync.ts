@@ -1,4 +1,15 @@
 import { db } from "./db";
+import type { SyncQueueEntry } from "./db";
+import { getSyncOrgId } from "./identity";
+
+// A queued entry is visible to / replayable under an account when it belongs to
+// that account's organization, or is unowned (pre-scoping legacy row). Entries
+// owned by another organization are left untouched.
+function ownedByCurrentOrg(entry: { organization_id?: string | null }): boolean {
+  const orgId = getSyncOrgId();
+  const eo = entry.organization_id ?? null;
+  return orgId ? eo === orgId : eo === null;
+}
 
 export async function addToSyncQueue(entry: {
   table_name: string;
@@ -221,7 +232,33 @@ export async function checkDuplicateOperation(operation_id: string): Promise<boo
 }
 
 export async function getPendingCount(): Promise<number> {
-  return db.syncQueue.where("status").equals("pending").count();
+  try {
+    const rows = await db.syncQueue.where("status").equals("pending").toArray();
+    return rows.filter((e) => ownedByCurrentOrg(e)).length;
+  } catch {
+    return 0;
+  }
+}
+
+export async function getFailedCount(): Promise<number> {
+  try {
+    const rows = await db.syncQueue.where("status").equals("failed").toArray();
+    return rows.filter((e) => ownedByCurrentOrg(e)).length;
+  } catch {
+    return 0;
+  }
+}
+
+/** All queued entries visible to the current account (plus unowned legacy rows). */
+export async function listSyncQueue(): Promise<SyncQueueEntry[]> {
+  try {
+    const rows = await db.syncQueue.toArray();
+    return rows
+      .filter((e) => ownedByCurrentOrg(e))
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  } catch {
+    return [];
+  }
 }
 
 export async function queueReturnCreate(payload: Record<string, unknown>, type: "SALES"|"PURCHASE"): Promise<string>{
@@ -741,7 +778,12 @@ export function queueReturnAction(id: string, action: string, extra?: Record<str
 }
 
 export async function getPendingCountByTable(table: string): Promise<number> {
-  try { return await db.syncQueue.where("table_name").equals(table).count(); } catch { return 0; }
+  try {
+    const rows = await db.syncQueue.where("table_name").equals(table).and((e) => e.status === "pending").toArray();
+    return rows.filter((e) => ownedByCurrentOrg(e)).length;
+  } catch {
+    return 0;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -779,7 +821,12 @@ export function queueBranchSave(payload: Record<string, unknown>, operation: "cr
 }
 
 export async function getBranchPendingCount(): Promise<number> {
-  try { return await db.syncQueue.where("table_name").equals("branches").and((e) => e.status === "pending").count(); } catch { return 0; }
+  try {
+    const rows = await db.syncQueue.where("table_name").equals("branches").and((e) => e.status === "pending").toArray();
+    return rows.filter((e) => ownedByCurrentOrg(e)).length;
+  } catch {
+    return 0;
+  }
 }
 
 async function runSyncQueue(): Promise<{
@@ -806,7 +853,27 @@ async function runSyncQueue(): Promise<{
     /* recovery is best-effort — never block a drain */
   }
 
+  const orgId = getSyncOrgId();
+
+  // Claim legacy (pre-scoping) rows — they carry no organization_id — for the
+  // account that is signed in now. This keeps previously-queued offline work
+  // from being stranded while ensuring it stops showing up under every account.
+  if (orgId) {
+    try {
+      const unowned = await db.syncQueue.filter((e) => e.organization_id == null).toArray();
+      for (const u of unowned) {
+        await db.syncQueue.update(u.id, { organization_id: orgId } as any);
+      }
+    } catch {
+      /* claiming is best-effort */
+    }
+  }
+
   const pending = (await db.syncQueue.where("status").equals("pending").toArray())
+    // Only replay this account's queue. A browser-scoped IndexedDB is shared by
+    // every organization on the device; replaying a foreign row under the wrong
+    // session would fail authorization and leak one tenant's data into another.
+    .filter((e) => ownedByCurrentOrg(e))
     // Replay in the order work was queued — critical for offline POS + cash:
     // a queued session open must reach the server before the cash sales /
     // movements recorded against it, otherwise they'd fail with "no cash session".
@@ -1287,8 +1354,9 @@ async function runSyncQueue(): Promise<{
   if (processed > 0 && typeof window !== "undefined") {
     try { localStorage.setItem("mediflow_last_sync", new Date().toISOString()); } catch { /* ignore */ }
   }
-  const remaining = await db.syncQueue.where("status").equals("pending").count();
-  return { processed, failed, pending: remaining };
+  const remaining = await db.syncQueue.where("status").equals("pending").toArray();
+  const remainingScoped = remaining.filter((e) => ownedByCurrentOrg(e)).length;
+  return { processed, failed, pending: remainingScoped };
 }
 
 // Single-flight guard for the queue drain. Multiple triggers can fire at once —
