@@ -57,7 +57,9 @@ export async function GET(req: Request) {
     }
 
     if (type === 'overview' || type === 'kpi' || type === 'executive') {
-      const kpi = await getExecutiveKPIs(baseFilters);
+      // trend: time-series for the overview chart, bucketed by the requested
+      // granularity (hour/day/week/month) — makes the granularity selector real.
+      const [kpi, trend] = await Promise.all([getExecutiveKPIs(baseFilters), getSalesByTime(baseFilters)]);
       if (compare && date_from && date_to) {
         const prev = getPreviousPeriod(date_from, date_to);
         const prevKpi = await getExecutiveKPIs({ ...baseFilters, date_from: prev.from, date_to: prev.to });
@@ -65,9 +67,12 @@ export async function GET(req: Request) {
         const profitCmp = calcComparison(kpi.grossProfit, prevKpi.grossProfit);
         const netCmp = calcComparison(kpi.netProfit, prevKpi.netProfit);
         const stockCmp = calcComparison(kpi.stockValue, prevKpi.stockValue);
-        return NextResponse.json({ current: kpi, previous: prevKpi, comparison: { sales: salesCmp, grossProfit: profitCmp, netProfit: netCmp, stockValue: stockCmp }, generated_at: new Date().toISOString() });
+        // Spread kpi at top level so the page reads the same shape with or
+        // without compare (previously compare wrapped everything in `current`
+        // and every KPI rendered 0 while badges showed percentages).
+        return NextResponse.json({ ...kpi, trend, previous: prevKpi, comparison: { sales: salesCmp, grossProfit: profitCmp, netProfit: netCmp, stockValue: stockCmp }, generated_at: new Date().toISOString() });
       }
-      return NextResponse.json({ ...kpi, generated_at: new Date().toISOString() });
+      return NextResponse.json({ ...kpi, trend, generated_at: new Date().toISOString() });
     }
     if (type === 'sales') {
       const [sales, agg] = await Promise.all([getSalesReport(baseFilters), getSalesAggregates(baseFilters)]);

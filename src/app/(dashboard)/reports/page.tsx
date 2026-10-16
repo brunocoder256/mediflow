@@ -9,8 +9,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/ui/page-header";
-import { BarChart3, TrendingUp, Package, Users, Download, FileText, DollarSign, AlertTriangle, Building2, ShoppingCart, Truck, Printer, Calendar, Clock, XCircle, Receipt, CreditCard, UserCircle, Boxes, Activity, Scale, WifiOff } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts";
+import { BarChart3, TrendingUp, Package, Users, Download, FileText, DollarSign, AlertTriangle, Building2, ShoppingCart, Truck, Printer, Calendar, Clock, XCircle, Receipt, CreditCard, UserCircle, Boxes, Activity, Scale, WifiOff, ArrowLeftRight, ClipboardCheck, Lightbulb } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { cachedFetch } from "@/lib/offline/cached-fetch";
 
@@ -30,6 +30,7 @@ export default function ReportsPage() {
   const [categories, setCategories] = React.useState<any[]>([]);
   const [suppliers, setSuppliers] = React.useState<any[]>([]);
   const [customers, setCustomers] = React.useState<any[]>([]);
+  const [products, setProducts] = React.useState<any[]>([]);
   const [dateFrom, setDateFrom] = React.useState("");
   const [dateTo, setDateTo] = React.useState("");
   const [productFilter, setProductFilter] = React.useState("");
@@ -69,6 +70,7 @@ export default function ReportsPage() {
     safeFetchJson("/api/categories").then(j => { if (!j) return; if (Array.isArray(j)) setCategories(j); else if (j.data) setCategories(j.data); });
     safeFetchJson("/api/suppliers").then(j => { if (!j) return; const list = j.data ?? j; if (Array.isArray(list)) setSuppliers(safeSlice(list, 0, 50)); });
     safeFetchJson("/api/customers").then(j => { if (!j) return; const list = j.data ?? j; if (Array.isArray(list)) setCustomers(safeSlice(list, 0, 50)); });
+    safeFetchJson("/api/products?perPage=100").then(j => { if (!j) return; const list = j.data ?? j; if (Array.isArray(list)) setProducts(safeSlice(list, 0, 100)); });
     try {
       const t = localStorage.getItem("mediflow_last_sync");
       if (t) setSyncTime(t);
@@ -164,40 +166,125 @@ export default function ReportsPage() {
 
   const handleTab = (id: string) => { setActiveTab(id); setPage(1); };
 
+  // Shared tabular projection of the active report — used by CSV, Excel and
+  // Print so every tab (not just a handful) exports real rows instead of raw
+  // JSON. Returns [] safely when a report/filter combination has no shape.
+  type ReportSection = { title: string; headers: string[]; rows: (string | number)[][] };
+  const xmlEsc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const buildSections = (): ReportSection[] => {
+    if (!reportData) return [];
+    const d = reportData;
+    switch (activeTab) {
+      case "overview": {
+        const sections: ReportSection[] = [{ title: "KPIs", headers: ["Metric", "Value"], rows: [
+          ["Sales", Number(d.sales?.total ?? 0)], ["Transactions", Number(d.sales?.count ?? 0)], ["Net Sales", Number(d.sales?.net ?? 0)],
+          ["Gross Profit", Number(d.grossProfit ?? 0)], ["Margin %", Number(d.margin ?? 0)], ["Net Profit", Number(d.netProfit ?? 0)],
+          ["Expenses", Number(d.expenses?.total ?? 0)], ["Stock Value", Number(d.stockValue ?? 0)],
+          ["Receivables", Number(d.ar?.total ?? 0)], ["Payables", Number(d.ap?.total ?? 0)],
+          ["Expiring Value", Number(d.expiringValue ?? 0)], ["Returns Value", Number(d.returns?.value ?? 0)],
+        ] }];
+        if (Array.isArray(d.trend) && d.trend.length) sections.push({ title: `Sales Trend (by ${granularity})`, headers: ["Period", "Revenue", "Transactions"], rows: d.trend.map((t: any) => [String(t.period), Number(t.revenue ?? 0), Number(t.count ?? 0)]) });
+        return sections;
+      }
+      case "sales": return [
+        { title: "Aggregates", headers: ["Metric", "Value"], rows: [
+          ["Total Revenue", Number(d.aggregates?.totalRevenue ?? 0)], ["Net Sales", Number(d.aggregates?.netSales ?? 0)],
+          ["Sales Count", Number(d.aggregates?.count ?? 0)], ["Avg Order", Number(d.aggregates?.avgOrder ?? 0)],
+          ["Discounts", Number(d.aggregates?.totalDiscount ?? 0)], ["Returns", Number(d.aggregates?.retTotal ?? 0)],
+        ] },
+        { title: "Sales", headers: ["Sale Number", "Date", "Total", "Status"], rows: safeSlice(d.sales?.data, 0, 200).map((s: any) => [String(s.sale_number), String(s.sold_at), Number(s.total), String(s.status)]) },
+      ];
+      case "financial": return [
+        { title: "Profit & Loss", headers: ["Line", "Amount"], rows: [
+          ["Gross Sales", Number(d.pnl?.revenue?.grossSales ?? 0)], ["Discounts", Number(d.pnl?.revenue?.discount ?? 0)],
+          ["Returns", Number(d.pnl?.revenue?.returns ?? 0)], ["Net Revenue", Number(d.pnl?.revenue?.netRevenue ?? 0)],
+          ["COGS", Number(d.pnl?.cogs ?? 0)], ["Gross Profit", Number(d.pnl?.grossProfit ?? 0)],
+          ["Operating Expenses", Number(d.pnl?.operatingExpenses ?? 0)], ["Net Operating Profit", Number(d.pnl?.netOperatingProfit ?? 0)],
+        ] },
+        { title: "Expenses by Category", headers: ["Category", "Amount"], rows: Object.entries(d.pnl?.byExpenseCategory ?? {}).map(([k, v]: any) => [String(k), Number(v)]) },
+      ];
+      case "inventory": return [
+        { title: "Valuation", headers: ["Metric", "Value"], rows: [
+          ["Cost Valuation", Number(d.valuation?.valuation ?? 0)], ["Sell Valuation", Number(d.valuation?.valuationSell ?? 0)],
+          ["Potential Margin", Number(d.valuation?.potentialMargin ?? 0)], ["Current Lots", safeSlice(d.current, 0, 100000).length],
+          ["Low Stock Lots", safeSlice(d.low, 0, 100000).length], ["Expiring <=30d", safeSlice(d.expiring, 0, 100000).length], ["Expired", safeSlice(d.expired, 0, 100000).length],
+        ] },
+        { title: "Stock by Product", headers: ["Product", "Qty", "Value"], rows: safeSlice(d.summary, 0, 100).map((r: any) => [String(r.product_name), Number(r.quantity_available), Number(r.stock_value_cost)]) },
+      ];
+      case "expiry": return [
+        { title: "Expiry Buckets", headers: ["Bucket", "Count"], rows: Object.entries(d.counts ?? {}).map(([k, v]: any) => [String(k), Number(v)]) },
+        { title: "Expiring Batches", headers: ["Batch", "Product", "Expiry", "Days", "Qty", "Value at Risk"], rows: safeSlice(d.data, 0, 200).map((b: any) => [String(b.batch_number), String(b.products?.name ?? b.product_id), String(b.expiry_date), Number(b.days_to_expiry), Number(b.quantity_available), Number(b.value_at_risk)]) },
+      ];
+      case "lowstock": return [{ title: "Low Stock", headers: ["Product", "Qty", "Reorder Level", "Suggested"], rows: safeSlice(d.data, 0, 200).map((r: any) => [String(r.product_name), Number(r.quantity_available), Number(r.reorder_level), Number(r.suggested_reorder)]) }];
+      case "slow": return [
+        { title: "Slow-Moving", headers: ["Product", "Qty", "Velocity", "Value"], rows: safeSlice(d.data, 0, 200).map((r: any) => [String(r.product_name), Number(r.quantity), Number(r.velocity), Number(r.value)]) },
+        { title: "Dead Stock", headers: ["Product", "Qty", "Last Sale", "Value"], rows: safeSlice(d.dead, 0, 200).map((r: any) => [String(r.product_name), Number(r.quantity), String(r.last_sale_date ?? "Never"), Number(r.value)]) },
+      ];
+      case "purchasing": return [
+        { title: "Analytics", headers: ["Metric", "Value"], rows: [["Total PO Value", Number(d.analytics?.total ?? 0)], ["Orders", Number(d.analytics?.count ?? 0)], ["Outstanding", Number(d.analytics?.outstanding ?? 0)], ["Partially Received", Number(d.analytics?.partially ?? 0)]] },
+        { title: "Purchase Orders", headers: ["PO #", "Status", "Total", "Date", "Supplier"], rows: safeSlice(d.data, 0, 200).map((po: any) => [String(po.purchase_number), String(po.status), Number(po.total), String(po.ordered_at), String(po.suppliers?.name ?? "")]) },
+      ];
+      case "suppliers": return [{ title: "Supplier Balances", headers: ["Supplier", "Purchased", "Paid", "Balance"], rows: safeSlice(d.balances, 0, 200).map((s: any) => [String(s.supplier_name), Number(s.purchased), Number(s.paid), Number(s.balance)]) }];
+      case "customers": return [{ title: "Customers", headers: ["Customer", "Txns", "Revenue", "Net"], rows: safeSlice(Array.isArray(d) ? d : d.data, 0, 200).map((c: any) => [String(c.customer_name), Number(c.transactions), Number(c.revenue), Number(c.netSales)]) }];
+      case "expenses": return [
+        { title: "Expense Summary", headers: ["Metric", "Value"], rows: [["Total", Number(d.total ?? 0)], ["Records", Number(d.count ?? 0)]] },
+        { title: "Expenses", headers: ["Date", "Category", "Description", "Amount"], rows: safeSlice(d.data, 0, 200).map((e: any) => [String(e.expense_date), String(e.category ?? "Other"), String(e.description ?? ""), Number(e.total_amount ?? e.amount ?? 0)]) },
+      ];
+      case "staff": return [{ title: "Staff Performance", headers: ["Cashier", "Sales", "Revenue", "Avg", "Discounts", "Voids"], rows: safeSlice(Array.isArray(d) ? d : [], 0, 200).map((s: any) => [String(s.cashier_name), Number(s.salesCount), Number(s.revenue), Number(s.avgSale), Number(s.discounts), Number(s.voids)]) }];
+      case "cash": return [{ title: "Cash Sessions", headers: ["Session", "Status", "Opening", "Expected", "Variance", "Opened"], rows: safeSlice(Array.isArray(d) ? d : [], 0, 200).map((s: any) => [safeIdSlice(s.id, 8), String(s.status), Number(s.opening_float ?? 0), Number(s.expected_cash ?? 0), Number(s.cash_variance ?? 0), String(s.opened_at)]) }];
+      case "ar": return [
+        { title: "Accounts Receivable", headers: ["Customer", "Outstanding", "Aging", "Days Overdue"], rows: safeSlice(d.data, 0, 200).map((r: any) => [String(r.customer_name), Number(r.outstanding), String(r.bucket), Number(r.days_overdue)]) },
+        { title: "Accounts Payable", headers: ["Supplier", "Purchased", "Paid", "Outstanding", "Aging"], rows: safeSlice(d.ap?.data, 0, 200).map((r: any) => [String(r.supplier_name), Number(r.purchased), Number(r.paid), Number(r.outstanding), String(r.bucket)]) },
+      ];
+      case "branches": return [{ title: "Branch Comparison", headers: ["Branch", "Revenue", "Txns", "Gross Profit", "Net Profit", "Stock Value"], rows: safeSlice(d.data, 0, 100).map((b: any) => [String(b.branch_name), Number(b.revenue), Number(b.transactions), Number(b.grossProfit), Number(b.netProfit), Number(b.stockValue)]) }];
+      case "audit": return [{ title: "Audit Log", headers: ["Action", "Entity", "Entity ID", "Date"], rows: safeSlice(d.data, 0, 200).map((r: any) => [String(r.action), String(r.entity_type), safeIdSlice(r.entity_id, 8), String(r.created_at)]) }];
+      case "movements": return [{ title: "Stock Movements", headers: ["Date", "Product", "Batch", "Type", "Qty", "Reference"], rows: safeSlice(d.data, 0, 200).map((m: any) => [String(m.created_at), String(m.products?.name ?? m.product_id), String(m.product_batches?.batch_number ?? "—"), String(m.movement_type), Number(m.quantity), m.reference_type ? `${m.reference_type} ${safeIdSlice(m.reference_id, 6)}` : "—"]) }];
+      case "reconciliation": return [{ title: "Reconciliation", headers: ["Metric", "Value"], rows: [
+        ["Sales Total", Number(d.salesTotal ?? 0)], ["Payments Recorded", Number(d.paidTotal ?? 0)], ["Difference", Number(d.salesDiff ?? 0)],
+        ["Reconciled", d.salesReconciled ? "YES" : "NO"], ["Inventory Valuation", Number(d.inventoryValuation ?? 0)],
+      ] }];
+      default: return [];
+    }
+  };
+  // Elapsed days for the current period — used to phrase "per day" insights.
+  const periodDays = dateFrom && dateTo ? Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / 86400000) + 1) : 0;
+
   const exportCsv = () => {
     if (!reportData) return;
     const branchName = branches.find(b => b.id === branchFilter)?.name ?? 'All';
-    let csv = `MediFlow IQ Report,${activeTab}\nBranch,${csvEscape(branchName)}\nDate From,${dateFrom || '—'}\nDate To,${dateTo || '—'}\nGenerated,${mounted ? new Date().toLocaleString() : ''}\nGenerated By,Current User\nFilters,${csvEscape(JSON.stringify({ branch: branchFilter, product: productFilter, category: categoryFilter, supplier: supplierFilter, customer: customerFilter, payment: paymentMethod }))}\n\n`;
-    const pushSection = (title: string, headers: string[], rows: any[][]) => {
-      csv += `${title}\n` + headers.map(csvEscape).join(",") + "\n";
-      for (const r of rows) csv += r.map(csvEscape).join(",") + "\n";
+    let csv = `Mediflow Report,${activeTab}\nBranch,${csvEscape(branchName)}\nDate From,${dateFrom || '—'}\nDate To,${dateTo || '—'}\nGenerated,${mounted ? new Date().toLocaleString() : ''}\nFilters,${csvEscape(JSON.stringify({ branch: branchFilter, product: productFilter, category: categoryFilter, supplier: supplierFilter, customer: customerFilter, payment: paymentMethod, granularity, expiryBucket }))}\n\n`;
+    for (const s of buildSections()) {
+      csv += `${s.title}\n` + s.headers.map(csvEscape).join(",") + "\n";
+      for (const r of s.rows) csv += r.map(csvEscape).join(",") + "\n";
       csv += "\n";
-    };
-    if (activeTab === "overview" && reportData.sales) {
-      pushSection("KPIs", ["Metric", "Value"], [["Sales", reportData.sales.total], ["Gross Profit", reportData.grossProfit], ["Net Profit", reportData.netProfit], ["Stock Value", reportData.stockValue], ["Expenses", reportData.expenses?.total]]);
-    } else if (activeTab === "sales" && reportData.sales?.data) {
-      pushSection("Sales", ["Sale Number", "Date", "Total", "Status"], safeSlice(reportData.sales.data, 0, 100).map((s: any) => [s.sale_number, s.sold_at, s.total, s.status]));
-    } else if (activeTab === "inventory" && reportData.low) {
-      pushSection("Low Stock", ["Batch", "Product", "Qty", "Expiry"], safeSlice(reportData.low, 0, 100).map((b: any) => [b.batch_number, b.products?.name ?? b.product_id, b.quantity_available, b.expiry_date]));
-    } else if (activeTab === "expiry" && reportData.data) {
-      pushSection("Expiry", ["Batch", "Product", "Expiry", "Qty", "Value at Risk"], safeSlice(reportData.data, 0, 100).map((b: any) => [b.batch_number, b.products?.name ?? b.product_id, b.expiry_date, b.quantity_available, b.value_at_risk]));
-    } else if (activeTab === "lowstock" && Array.isArray(reportData.data)) {
-      pushSection("Low Stock", ["Product", "Qty", "Reorder Level", "Suggested"], safeSlice(reportData.data, 0, 100).map((r: any) => [r.product_name, r.quantity_available, r.reorder_level, r.suggested_reorder]));
-    } else if (activeTab === "staff" && Array.isArray(reportData)) {
-      pushSection("Staff", ["Cashier", "Sales", "Revenue", "Discounts", "Voids"], safeSlice(reportData, 0, 100).map((s: any) => [s.cashier_name, s.salesCount, s.revenue, s.discounts, s.voids]));
-    } else if (activeTab === "cash" && Array.isArray(reportData)) {
-      pushSection("Cash Sessions", ["Session", "Status", "Opening", "Expected", "Variance", "Date"], safeSlice(reportData, 0, 100).map((s: any) => [safeIdSlice(s.id, 8), s.status, s.opening_float, s.expected_cash, s.cash_variance, s.opened_at]));
-    } else {
-      csv += `Data\n${csvEscape(JSON.stringify(reportData).slice(0, 8000))}\n`;
     }
     const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `mediflow-iq_${activeTab}_${branchFilter}_${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(url);
   };
-  // Excel export: the codebase has no XLSX writer, so we emit a UTF-8 CSV
-  // (opens natively in Excel) instead of a corrupt fake .xlsx.
-  const exportXlsx = () => exportCsv();
+  // Excel export: no XLSX writer dependency, so we emit SpreadsheetML 2003
+  // (one worksheet per section) which opens natively in Excel/LibreOffice with
+  // real typed cells — not a CSV renamed to .xls.
+  const exportXls = () => {
+    if (!reportData) return;
+    const sectionName = (s: string, i: number) => (s || `Sheet${i + 1}`).replace(/[:\\/?*\[\]]/g, ' ').slice(0, 30);
+    const infoRows = `<Row><Cell><Data ss:Type="String">Mediflow Report</Data></Cell></Row><Row><Cell><Data ss:Type="String">${xmlEsc(activeTab)}</Data></Cell></Row><Row><Cell><Data ss:Type="String">Branch: ${xmlEsc(branches.find(b => b.id === branchFilter)?.name ?? 'All')}</Data></Cell></Row><Row><Cell><Data ss:Type="String">Period: ${xmlEsc((dateFrom || '—') + ' to ' + (dateTo || '—'))}</Data></Cell></Row><Row><Cell><Data ss:Type="String">Generated: ${xmlEsc(new Date().toLocaleString())}</Data></Cell></Row>`;
+    const sheets = buildSections().map((s, i) => {
+      const header = `<Row>${s.headers.map(h => `<Cell ss:StyleID="sHead"><Data ss:Type="String">${xmlEsc(h)}</Data></Cell>`).join('')}</Row>`;
+      const title = `<Row><Cell ss:MergeAcross="${Math.max(0, s.headers.length - 1)}"><Data ss:Type="String">${xmlEsc(s.title)}</Data></Cell></Row>`;
+      const body = s.rows.map(r => `<Row>${r.map(c => Number.isFinite(Number(c)) && typeof c === 'number' ? `<Cell><Data ss:Type="Number">${c}</Data></Cell>` : `<Cell><Data ss:Type="String">${xmlEsc(c)}</Data></Cell>`).join('')}</Row>`).join('');
+      return `<Worksheet ss:Name="${xmlEsc(sectionName(s.title, i))}"><Table>${title}${header}${body}</Table></Worksheet>`;
+    }).join('');
+    const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="sHead"><Font ss:Bold="1"/></Style></Styles><Worksheet ss:Name="Report Info"><Table>${infoRows}</Table></Worksheet>${sheets}</Workbook>`;
+    const blob = new Blob([xml], { type: 'application/vnd.ms-excel' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `mediflow-iq_${activeTab}_${branchFilter}_${new Date().toISOString().slice(0, 10)}.xls`; a.click(); URL.revokeObjectURL(url);
+  };
+  // Print/PDF: render the same sections as a formatted document (header, KPIs,
+  // Key Insights, tables) instead of dumping raw JSON.
   const printReport = () => {
+    if (!reportData) return;
     const branchName = branches.find(b => b.id === branchFilter)?.name ?? 'All Branches';
-    const html = `<html><head><title>MediFlow IQ Report — ${activeTab}</title><style>body{font-family:Inter,sans-serif;padding:20px;color:#111} h1{margin:0;font-size:18px} h2{font-size:14px;color:#444} table{border-collapse:collapse;width:100%;margin-top:12px} th,td{border:1px solid #d1d5db;padding:6px;font-size:11px;text-align:left} th{background:#f3f4f6} .hdr{border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px} .meta{font-size:11px;color:#555} .kpi{display:flex;gap:10px;margin:12px 0} .kpi div{border:1px solid #ddd;padding:8px;border-radius:6px;flex:1;text-align:center;font-size:12px} .foot{margin-top:16px;font-size:10px;color:#666;border-top:1px solid #ddd;padding-top:6px} @media print{ @page{margin:12mm} }</style></head><body><div class="hdr"><h1>MediFlow IQ Pharmacy — ${activeTab.toUpperCase()}</h1><div class="meta">Branch: ${branchName} • Period: ${dateFrom || '—'} to ${dateTo || '—'} • Generated: ${new Date().toLocaleString()} • By: Current User • Filters: ${[productFilter ? 'product' : '', categoryFilter !== 'all' ? 'category' : '', supplierFilter !== 'all' ? 'supplier' : ''].filter(Boolean).join(',') || 'none'} • Page 1</div></div><pre style="font-size:10px;white-space:pre-wrap;background:#f9fafb;padding:10px;border:1px solid #eee;border-radius:6px;max-height:600px;overflow:auto">${JSON.stringify(reportData, null, 2).slice(0, 7000)}</pre><div class="foot">MediFlow IQ ERP • Confidential — Branch-scoped, server-authoritative • Reconciliation: sales vs payments vs inventory</div><script>window.print()</script></body></html>`;
+    const sections = buildSections();
+    const tables = sections.map(s => `<h2>${xmlEsc(s.title)}</h2><table><thead><tr>${s.headers.map(h => `<th>${xmlEsc(h)}</th>`).join('')}</tr></thead><tbody>${s.rows.map(r => `<tr>${r.map(c => `<td>${typeof c === 'number' && Number.isFinite(c) ? Number(c).toLocaleString('en-UG') : xmlEsc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`).join('');
+    const insightBlock = activeTab === 'overview' && insights.length ? `<h2>Key Insights</h2><ul>${insights.map(t => `<li>${xmlEsc(t)}</li>`).join('')}</ul>` : '';
+    const html = `<html><head><title>Mediflow Report — ${activeTab}</title><style>body{font-family:Inter,Arial,sans-serif;padding:20px;color:#111} h1{margin:0;font-size:18px} h2{font-size:13px;color:#374151;margin:18px 0 6px;border-bottom:1px solid #e5e7eb;padding-bottom:4px} table{border-collapse:collapse;width:100%;margin-bottom:10px} th,td{border:1px solid #d1d5db;padding:5px 6px;font-size:11px;text-align:left} th{background:#f3f4f6;font-weight:600} td:not(:first-child),th:not(:first-child){text-align:right} .hdr{border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:10px} .meta{font-size:11px;color:#555} ul{font-size:12px;color:#374151;margin:4px 0 12px 18px} .foot{margin-top:16px;font-size:10px;color:#666;border-top:1px solid #ddd;padding-top:6px} @media print{@page{margin:12mm}}</style></head><body><div class="hdr"><h1>Mediflow Pharmacy — ${xmlEsc(activeTab.toUpperCase())}</h1><div class="meta">Branch: ${xmlEsc(branchName)} • Period: ${xmlEsc(dateFrom || '—')} to ${xmlEsc(dateTo || '—')} • Generated: ${xmlEsc(new Date().toLocaleString())}${productFilter ? ` • Product: ${xmlEsc(products.find(p => p.id === productFilter)?.name ?? productFilter)}` : ''}${categoryFilter !== 'all' ? ` • Category: ${xmlEsc(categories.find(c => c.id === categoryFilter)?.name ?? categoryFilter)}` : ''}</div></div>${insightBlock}${tables}<div class="foot">Mediflow ERP • Confidential — Branch-scoped, server-authoritative • Reconciliation: sales vs payments vs inventory</div><script>window.print()</script></body></html>`;
     const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); }
   };
 
@@ -215,13 +302,49 @@ export default function ReportsPage() {
     });
   };
 
+  // Plain-language summary of the executive report — plain statements derived
+  // from the same numbers shown above, so the page is informative (not just a
+  // wall of figures). Only meaningful on the Overview tab.
+  const insights = React.useMemo<string[]>(() => {
+    if (loading || !reportData || activeTab !== "overview") return [];
+    const list: string[] = [];
+    const revenue = Number(reportData.sales?.total ?? 0);
+    const txns = Number(reportData.sales?.count ?? 0);
+    const gp = Number(reportData.grossProfit ?? 0);
+    const margin = Number(reportData.margin ?? 0);
+    const net = Number(reportData.netProfit ?? 0);
+    const expenses = Number(reportData.expenses?.total ?? 0);
+    const ar = Number(reportData.ar?.total ?? 0);
+    const ap = Number(reportData.ap?.total ?? 0);
+    const expiring = Number(reportData.expiringValue ?? 0);
+    const returnsVal = Number(reportData.returns?.value ?? 0);
+    const returnsCount = Number(reportData.returns?.count ?? 0);
+    if (revenue > 0) {
+      list.push(`Revenue of ${formatUGX(revenue)} across ${formatNum(txns)} transaction(s)${txns > 0 ? `, averaging ${formatUGX(Math.round(revenue / txns))} per sale` : ''}.`);
+      if (periodDays > 0) list.push(`That is about ${formatUGX(Math.round(revenue / periodDays))} per day over ${periodDays} day(s).`);
+    }
+    if (revenue > 0 && margin > 0) list.push(`Gross margin is ${margin.toFixed(1)}% — ${formatUGX(Math.round(gp))} left after cost of goods.`);
+    if (net < 0) list.push(`Net result is a LOSS of ${formatUGX(Math.abs(Math.round(net)))} — operating expenses (${formatUGX(expenses)}) exceeded gross profit.`);
+    else if (net > 0) list.push(`After ${formatUGX(expenses)} of expenses, the business kept ${formatUGX(Math.round(net))} net profit.`);
+    if (expiring > 0) list.push(`${formatUGX(expiring)} of stock expires within 30 days — prioritise FEFO dispatch and consider supplier returns.`);
+    if (ar > 0) list.push(`Customers owe ${formatUGX(ar)} on credit — review AR aging (AR/AP tab) to manage cash flow.`);
+    if (ap > 0) list.push(`Outstanding supplier bills total ${formatUGX(ap)} — clear or plan these before committing to more purchases.`);
+    if (returnsCount > 0) list.push(`${formatNum(returnsCount)} return(s) worth ${formatUGX(returnsVal)} — investigate if this signals a product or service issue.`);
+    if (compare && reportData.comparison?.sales && reportData.comparison.sales.pct !== null && reportData.comparison.sales.pct !== undefined) {
+      const pct = Number(reportData.comparison.sales.pct);
+      list.push(`Sales are ${pct >= 0 ? 'UP' : 'DOWN'} ${Math.abs(pct).toFixed(1)}% versus the previous comparable period.`);
+    }
+    if (revenue === 0 && txns === 0) list.push('No sales recorded for this period — check the date range or POS activity.');
+    return list;
+  }, [reportData, loading, activeTab, compare, periodDays]);
+
   return (
     <div className="space-y-6 pb-10">
       {/* Header */}
       <PageHeader icon={BarChart3} title="Reports" description="Executive reporting & BI — branch-scoped, server-authoritative">
         <Badge variant="outline" className="gap-1"><Building2 className="h-3 w-3" />{branches.find(b => b.id === branchFilter)?.name ?? 'All Branches'}</Badge>
         <Button variant="outline" size="sm" onClick={exportCsv}><Download className="h-4 w-4 mr-1" />CSV</Button>
-        <Button variant="outline" size="sm" onClick={exportXlsx}><FileText className="h-4 w-4 mr-1" />Excel</Button>
+        <Button variant="outline" size="sm" onClick={exportXls}><FileText className="h-4 w-4 mr-1" />Excel</Button>
         <Button variant="outline" size="sm" onClick={printReport}><Printer className="h-4 w-4 mr-1" />Print/PDF</Button>
       </PageHeader>
       <p className="-mt-4 text-xs text-muted-foreground" suppressHydrationWarning>
@@ -286,6 +409,10 @@ export default function ReportsPage() {
                 <option value="all">All Customers</option>
                 {safeSlice(customers, 0, 100).map((c: any) => <option key={c.id} value={c.id}>{c.display_name ?? c.name}</option>)}
               </Select>
+              <Select value={productFilter} onChange={e => setProductFilter(e.target.value)} className="w-full md:w-[180px]">
+                <option value="">All Products</option>
+                {safeSlice(products, 0, 100).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </Select>
               <Select value={granularity} onChange={e => setGranularity(e.target.value)} className="w-full md:w-[140px]">
                 <option value="hour">By Hour</option><option value="day">By Day</option><option value="week">By Week</option><option value="month">By Month</option>
               </Select>
@@ -296,7 +423,7 @@ export default function ReportsPage() {
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={compare} onChange={e => setCompare(e.target.checked)} /> Compare to previous period</label>
               <Button size="sm" onClick={() => { setPage(1); fetchReport(activeTab); }}>Run Report</Button>
-              <Button variant="outline" size="sm" onClick={() => { setBranchFilter("all"); setDateFrom(""); setDateTo(""); setCategoryFilter("all"); setSupplierFilter("all"); setCustomerFilter("all"); setPaymentMethod("all"); setCompare(false); }}>Clear Filters</Button>
+              <Button variant="outline" size="sm" onClick={() => { setBranchFilter("all"); setDateFrom(""); setDateTo(""); setProductFilter(""); setCategoryFilter("all"); setSupplierFilter("all"); setCustomerFilter("all"); setPaymentMethod("all"); setGranularity("day"); setExpiryBucket("all"); setCompare(false); }}>Clear Filters</Button>
             </div>
             <p className="text-xs text-muted-foreground">Filters persist while navigating/paginating. Branch filter is server-side authoritative. Date range is inclusive. Only relevant filters affect each report.</p>
           </div>
@@ -323,6 +450,8 @@ export default function ReportsPage() {
           <TabsTrigger value="ar"><CreditCard className="h-4 w-4 mr-1" />AR/AP</TabsTrigger>
           <TabsTrigger value="branches"><Building2 className="h-4 w-4 mr-1" />Branches</TabsTrigger>
           <TabsTrigger value="audit"><FileText className="h-4 w-4 mr-1" />Audit</TabsTrigger>
+          <TabsTrigger value="movements"><ArrowLeftRight className="h-4 w-4 mr-1" />Movements</TabsTrigger>
+          <TabsTrigger value="reconciliation"><ClipboardCheck className="h-4 w-4 mr-1" />Reconciliation</TabsTrigger>
         </TabsList>
 
         {/* OVERVIEW — Executive Dashboard */}
@@ -338,11 +467,19 @@ export default function ReportsPage() {
                   <Card className="cursor-pointer hover:shadow-md" onClick={() => handleTab("inventory")}><CardHeader className="pb-2 flex flex-row items-center justify-between"><CardTitle className="text-sm">Stock Value</CardTitle><Package className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-xl font-bold">{formatUGX(reportData.stockValue ?? 0)}</div><p className="text-xs text-muted-foreground">{formatNum(reportData.stockQty ?? 0)} units {compare && reportData.comparison && comparisonBadge(reportData.comparison.stockValue)}</p></CardContent></Card>
                   <Card className="cursor-pointer hover:shadow-md" onClick={() => handleTab("ar")}><CardHeader className="pb-2 flex flex-row items-center justify-between"><CardTitle className="text-sm">Receivables</CardTitle><CreditCard className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-xl font-bold">{formatUGX(reportData.ar?.total ?? 0)}</div><p className="text-xs text-muted-foreground">{reportData.ar?.count ?? 0} customers owe</p></CardContent></Card>
                   <Card className="cursor-pointer hover:shadow-md" onClick={() => handleTab("ar")}><CardHeader className="pb-2 flex flex-row items-center justify-between"><CardTitle className="text-sm">Payables</CardTitle><Truck className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-xl font-bold">{formatUGX(reportData.ap?.total ?? 0)}</div><p className="text-xs text-muted-foreground">{reportData.ap?.count ?? 0} suppliers</p></CardContent></Card>
-                  <Card><CardHeader className="pb-2 flex flex-row items-center justify-between"><CardTitle className="text-sm">Transactions</CardTitle><ShoppingCart className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-xl font-bold">{reportData.transactions ?? 0}</div><p className="text-xs text-muted-foreground">Completed sales</p></CardContent></Card>
+                  <Card className="cursor-pointer hover:shadow-md" onClick={() => handleTab("sales")}><CardHeader className="pb-2 flex flex-row items-center justify-between"><CardTitle className="text-sm">Transactions</CardTitle><ShoppingCart className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-xl font-bold">{reportData.transactions ?? 0}</div><p className="text-xs text-muted-foreground">Completed sales</p></CardContent></Card>
                   <Card className="cursor-pointer hover:shadow-md" onClick={() => handleTab("expiry")}><CardHeader className="pb-2 flex flex-row items-center justify-between"><CardTitle className="text-sm">Expiring Value</CardTitle><Clock className="h-4 w-4 text-orange-600" /></CardHeader><CardContent><div className="text-xl font-bold text-orange-600">{formatUGX(reportData.expiringValue ?? 0)}</div><p className="text-xs text-muted-foreground">At risk • Exp {reportData.expiringCounts?.expired ?? 0} • 0-30:{reportData.expiringCounts?.['0-30'] ?? 0}</p></CardContent></Card>
-                  <Card><CardHeader className="pb-2 flex flex-row items-center justify-between"><CardTitle className="text-sm">Returns</CardTitle><XCircle className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-xl font-bold">{formatUGX(reportData.returns?.value ?? 0)}</div><p className="text-xs text-muted-foreground">{reportData.returns?.count ?? 0} returns</p></CardContent></Card>
+                  <Card className="cursor-pointer hover:shadow-md" onClick={() => { window.location.href = "/returns"; }}><CardHeader className="pb-2 flex flex-row items-center justify-between"><CardTitle className="text-sm">Returns</CardTitle><XCircle className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-xl font-bold">{formatUGX(reportData.returns?.value ?? 0)}</div><p className="text-xs text-muted-foreground">{reportData.returns?.count ?? 0} returns</p></CardContent></Card>
                 </div>
                 {reportData.comparison && <Card><CardContent className="p-3 text-xs">Period comparison: Current {dateFrom}→{dateTo} vs Previous. Percentage change avoids misleading when baseline is zero.</CardContent></Card>}
+                {insights.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Lightbulb className="h-4 w-4 text-amber-500" />Key Insights</CardTitle><CardDescription>Plain-language readout of this period — recalculated with your filters</CardDescription></CardHeader>
+                    <CardContent className="pt-0 space-y-1.5">
+                      {insights.map((t, i) => <p key={i} className="text-xs text-muted-foreground flex gap-2"><span className="text-primary">•</span><span>{t}</span></p>)}
+                    </CardContent>
+                  </Card>
+                )}
                 <div className="grid gap-4 md:grid-cols-2">
                   <Card><CardHeader><CardTitle className="text-sm">Sales Trend ({granularity})</CardTitle></CardHeader><CardContent className="h-[240px]">
                     {Array.isArray(reportData.trend ?? reportData.salesTrend) && (reportData.trend ?? reportData.salesTrend).length > 0 ? (
@@ -374,7 +511,7 @@ export default function ReportsPage() {
                 {safeSlice(sorted(safeSlice(reportData.sales?.data, 0, 1000), sortBy ?? ''), 0, perPage).map((s: any) => <TableRow key={s.id}><TableCell className="font-mono text-xs"><a href={`/sales?search=${encodeURIComponent(s.sale_number)}`} className="underline">{s.sale_number}</a></TableCell><TableCell className="text-xs" suppressHydrationWarning>{mounted ? new Date(s.sold_at).toLocaleString() : s.sold_at}</TableCell><TableCell className="text-right text-xs">{formatUGX(Number(s.total))}</TableCell><TableCell><Badge variant={s.status === 'COMPLETED' ? 'default' : 'outline'}>{s.status}</Badge></TableCell></TableRow>)}
                 {safeSlice(reportData.sales?.data, 0, 1000).length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No sales found for the selected period.</TableCell></TableRow>}
               </TableBody></Table></div>
-                <div className="flex items-center justify-between p-3 border-t"><Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Previous</Button><span className="text-xs">Page {page}</span><Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)}>Next</Button></div>
+                <div className="flex items-center justify-between p-3 border-t"><Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Previous</Button><span className="text-xs">Page {page}</span><Button variant="outline" size="sm" disabled={(reportData.sales?.count ?? 0) <= page * perPage} onClick={() => setPage(p => p + 1)}>Next</Button></div>
               </CardContent></Card>
             </>
           ) : <Card><CardContent className="p-6 text-center text-muted-foreground">No sales data — try broadening filters or check <a href="/pos" className="underline">POS</a></CardContent></Card>}
@@ -397,7 +534,7 @@ export default function ReportsPage() {
                 <div className="flex justify-between font-bold border-t pt-1 text-base"><span>Net Operating Profit</span><span>{formatUGX(reportData.pnl?.netOperatingProfit ?? 0)}</span></div>
               </CardContent></Card>
               <div className="grid gap-4 md:grid-cols-2">
-                <Card><CardHeader><CardTitle className="text-sm">Profit Trend</CardTitle></CardHeader><CardContent className="h-[200px]"><ResponsiveContainer width="100%" height="100%"><LineChart data={[{ name: 'GP', value: reportData.pnl?.grossProfit ?? 0 }, { name: 'Net', value: reportData.pnl?.netOperatingProfit ?? 0 }]}><XAxis dataKey="name" /><YAxis /><Tooltip formatter={(v: any) => formatUGX(v)} /><Line type="monotone" dataKey="value" stroke="#16a34a" /></LineChart></ResponsiveContainer></CardContent></Card>
+                <Card><CardHeader><CardTitle className="text-sm">Gross vs Net Profit</CardTitle></CardHeader><CardContent className="h-[200px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={[{ name: 'Gross', value: reportData.pnl?.grossProfit ?? 0 }, { name: 'Net', value: reportData.pnl?.netOperatingProfit ?? 0 }]}><XAxis dataKey="name" fontSize={11} /><YAxis fontSize={10} /><Tooltip formatter={(v: any) => formatUGX(v)} /><Bar dataKey="value" fill="#16a34a" /></BarChart></ResponsiveContainer></CardContent></Card>
                 <Card><CardHeader><CardTitle className="text-sm">Expenses by Category</CardTitle></CardHeader><CardContent><div className="space-y-2">{safeSlice(Object.entries(reportData.pnl?.byExpenseCategory ?? reportData.expenses?.byCategory ?? {}), 0, 6).map(([k, v]: any) => <div key={String(k)} className="flex justify-between text-xs"><span>{String(k)}</span><span>{formatUGX(Number(v))}</span></div>)}{Object.keys(reportData.pnl?.byExpenseCategory ?? reportData.expenses?.byCategory ?? {}).length === 0 && <p className="text-xs text-muted-foreground">No expenses in period — <a href="/expenses" className="underline">Expenses</a></p>}</div></CardContent></Card>
               </div>
             </>
@@ -441,7 +578,7 @@ export default function ReportsPage() {
         <TabsContent value="lowstock" className="space-y-4">
           {loading ? <Skeleton className="h-64 w-full" /> : reportData ? (
             <>
-              <Card><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-sm">Low Stock — {reportData.count ?? safeSlice(reportData.data, 0, 10000).length ?? 0} items</CardTitle><Button size="sm" disabled={selectedLow.size === 0} onClick={() => { window.location.href = `/purchases?create=1&products=${Array.from(selectedLow).join(',')}`; }}>Create Purchase Order ({selectedLow.size})</Button></CardHeader><CardContent className="p-0"><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead><input type="checkbox" onChange={e => { if (e.target.checked) setSelectedLow(new Set(safeSlice(reportData.data, 0, 10000).map((r: any) => r.product_id))); else setSelectedLow(new Set()); }} /></TableHead><TableHead>Product</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Reorder</TableHead><TableHead className="text-right">Suggested</TableHead><TableHead>Supplier</TableHead></TableRow></TableHeader><TableBody>
+              <Card><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-sm">Low Stock — {reportData.count ?? safeSlice(reportData.data, 0, 10000).length ?? 0} items</CardTitle><Button size="sm" disabled={selectedLow.size === 0} onClick={() => { window.location.href = `/purchases?create=1&products=${Array.from(selectedLow).join(',')}`; }}>Create Purchase Order ({selectedLow.size})</Button></CardHeader><CardContent className="p-0"><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead><input type="checkbox" onChange={e => { if (e.target.checked) setSelectedLow(new Set(safeSlice(reportData.data, 0, 50).map((r: any) => r.product_id))); else setSelectedLow(new Set()); }} /></TableHead><TableHead>Product</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Reorder</TableHead><TableHead className="text-right">Suggested</TableHead><TableHead>Supplier</TableHead></TableRow></TableHeader><TableBody>
                 {safeSlice(reportData.data, 0, 50).map((r: any) => <TableRow key={r.product_id}><TableCell><input type="checkbox" checked={selectedLow.has(r.product_id)} onChange={e => { const s = new Set(selectedLow); if (e.target.checked) s.add(r.product_id); else s.delete(r.product_id); setSelectedLow(s); }} /></TableCell><TableCell className="text-xs"><a href={`/products?search=${encodeURIComponent(r.product_name)}`} className="underline">{r.product_name}</a></TableCell><TableCell className="text-right">{r.quantity_available}</TableCell><TableCell className="text-right">{r.reorder_level}</TableCell><TableCell className="text-right">{r.suggested_reorder}</TableCell><TableCell className="text-xs"><a href={`/suppliers?search=${encodeURIComponent(r.preferred_supplier_name ?? '')}`} className="underline">{r.preferred_supplier_name ?? '—'}</a></TableCell></TableRow>)}
                 {safeSlice(reportData.data, 0, 10000).length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No low stock — inventory healthy</TableCell></TableRow>}
               </TableBody></Table></div></CardContent></Card>
@@ -582,9 +719,43 @@ export default function ReportsPage() {
               {safeSlice(reportData.data, 0, perPage).map((r: any) => <TableRow key={r.id}><TableCell><Badge variant="outline">{r.action}</Badge></TableCell><TableCell className="text-xs">{r.entity_type} • {safeIdSlice(r.entity_id, 8)}</TableCell><TableCell className="text-xs" suppressHydrationWarning>{mounted ? new Date(r.created_at).toLocaleString() : r.created_at}</TableCell></TableRow>)}
               {safeSlice(reportData.data, 0, perPage).length === 0 && <TableRow><TableCell colSpan={3} className="text-center py-6 text-muted-foreground">No audit events — <a href="/audit" className="underline">Audit trail</a></TableCell></TableRow>}
             </TableBody></Table></div>
-              <div className="flex justify-between p-3 border-t"><Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Previous</Button><span className="text-xs">Page {page}</span><Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)}>Next</Button></div>
+              <div className="flex justify-between p-3 border-t"><Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Previous</Button><span className="text-xs">Page {page}</span><Button variant="outline" size="sm" disabled={(reportData.count ?? 0) <= page * perPage} onClick={() => setPage(p => p + 1)}>Next</Button></div>
             </CardContent></Card>
           ) : <Card><CardContent className="p-6 text-center">No audit data</CardContent></Card>}
+        </TabsContent>
+
+        {/* MOVEMENTS — inventory ledger */}
+        <TabsContent value="movements" className="space-y-4">
+          {loading ? <Skeleton className="h-64 w-full" /> : reportData ? (
+            <Card>
+              <CardHeader><CardTitle className="text-sm">Stock Movements — {reportData.count ?? 0} recorded</CardTitle><CardDescription>Every PURCHASE / SALE / RETURN / ADJUSTMENT / TRANSFER / EXPIRED / DAMAGED entry for the period</CardDescription></CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Product</TableHead><TableHead>Batch</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Qty</TableHead><TableHead>Reference</TableHead></TableRow></TableHeader><TableBody>
+                  {safeSlice(reportData.data, 0, perPage).map((m: any) => <TableRow key={m.id}><TableCell className="text-xs" suppressHydrationWarning>{mounted ? new Date(m.created_at).toLocaleString() : m.created_at}</TableCell><TableCell className="text-xs">{m.products?.name ?? safeIdSlice(m.product_id, 8)}</TableCell><TableCell className="font-mono text-xs">{m.product_batches?.batch_number ?? '—'}</TableCell><TableCell><Badge variant="outline">{m.movement_type}</Badge></TableCell><TableCell className="text-right text-xs">{m.quantity}</TableCell><TableCell className="text-xs">{m.reference_type ? `${m.reference_type} ${safeIdSlice(m.reference_id, 6)}` : '—'}</TableCell></TableRow>)}
+                  {safeSlice(reportData.data, 0, perPage).length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No stock movements in period</TableCell></TableRow>}
+                </TableBody></Table></div>
+                <div className="flex items-center justify-between p-3 border-t"><Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Previous</Button><span className="text-xs">Page {page}</span><Button variant="outline" size="sm" disabled={(reportData.count ?? 0) <= page * perPage} onClick={() => setPage(p => p + 1)}>Next</Button></div>
+              </CardContent>
+            </Card>
+          ) : <Card><CardContent className="p-6 text-center">No movement data</CardContent></Card>}
+        </TabsContent>
+
+        {/* RECONCILIATION */}
+        <TabsContent value="reconciliation" className="space-y-4">
+          {loading ? <Skeleton className="h-64 w-full" /> : reportData ? (
+            <>
+              <div className="grid gap-4 md:grid-cols-4">
+                <Card><CardHeader className="pb-2"><CardTitle className="text-xs">Sales Total</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatUGX(reportData.salesTotal ?? 0)}</div></CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-xs">Payments Recorded</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatUGX(reportData.paidTotal ?? 0)}</div></CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-xs">Difference</CardTitle></CardHeader><CardContent><div className={`text-xl font-bold ${Math.abs(Number(reportData.salesDiff ?? 0)) < 0.01 ? 'text-green-600' : 'text-destructive'}`}>{formatUGX(reportData.salesDiff ?? 0)}</div></CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-xs">Inventory Valuation</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatUGX(reportData.inventoryValuation ?? 0)}</div></CardContent></Card>
+              </div>
+              <Card><CardContent className="p-4 text-sm space-y-2">
+                <div className="flex items-center gap-2">{reportData.salesReconciled ? <Badge className="gap-1"><ClipboardCheck className="h-3 w-3" />Reconciled</Badge> : <Badge variant="destructive" className="gap-1"><AlertTriangle className="h-3 w-3" />Mismatch</Badge>}<span className="text-muted-foreground text-xs">Sales {formatUGX(reportData.salesTotal ?? 0)} vs payments {formatUGX(reportData.paidTotal ?? 0)} for this period</span></div>
+                <p className="text-xs text-muted-foreground">{reportData.salesReconciled ? 'Sales and payments agree — recorded cash/payments match completed sales totals.' : 'Payments differ from completed sales — check voided sales, unpaid credit sales, or missing payment records. Drill into the Sales and Audit tabs.'}</p>
+              </CardContent></Card>
+            </>
+          ) : <Card><CardContent className="p-6 text-center">No reconciliation data</CardContent></Card>}
         </TabsContent>
       </Tabs>
 
