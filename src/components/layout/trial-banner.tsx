@@ -6,6 +6,7 @@ import {
   isPaidActive,
   daysLeftInTrial,
   daysLeftInAccess,
+  cyclesLeftInAccess,
   cacheGate,
   readCachedGate,
   type TrialGate,
@@ -53,6 +54,10 @@ export function TrialBanner({ gate }: { gate: TrialGate | null }) {
   const isTrial = isTrialActive(effective);
   if (live <= 0) return null;
 
+  // Derive cycles from the live countdown — the raw paid_cycles column is a
+  // static credited total and never ticks down as months elapse.
+  const cyclesLeft = cyclesLeftInAccess(effective);
+
   const phone1 = effective?.contact_phone_1 ?? "0746047086";
   const phone2 = effective?.contact_phone_2 ?? "0768082948";
 
@@ -73,8 +78,8 @@ export function TrialBanner({ gate }: { gate: TrialGate | null }) {
             <span className="font-semibold">
               {live} day{live !== 1 ? "s" : ""}
             </span>
-            {effective && (effective.paid_cycles ?? 0) > 0 && (
-              <span className="text-muted-foreground"> · {effective.paid_cycles} cycle{effective.paid_cycles !== 1 ? "s" : ""} remaining</span>
+            {cyclesLeft > 0 && (
+              <span className="text-muted-foreground"> · {cyclesLeft} cycle{cyclesLeft !== 1 ? "s" : ""} remaining</span>
             )}
             . Renew with MediFlow IQ before this ends to avoid interruption.
           </>

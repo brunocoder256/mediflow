@@ -56,6 +56,26 @@ export function daysLeftInAccess(gate: TrialGate | null): number {
   return calendarDaysLeft(gate.access_ends_at);
 }
 
+/** Average days per calendar month — matches the super-admin end-date preview math. */
+export const AVG_MONTH_DAYS = 30.4375;
+
+/**
+ * Paid cycles still remaining, derived from the live countdown instead of the
+ * static `paid_cycles` column (which is only ever incremented when the
+ * super-admin credits cycles and is never decremented as time elapses).
+ *
+ * Each cycle is one paid month, so cycles left = whole months left in
+ * `access_ends_at`, rounding up so the final partial cycle still counts as 1
+ * until access actually ends — and capped at what was actually credited.
+ */
+export function cyclesLeftInAccess(gate: TrialGate | null): number {
+  if (!gate || !isPaidActive(gate)) return 0;
+  const days = daysLeftInAccess(gate);
+  if (days <= 0) return 0;
+  const computed = Math.ceil(days / AVG_MONTH_DAYS);
+  return Math.max(0, Math.min(gate.paid_cycles ?? 0, computed));
+}
+
 // ---------------------------------------------------------------------------
 // Offline persistence for the trial/access gate.
 //
