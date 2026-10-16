@@ -17,46 +17,45 @@ const DropdownMenuContext = React.createContext<DropdownMenuContextValue>({
 
 function DropdownMenu({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = React.useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
 
   const handleItemSelect = React.useCallback(() => {
     setOpen(false);
   }, []);
 
+  React.useEffect(() => {
+    if (!open) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => document.removeEventListener('mousedown', handleMouseDown);
+  }, [open]);
+
   return (
     <DropdownMenuContext.Provider value={{ open, onOpenChange: setOpen, onItemSelect: handleItemSelect }}>
-      <div className="relative inline-block text-left">
+      <div ref={containerRef} className="relative inline-block text-left">
         {children}
       </div>
     </DropdownMenuContext.Provider>
   );
 }
 
-function DropdownMenuTrigger({ children, asChild, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { asChild?: boolean }) {
+function DropdownMenuTrigger({ children, asChild: _asChild, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { asChild?: boolean }) {
   const { open, onOpenChange } = React.useContext(DropdownMenuContext);
-  const ref = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onOpenChange(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [onOpenChange]);
 
   return (
-    <div ref={ref}>
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-haspopup="true"
-        onClick={() => onOpenChange(!open)}
-        {...props}
-      >
-        {children}
-      </button>
-    </div>
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-haspopup="true"
+      onClick={() => onOpenChange(!open)}
+      {...props}
+    >
+      {children}
+    </button>
   );
 }
 

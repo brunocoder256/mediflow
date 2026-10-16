@@ -79,7 +79,9 @@ async function computeAlertDrafts(orgId: string, branchId?: string | null): Prom
 
 /**
  * Insert fresh alerts for every active user of the org, de-duplicated against
- * existing *unread* notifications (same type + title). Returns rows inserted.
+ * existing notifications (same type + title) — including ones the user has
+ * already read, so a read alert is never re-inserted as unread. Returns rows
+ * inserted.
  */
 export async function syncInventoryNotifications(orgId: string, branchId?: string | null): Promise<number> {
   const drafts = await computeAlertDrafts(orgId, branchId);
@@ -99,7 +101,6 @@ export async function syncInventoryNotifications(orgId: string, branchId?: strin
         .eq('user_id', uid)
         .eq('type', d.type)
         .eq('title', d.title)
-        .eq('is_read', false)
         .limit(1);
       if (existErr || (existing ?? []).length) continue;
       const { error } = await admin.from('notifications').insert({
