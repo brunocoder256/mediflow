@@ -6,6 +6,8 @@ import { Topbar } from "@/components/layout/topbar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { BranchProvider } from "@/hooks/branch-context";
 import { PreferencesProvider } from "@/hooks/preferences-context";
+import { ConfirmProvider } from "@/hooks/use-confirm";
+import { Toaster } from "@/components/ui/toast";
 import { setupAutoSync } from "@/lib/offline/sync";
 import { invalidateCache } from "@/lib/offline/cached-fetch";
 import { tryRestoreServerSession } from "@/lib/offline/reauth";
@@ -90,21 +92,24 @@ export default function DashboardShell({
   return (
     <BranchProvider>
       <PreferencesProvider>
-        <div className="flex h-screen overflow-hidden bg-background">
-          {/* Desktop Sidebar */}
-          <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
+        <ConfirmProvider>
+          <div className="flex h-screen overflow-hidden bg-background">
+            {/* Desktop Sidebar */}
+            <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
 
-          {/* Mobile Navigation */}
-          <MobileNav open={mobileNavOpen} onOpenChange={setMobileNavOpen} />
+            {/* Mobile Navigation */}
+            <MobileNav open={mobileNavOpen} onOpenChange={setMobileNavOpen} />
 
-          {/* Main Content */}
-          <div className="flex flex-1 flex-col overflow-hidden">
-            <Topbar onMenuClick={() => setMobileNavOpen(true)} />
-            <main className="flex-1 overflow-y-auto p-4 lg:p-6">
-              {children}
-            </main>
+            {/* Main Content */}
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <Topbar onMenuClick={() => setMobileNavOpen(true)} />
+              <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+                {children}
+              </main>
+            </div>
           </div>
-        </div>
+          <Toaster />
+        </ConfirmProvider>
       </PreferencesProvider>
     </BranchProvider>
   );

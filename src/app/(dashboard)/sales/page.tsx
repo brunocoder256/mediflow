@@ -15,6 +15,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatCard } from "@/components/ui/stat-card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useOnlineStatus } from "@/hooks/use-online-status";
+import { useToast } from "@/hooks/use-toast";
+import { useConfirm } from "@/hooks/use-confirm";
 import { queueSaleVoid } from "@/lib/offline/sync";
 import { usePendingSales, useMediflowSynced } from "@/lib/offline/pending-overlay";
 import { cachedFetch } from "@/lib/offline/cached-fetch";
@@ -38,6 +40,8 @@ function statusBadge(s:string){
 
 export default function SalesPage(){
   const { isOnline } = useOnlineStatus();
+  const { toast } = useToast();
+  const { confirm, prompt } = useConfirm();
   const pendingSales = usePendingSales();
   const [loading,setLoading]=React.useState(true);
   const [sales,setSales]=React.useState<Sale[]>([]);
@@ -185,18 +189,32 @@ export default function SalesPage(){
   };
 
   const voidSale=async(id:string)=>{
-    if(!confirm("Void this sale? This creates a SALE_RETURN movement (+qty back to batch) and audit log. Irreversible.")) return;
-    const reason=prompt("Reason for void") ?? "User void";
+    const ok=await confirm({
+      title:"Void this sale?",
+      description:"This creates a SALE_RETURN movement (+qty back to batch) and an audit log entry. This cannot be undone.",
+      confirmLabel:"Void sale",
+      destructive:true,
+    });
+    if(!ok) return;
+    const reason=(await prompt({
+      title:"Reason for void",
+      description:"Recorded in the audit log for traceability.",
+      inputLabel:"Reason",
+      placeholder:"e.g. customer changed mind",
+      defaultValue:"User void",
+      confirmLabel:"Confirm void",
+      destructive:true,
+    })) ?? "User void";
     if(!isOnline){
       await queueSaleVoid(id, reason);
-      alert("Void queued offline — stock restoration + audit will apply once online (idempotent).");
+      toast({ title:"Void queued offline", description:"Stock restoration + audit will apply once online (idempotent).", variant:"warning" });
       setDetail(null); fetchData();
       return;
     }
     const r=await fetch(`/api/sales`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"void", sale_id:id, reason})});
     const j=await r.json();
-    if(!r.ok) alert(j.error);
-    else { alert("Sale voided — stock restored via movement"); fetchData(); setDetail(null); }
+    if(!r.ok) toast({ title:"Couldn't void sale", description:j.error ?? "Something went wrong.", variant:"error" });
+    else { toast({ title:"Sale voided", description:"Stock restored via movement.", variant:"success" }); fetchData(); setDetail(null); }
   };
 
   const exportSales=(fmt:'csv'|'print')=>{

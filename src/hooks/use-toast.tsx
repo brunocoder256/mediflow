@@ -2,12 +2,19 @@
 
 import * as React from 'react';
 
+export interface ToastActionButton {
+  label: string;
+  onClick: () => void;
+}
+
 export interface Toast {
   id: string;
   title?: string;
   description?: string;
   variant?: 'default' | 'success' | 'error' | 'warning';
+  // 0 (or negative) keeps the toast on screen until dismissed — useful with an action.
   duration?: number;
+  action?: ToastActionButton;
 }
 
 interface ToastState {
@@ -34,13 +41,13 @@ function toastReducer(state: ToastState, action: ToastAction): ToastState {
 
 interface ToastContextValue {
   toasts: Toast[];
-  toast: (props: Omit<Toast, 'id'>) => void;
+  toast: (props: Omit<Toast, 'id'>) => string;
   dismiss: (id: string) => void;
 }
 
 const ToastContext = React.createContext<ToastContextValue>({
   toasts: [],
-  toast: () => {},
+  toast: () => '',
   dismiss: () => {},
 });
 
@@ -62,7 +69,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       const id = generateId();
       const duration = props.duration ?? 5000;
       dispatch({ type: 'ADD', toast: { ...props, id } });
-      setTimeout(() => dismiss(id), duration);
+      if (duration > 0) setTimeout(() => dismiss(id), duration);
+      return id;
     },
     [dismiss]
   );
