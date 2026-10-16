@@ -124,6 +124,7 @@ export async function GET(req: Request) {
       expenses: round2(profit.totalExpenses),
       expensesLast: round2(yesterdayProfit.totalExpenses),
       netProfit: round2(profit.netProfit),
+      netProfitLast: round2(yesterdayProfit.netProfit),
       inventoryValue: valuation.valuation,
       lowStock: low,
       expiringSoon: expiring,

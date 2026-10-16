@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 interface StatCardProps {
   title: string;
@@ -9,6 +10,7 @@ interface StatCardProps {
   trend?: "up" | "down" | "neutral";
   trendValue?: React.ReactNode;
   accent?: string;
+  onClick?: () => void;
 }
 
 function StatCard({
@@ -19,9 +21,25 @@ function StatCard({
   trend,
   trendValue,
   accent,
+  onClick,
 }: StatCardProps) {
   return (
-    <Card className="transition-shadow hover:shadow-md">
+    <Card
+      className={cn("transition-shadow hover:shadow-md", onClick && "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]")}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+    >
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
         {Icon && (
