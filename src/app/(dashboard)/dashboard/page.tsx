@@ -136,7 +136,13 @@ export default function DashboardPage() {
       .map((p: any) => ({ id: p.id, sale_number: p.sale_number ?? "PENDING…", sold_at: p.sold_at, total: p.total, status: "PENDING_SYNC" }));
   }, [pendingSales]);
 
-  const merged = data ? { ...data, todaySales: (data.todaySales ?? 0) + todayOffsetPending.amount, todayCount: (data.todayCount ?? 0) + todayOffsetPending.count } : data;
+  const merged = React.useMemo(
+    () =>
+      data
+        ? { ...data, todaySales: (data.todaySales ?? 0) + todayOffsetPending.amount, todayCount: (data.todayCount ?? 0) + todayOffsetPending.count }
+        : data,
+    [data, todayOffsetPending],
+  );
 
   const trendOf = (cur: number, prev: number) => {
     if (!prev || prev <= 0) return { trend: "neutral" as const, trendValue: "" };
