@@ -67,6 +67,28 @@ export default function PurchasesPage(){
     return ()=>clearInterval(id);
   },[]);
 
+  // Supplier page "Create Purchase Order" hands off via ?supplier_id=<id> (and a
+  // legacy localStorage key). Open the create dialog pre-filled once suppliers load.
+  const preselectRef = React.useRef<string|null>(null);
+  React.useEffect(()=>{
+    try{
+      const sp = new URLSearchParams(window.location.search);
+      const fromUrl = sp.get("supplier_id");
+      let fromLs: string|null = null; try{ fromLs = localStorage.getItem("mediflow_preselect_supplier"); }catch{}
+      const sid = fromUrl || fromLs;
+      if(sid) preselectRef.current = sid;
+    }catch{}
+  },[]);
+  React.useEffect(()=>{
+    const sid = preselectRef.current;
+    if(!sid || !suppliers.length || !suppliers.some((s:any)=>s.id===sid)) return;
+    setForm(f=>({...f, supplier_id: sid}));
+    setShowCreate(true);
+    preselectRef.current = null;
+    try{ localStorage.removeItem("mediflow_preselect_supplier"); }catch{}
+    try{ window.history.replaceState({}, "", window.location.pathname); }catch{}
+  },[suppliers]);
+
   const fetchAll=React.useCallback(async()=>{
     setLoading(true);
     const params=new URLSearchParams();

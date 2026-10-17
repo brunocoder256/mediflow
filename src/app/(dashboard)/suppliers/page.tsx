@@ -61,7 +61,7 @@ export default function SuppliersPage(){
   const [products,setProducts]=React.useState<any[]>([]);
   const [linkProductId,setLinkProductId]=React.useState("");
   const [noteText,setNoteText]=React.useState("");
-  const [docForm,setDocForm]=React.useState({document_type:"AGREEMENT", file_name:"", file_url:""});
+  const [docForm,setDocForm]=React.useState({document_type:"AGREEMENT", file_name:"", file_url:"", file_size:0, mime_type:""});
   const [paymentForm,setPaymentForm]=React.useState({amount:"", method:"CASH", reference:""});
   const [wizardStep,setWizardStep]=React.useState(1);
   const [showBarcodeScan,setShowBarcodeScan]=React.useState(false);
@@ -71,6 +71,10 @@ export default function SuppliersPage(){
   const [catalogueErrors,setCatalogueErrors]=React.useState<any[]>([]);
   const [priceAlerts,setPriceAlerts]=React.useState<any[]>([]);
   const [priceThreshold,setPriceThreshold]=React.useState(10);
+  const [thresholdSaving,setThresholdSaving]=React.useState(false);
+  const [summary,setSummary]=React.useState<any>(null);
+  const [canViewFin,setCanViewFin]=React.useState(true);
+  const [catalogueEnabled,setCatalogueEnabled]=React.useState<boolean|null>(null);
   const [creditApprovals,setCreditApprovals]=React.useState<any[]>([]);
   const [showApproval,setShowApproval]=React.useState(false);
   const [approvalAmount,setApprovalAmount]=React.useState("");
@@ -95,6 +99,8 @@ export default function SuppliersPage(){
       if(statusFilter!=="all") params.set("status", statusFilter);
       else params.set("includeInactive","1");
       if(branchFilter!=="all") params.set("branch_id", branchFilter);
+      if(onlyHasBalance) params.set("has_balance","1");
+      if(onlyOpenPO) params.set("has_open_po","1");
       params.set("page", String(page));
       params.set("perPage", String(perPage));
 const [sRes, bRes, pRes]=await Promise.all([
@@ -111,10 +117,15 @@ const [sRes, bRes, pRes]=await Promise.all([
       if(debouncedQ){ const q=debouncedQ.toLowerCase(); list=list.filter((s:any)=>(s.name??"").toLowerCase().includes(q)||(s.phone??"").toLowerCase().includes(q)||(s.email??"").toLowerCase().includes(q)); }
     }
     let filtered=list;
-    if(onlyHasBalance) filtered = filtered.filter((s:any)=> Number(s.balance)>0);
-    if(onlyOpenPO) filtered = filtered.filter((s:any)=> Number(s.open_pos)>0);
+    // Balance/open-PO filtering is done server-side (params above) so totals and
+    // pagination stay correct. Only the offline cache snapshot needs local filtering.
+    if(!sRes){
+      if(onlyHasBalance) filtered = filtered.filter((s:any)=> Number(s.balance)>0);
+      if(onlyOpenPO) filtered = filtered.filter((s:any)=> Number(s.open_pos)>0);
+    }
     setData(filtered);
     setCount(sRes?.count ?? filtered.length);
+    setSummary(sRes?.summary ?? null);
     setBranches(bRes.branches ?? []);
     setProducts(Array.isArray(pRes)? pRes : (pRes.data ?? []));
     // cache offline — keep the full enriched row (incl. balance) in payload so
@@ -137,20 +148,33 @@ const [sRes, bRes, pRes]=await Promise.all([
     window.addEventListener("mediflow:synced", onSync);
     return () => window.removeEventListener("mediflow:synced", onSync);
   },[fetchData]);
-  React.useEffect(()=>{ // fetch price alerts + threshold
-    fetch("/api/suppliers?priceAlerts=1").then(r=>r.json()).then(j=>{ if(Array.isArray(j)) setPriceAlerts(j); else if(j.alerts) setPriceAlerts(j.alerts); }).catch(()=>{});
+  React.useEffect(()=>{ // fetch price alerts + threshold + feature flags + permissions
+    fetch("/api/suppliers?priceAlerts=1").then(r=>r.json()).then(j=>{ if(Array.isArray(j)) setPriceAlerts(j); else if(j.alerts) setPriceAlerts(j.alerts); if(j?.threshold) setPriceThreshold(Number(j.threshold)); }).catch(()=>{});
     fetch("/api/suppliers?creditApprovals=1").then(r=>r.json()).then(j=>{ if(Array.isArray(j)) setCreditApprovals(j); }).catch(()=>{});
-    fetch("/api/settings").then(r=>r.json()).then(j=>{ const v=j?.organization_settings?.supplier_price_alert_pct ?? j?.supplier_price_alert_pct; if(v) setPriceThreshold(Number(v)); }).catch(()=>{});
+    fetch("/api/settings").then(r=>r.json()).then(j=>{ const os=j?.organization_settings ?? {}; const v=os.supplier_price_alert_pct ?? j?.supplier_price_alert_pct; if(v!=null) setPriceThreshold(Number(v)); if(os.supplier_catalogue_import_enabled!=null) setCatalogueEnabled(!!os.supplier_catalogue_import_enabled); }).catch(()=>{});
+    // Fail-open: only mask financials once we positively know the user lacks the permission.
+    fetch("/api/me").then(r=>r.ok? r.json(): null).then(j=>{ if(j && Array.isArray(j.permissions)){ setCanViewFin(j.permissions.includes("suppliers.view_financials") || j.permissions.includes("users.manage")); } }).catch(()=>{});
   },[]);
 
   const kpi = React.useMemo(()=>{
+    if(summary){
+      const overdue = data.filter(s=> Number(s.balance)> Number(s.credit_limit||0) && Number(s.credit_limit)>0).length;
+      return { total: summary.total ?? 0, active: summary.active ?? 0, outstanding: summary.outstanding ?? 0, overdue, withOpenPO: summary.withOpenPO ?? 0, products: summary.products ?? 0 };
+    }
     const total = data.length;
     const active = data.filter(s=>s.status==="Active" || s.is_active).length;
     const outstanding = data.reduce((a,s)=>a+Number(s.balance??0),0);
     const overdue = data.filter(s=> Number(s.balance)> Number(s.credit_limit||0) && Number(s.credit_limit)>0).length;
     const withOpenPO = data.filter(s=>Number(s.open_pos)>0).length;
-    return { total, active, outstanding, overdue, withOpenPO };
-  },[data]);
+    const products = data.reduce((a,s:any)=>a+Number(s.products_count??0),0);
+    return { total, active, outstanding, overdue, withOpenPO, products };
+  },[data,summary]);
+
+  // Sensitive financial data is masked only when we positively know the user
+  // lacks `suppliers.view_financials` (fail-open while permissions load).
+  const hideFin = !canViewFin;
+  const ugx = (n:any)=> hideFin ? "UGX ••••••" : `UGX ${Number(n??0).toLocaleString()}`;
+  const supplierAlerts = React.useMemo(()=> (showDetail? priceAlerts.filter((a:any)=>a.supplier_id===showDetail.id): []),[priceAlerts,showDetail]);
 
   const openCreate=()=>{
     setForm({...emptyForm, branch_ids: branches[0]? [branches[0].id]: []});
@@ -297,11 +321,21 @@ const [sRes, bRes, pRes]=await Promise.all([
     }
   };
 
-  const createPOFromSupplier=async()=>{
+  const createPOFromSupplier=()=>{
     if(!showDetail) return;
-    // redirect to purchases with supplier preselected via localStorage
-    localStorage.setItem("mediflow_preselect_supplier", showDetail.id);
-    window.location.href="/purchases";
+    // Pass the supplier through both a query param (survives reload) and
+    // localStorage (legacy key kept for backward compat). Purchases reads both.
+    try{ localStorage.setItem("mediflow_preselect_supplier", showDetail.id); }catch{}
+    window.location.href=`/purchases?supplier_id=${encodeURIComponent(showDetail.id)}`;
+  };
+  const createReturnFromSupplier=()=>{
+    if(!showDetail) return;
+    // Preselect the supplier (and the most recent received PO if we have one)
+    // on the returns workspace so the New Return dialog opens ready to use.
+    const received = (detailData?.detail?.pos ?? []).find((p:any)=>["RECEIVED","PARTIALLY_RECEIVED","CLOSED"].includes(p.status));
+    const qs = new URLSearchParams({ supplier_id: showDetail.id });
+    if(received?.id) qs.set("po_id", received.id);
+    window.location.href=`/returns?${qs.toString()}`;
   };
   const recordPayment=async()=>{
     if(!showDetail || !detailData) return;
@@ -331,9 +365,18 @@ const [sRes, bRes, pRes]=await Promise.all([
   };
   const submitDoc=async()=>{
     if(!showDetail || !docForm.file_name || !docForm.file_url) return alert("File name & URL required");
-    const r=await fetch("/api/suppliers",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"add_document", supplier_id: showDetail.id, file_name: docForm.file_name, file_url: docForm.file_url, document_type: docForm.document_type})});
+    const r=await fetch("/api/suppliers",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"add_document", supplier_id: showDetail.id, file_name: docForm.file_name, file_url: docForm.file_url, file_size: docForm.file_size, mime_type: docForm.mime_type, document_type: docForm.document_type})});
     const j=await r.json();
-    if(!r.ok) alert(j.error); else { setDocForm({document_type:"AGREEMENT", file_name:"", file_url:""}); openDetail(showDetail); }
+    if(!r.ok) alert(j.error); else { setDocForm({document_type:"AGREEMENT", file_name:"", file_url:"", file_size:0, mime_type:""}); openDetail(showDetail); }
+  };
+  const handleDocFile=async(e:React.ChangeEvent<HTMLInputElement>)=>{
+    const file=e.target.files?.[0]; if(!file) return;
+    // No storage backend is configured in this deployment, so embed small files
+    // as a data URL (metadata-only records remain supported for large files).
+    const MAX=1_500_000;
+    if(file.size>MAX){ return alert(`File too large (${(file.size/1024/1024).toFixed(1)} MB). Max ${(MAX/1024/1024).toFixed(1)} MB for embedded upload — paste a storage URL instead.`); }
+    const dataUrl:any = await new Promise((res)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.readAsDataURL(file); });
+    setDocForm({ ...docForm, file_name: file.name, file_url: String(dataUrl), file_size: file.size, mime_type: file.type });
   };
   const linkProduct=async()=>{
     if(!showDetail || !linkProductId) return;
@@ -359,6 +402,45 @@ const [sRes, bRes, pRes]=await Promise.all([
     const header=["Supplier","Code","Type","Contact","Phone","Email","City","Products","Open POs","Outstanding","Terms","Status","Last Purchase"].join(",");
     const lines=rows.map((s:any)=>[s.name, s.supplier_code??"", s.supplier_type??"", s.contact_person??"", s.phone??"", s.email??"", s.city??"", s.products_count??0, s.open_pos??0, s.balance??0, s.payment_terms??"", s.status??"", s.last_purchase_at? new Date(s.last_purchase_at).toLocaleDateString(): ""].map((v:any)=>`"${String(v).replace(/"/g,'""')}"`).join(","));
     const csv=[header,...lines].join("\n"); const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`suppliers_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
+  };
+  // Per-supplier export: KPI summary + purchase orders + payments + returns for
+  // the supplier currently open (the toolbar Export was exporting the whole list).
+  const exportSupplierDetail=()=>{
+    const d=detailData?.detail; if(!showDetail || !d) return;
+    const s=detailData?.supplier ?? showDetail;
+    const esc=(v:any)=>`"${String(v??"").replace(/"/g,'""')}"`;
+    const lines:string[]=[];
+    lines.push(esc("Supplier"), esc(s.name));
+    lines.push(esc("Code"), esc(s.supplier_code ?? ""));
+    lines.push(esc("Type"), esc(s.supplier_type ?? ""));
+    lines.push(esc("Phone"), esc(s.phone ?? ""));
+    lines.push(esc("Email"), esc(s.email ?? ""));
+    lines.push(esc("Payment Terms"), esc(s.payment_terms ?? ""));
+    lines.push(esc("Currency"), esc(s.currency ?? "UGX"));
+    lines.push("");
+    lines.push(["Metric","Value"].join(","));
+    lines.push(["Total Purchases", d.kpi.totalPurchased].join(","));
+    lines.push(["Total Paid", d.kpi.totalPaid].join(","));
+    lines.push(["Outstanding", d.kpi.balance].join(","));
+    lines.push(["Open POs", d.kpi.openPOs].join(","));
+    lines.push(["Products", d.kpi.productsCount].join(","));
+    lines.push(["Returns Value", d.kpi.returnsValue].join(","));
+    lines.push("");
+    lines.push(["PO #","Date","Status","Total"].join(","));
+    (d.pos ?? []).forEach((p:any)=>lines.push([esc(p.purchase_number), p.created_at ? new Date(p.created_at).toLocaleDateString(): "", esc(p.status), p.total].join(",")));
+    lines.push("");
+    lines.push(["Payment Date","Method","Reference","Amount"].join(","));
+    (d.payments ?? []).forEach((p:any)=>lines.push([p.payment_date? new Date(p.payment_date).toLocaleDateString():"", esc(p.payment_method), esc(p.reference ?? ""), p.amount].join(",")));
+    lines.push("");
+    lines.push(["Return #","Reason","Status","Total"].join(","));
+    (d.returns ?? []).forEach((r:any)=>lines.push([esc(r.return_number), esc(r.reason ?? ""), esc(r.status), r.total].join(",")));
+    const csv=lines.join("\n"); const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`supplier_${s.supplier_code ?? s.id.slice(0,6)}_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
+  };
+  const printStatement=()=>{
+    if(!statement || !showDetail) return;
+    const rows=(statement.entries ?? []).map((e:any)=>`<tr><td>${new Date(e.date).toLocaleDateString()}</td><td>${e.ref ?? ""}</td><td>${e.desc ?? ""}</td><td style="text-align:right">${e.debit? Number(e.debit).toLocaleString():""}</td><td style="text-align:right">${e.credit? Number(e.credit).toLocaleString():""}</td><td style="text-align:right">${Number(e.balance).toLocaleString()}</td></tr>`).join("");
+    const html=`<html><head><title>Statement — ${showDetail.name}</title><style>table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px;font-size:11px}th{background:#f3f4f6}</style></head><body><h2>Supplier Statement — ${showDetail.name}</h2><p>${statementFilter.from? "From "+statementFilter.from:""} ${statementFilter.to? "To "+statementFilter.to:""}</p><p>Opening: UGX ${Number(statement.opening).toLocaleString()} • Closing: UGX ${Number(statement.closing).toLocaleString()}</p><table><thead><tr><th>Date</th><th>Ref</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead><tbody>${rows}</tbody></table><p style="font-size:10px;color:#666">Generated ${new Date().toLocaleString()} — transaction-derived balances.</p></body></html>`;
+    const w=window.open('','_blank'); if(w){ w.document.write(html); w.document.close(); w.focus(); w.print(); }
   };
   const handleCatalogueFile=async(e:React.ChangeEvent<HTMLInputElement>)=>{
     const file=e.target.files?.[0]; if(!file) return;
@@ -460,6 +542,22 @@ const [sRes, bRes, pRes]=await Promise.all([
     fetch("/api/suppliers?creditApprovals=1").then(x=>x.json()).then(x=>setCreditApprovals(Array.isArray(x)?x:[])).catch(()=>{});
     fetchData(); if(showDetail) openDetail(showDetail);
   };
+  const refreshPriceAlerts=async()=>{
+    try{ const j=await fetch("/api/suppliers?priceAlerts=1").then(r=>r.json()); if(Array.isArray(j)) setPriceAlerts(j); else if(j?.alerts) setPriceAlerts(j.alerts); if(j?.threshold!=null) setPriceThreshold(Number(j.threshold)); }catch{}
+  };
+  const saveThreshold=async()=>{
+    const pct=Number(priceThreshold);
+    if(!Number.isFinite(pct) || pct<0 || pct>100) return alert("Enter a threshold between 0 and 100");
+    setThresholdSaving(true);
+    try{
+      const r=await fetch("/api/suppliers",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"set_price_alert_threshold", threshold: pct})});
+      const j=await r.json();
+      if(!r.ok) return alert(j.error || "Failed to save threshold");
+      setPriceThreshold(Number(j.supplier_price_alert_pct ?? pct));
+      await refreshPriceAlerts();
+      alert(`Price-alert threshold saved: ${j.supplier_price_alert_pct ?? pct}% (organization-wide)`);
+    } finally { setThresholdSaving(false); }
+  };
 
 
   const totalPages=Math.max(1, Math.ceil(count/perPage));
@@ -481,10 +579,10 @@ const [sRes, bRes, pRes]=await Promise.all([
 
       {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={Users} title="Total Suppliers" value={count} description={`${kpi.active} active • ${kpi.total - kpi.active} inactive/suspended`}/>
-        <StatCard icon={DollarSign} title="Outstanding Balance" value={`UGX ${kpi.outstanding.toLocaleString()}`} description={`${kpi.overdue} over credit limit • Purchases − Payments − Returns`}/>
+        <StatCard icon={Users} title="Total Suppliers" value={kpi.total} description={`${kpi.active} active • ${kpi.total - kpi.active} inactive/suspended (all branches, filtered)`}/>
+        <StatCard icon={DollarSign} title="Outstanding Balance" value={ugx(kpi.outstanding)} description={hideFin? "Restricted — you lack suppliers.view_financials" : `${kpi.overdue} over credit limit • Purchases − Payments − Returns`}/>
         <StatCard icon={Truck} title="Open POs" value={kpi.withOpenPO} description="Suppliers with DRAFT/Ordered/Partial deliveries"/>
-        <StatCard icon={Package} title="Supplier Products" value={data.reduce((a,s:any)=>a+Number(s.products_count??0),0)} description={`Avg ${(data.length? (data.reduce((a,s:any)=>a+Number(s.products_count??0),0)/data.length).toFixed(1): "0")} products per supplier`}/>
+        <StatCard icon={Package} title="Supplier Products" value={kpi.products} description={`Avg ${(kpi.total? (kpi.products/kpi.total).toFixed(1): "0")} products per supplier`}/>
       </div>
 
       {/* Filters */}
@@ -525,8 +623,8 @@ const [sRes, bRes, pRes]=await Promise.all([
                   </TableCell>
                   <TableCell className="text-sm">{s.products_count ?? 0}</TableCell>
                   <TableCell>{s.open_pos ? <Badge variant="warning">{s.open_pos}</Badge> : <span className="text-xs text-muted-foreground">0</span>}</TableCell>
-                  <TableCell className="text-right font-mono text-sm">UGX {Number(s.balance ?? 0).toLocaleString()}</TableCell>
-                  <TableCell className="text-xs">{s.payment_terms ?? "30 Days"}<div className="text-[10px] text-muted-foreground">{s.currency ?? "UGX"} • {s.credit_limit? `Limit ${Number(s.credit_limit).toLocaleString()}`: "No limit"}</div></TableCell>
+                  <TableCell className="text-right font-mono text-sm">{ugx(s.balance ?? 0)}</TableCell>
+                  <TableCell className="text-xs">{s.payment_terms ?? "30 Days"}<div className="text-[10px] text-muted-foreground">{s.currency ?? "UGX"} • {hideFin? "Limit restricted" : (s.credit_limit? `Limit ${Number(s.credit_limit).toLocaleString()}`: "No limit")}</div></TableCell>
                   <TableCell>{statusBadge(s.status ?? (s.is_active?"Active":"Inactive"))}{s.sync_status==="pending" && <Badge variant="warning" className="ml-1">Pending Sync</Badge>}</TableCell>
                   <TableCell className="text-xs">{s.last_purchase_at ? new Date(s.last_purchase_at).toLocaleDateString() : "—"}</TableCell>
                   <TableCell className="text-right space-x-1" onClick={e=>e.stopPropagation()}>
@@ -552,7 +650,7 @@ const [sRes, bRes, pRes]=await Promise.all([
                     </div>
                     <div className="text-right">
                       {statusBadge(s.status ?? (s.is_active?"Active":"Inactive"))}
-                      <div className="text-xs font-mono mt-1">UGX {Number(s.balance??0).toLocaleString()}</div>
+                      <div className="text-xs font-mono mt-1">{ugx(s.balance??0)}</div>
                       <div className="text-[10px] text-muted-foreground">{s.open_pos ?? 0} open POs</div>
                     </div>
                   </div>
@@ -569,7 +667,7 @@ const [sRes, bRes, pRes]=await Promise.all([
           </div>
 
           <div className="flex items-center justify-between p-3 border-t">
-            <span className="text-xs text-muted-foreground">Page {page} of {totalPages} • {count} total • Outstanding UGX {kpi.outstanding.toLocaleString()}</span>
+            <span className="text-xs text-muted-foreground">Page {page} of {totalPages} • {count} total • Outstanding {ugx(kpi.outstanding)}</span>
             <div className="flex gap-2"><Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>Prev</Button><Button variant="outline" size="sm" disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)}>Next</Button></div>
           </div>
         </>}
@@ -759,8 +857,8 @@ const [sRes, bRes, pRes]=await Promise.all([
                 <Button size="sm" variant="outline" onClick={createPOFromSupplier}><Truck className="h-4 w-4 mr-1"/>Create Purchase Order</Button>
                 <Button size="sm" variant="outline" onClick={()=>setDetailTab("products")}><Package className="h-4 w-4 mr-1"/>View Products</Button>
                 <Button size="sm" variant="outline" onClick={()=>setDetailTab("payments")}><CreditCard className="h-4 w-4 mr-1"/>Record Payment</Button>
-                <Button size="sm" variant="outline" onClick={()=>setDetailTab("returns")}><Undo2 className="h-4 w-4 mr-1"/>Create Return</Button>
-                <Button size="sm" variant="outline" onClick={()=>exportSuppliers()}><Download className="h-4 w-4 mr-1"/>Export</Button>
+                <Button size="sm" variant="outline" onClick={createReturnFromSupplier}><Undo2 className="h-4 w-4 mr-1"/>Create Return</Button>
+                <Button size="sm" variant="outline" onClick={()=>exportSupplierDetail()}><Download className="h-4 w-4 mr-1"/>Export</Button>
                 <Select value={showDetail?.status ?? "Active"} onChange={e=>handleStatusChange(showDetail!, e.target.value)} className="w-[140px]">
                   <option>Active</option><option>Inactive</option><option>Suspended</option><option>Under Review</option>
                 </Select>
@@ -768,12 +866,12 @@ const [sRes, bRes, pRes]=await Promise.all([
 
               {/* KPI cards */}
               <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
-                <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Total Purchases</div><div className="font-bold">UGX {Number(detailData.detail.kpi.totalPurchased).toLocaleString()}</div><div className="text-[10px]">{detailData.detail.kpi.purchaseCount} orders</div></CardContent></Card>
-                <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Outstanding</div><div className="font-bold text-amber-600">UGX {Number(detailData.detail.kpi.balance).toLocaleString()}</div><div className="text-[10px]">Paid UGX {Number(detailData.detail.kpi.totalPaid).toLocaleString()}</div><div className="text-[10px] text-muted-foreground" title="Balance includes every non-cancelled/non-draft PO total, even orders not yet received. Payments & returns reduce it.">Includes open (not-yet-received) POs</div></CardContent></Card>
+                <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Total Purchases</div><div className="font-bold">{ugx(detailData.detail.kpi.totalPurchased)}</div><div className="text-[10px]">{detailData.detail.kpi.purchaseCount} orders</div></CardContent></Card>
+                <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Outstanding</div><div className="font-bold text-amber-600">{ugx(detailData.detail.kpi.balance)}</div><div className="text-[10px]">Paid {ugx(detailData.detail.kpi.totalPaid)}</div><div className="text-[10px] text-muted-foreground" title="Balance includes every non-cancelled/non-draft PO total, even orders not yet received. Payments & returns reduce it.">Includes open (not-yet-received) POs</div></CardContent></Card>
                 <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Open POs</div><div className="font-bold">{detailData.detail.kpi.openPOs}</div><div className="text-[10px]">{detailData.detail.kpi.partialCount} partial</div></CardContent></Card>
                 <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Products</div><div className="font-bold">{detailData.detail.kpi.productsCount}</div><div className="text-[10px]">Supplied SKUs</div></CardContent></Card>
-                <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Returns</div><div className="font-bold">UGX {Number(detailData.detail.kpi.returnsValue).toLocaleString()}</div><div className="text-[10px]">{detailData.detail.kpi.returnsCount} returns</div></CardContent></Card>
-                <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Last Purchase</div><div className="font-bold text-xs">{detailData.detail.kpi.lastPurchaseAt ? new Date(detailData.detail.kpi.lastPurchaseAt).toLocaleDateString() : "N/A"}</div><div className="text-[10px]">{detailData.detail.kpi.lastPurchaseValue? `UGX ${Number(detailData.detail.kpi.lastPurchaseValue).toLocaleString()}`: ""}</div></CardContent></Card>
+                <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Returns</div><div className="font-bold">{ugx(detailData.detail.kpi.returnsValue)}</div><div className="text-[10px]">{detailData.detail.kpi.returnsCount} returns</div></CardContent></Card>
+                <Card><CardContent className="p-3 text-center"><div className="text-xs text-muted-foreground">Last Purchase</div><div className="font-bold text-xs">{detailData.detail.kpi.lastPurchaseAt ? new Date(detailData.detail.kpi.lastPurchaseAt).toLocaleDateString() : "N/A"}</div><div className="text-[10px]">{detailData.detail.kpi.lastPurchaseValue? ugx(detailData.detail.kpi.lastPurchaseValue): ""}</div></CardContent></Card>
               </div>
               {detailData.detail.kpi.avgLeadTime !== null && <p className="text-xs text-muted-foreground">Avg delivery {detailData.detail.kpi.avgLeadTime} days • On-time {detailData.detail.kpi.onTimeRate ?? "N/A"}% • Inventory → Reorder → Supplier → PO workflow preserved</p>}
               <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20"><CardContent className="p-3 flex flex-wrap gap-2 items-center justify-between">
@@ -782,7 +880,7 @@ const [sRes, bRes, pRes]=await Promise.all([
               </CardContent></Card>
               {creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id).length>0 && (
                 <Card><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Prev → Req</TableHead><TableHead>Reason</TableHead><TableHead>Status</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>
-                  {creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id).slice(0,5).map((a:any)=><TableRow key={a.id}><TableCell className="text-xs">{new Date(a.created_at).toLocaleDateString()}</TableCell><TableCell className="text-xs">UGX {Number(a.previous_limit).toLocaleString()} → UGX {Number(a.requested_limit).toLocaleString()}</TableCell><TableCell className="text-xs">{a.reason ?? "—"}</TableCell><TableCell><Badge variant={a.status==='PENDING'?'warning': a.status==='APPROVED'?'success':'destructive'}>{a.status}</Badge></TableCell><TableCell className="whitespace-nowrap">{a.status==='PENDING' && <><Button size="sm" variant="outline" className="mr-1" onClick={()=>decideApproval(a.id,'APPROVED')}>Approve</Button><Button size="sm" variant="ghost" className="mr-1" onClick={()=>decideApproval(a.id,'REJECTED')}>Reject</Button></>}<Button size="sm" variant="ghost" title="Delete request" onClick={()=>deleteApproval(a.id)}><Trash2 className="h-3 w-3"/></Button></TableCell></TableRow>)}
+                  {creditApprovals.filter((a:any)=>a.supplier_id===showDetail?.id).slice(0,5).map((a:any)=><TableRow key={a.id}><TableCell className="text-xs">{new Date(a.created_at).toLocaleDateString()}</TableCell><TableCell className="text-xs">{ugx(a.previous_limit)} → {ugx(a.requested_limit)}</TableCell><TableCell className="text-xs">{a.reason ?? "—"}</TableCell><TableCell><Badge variant={a.status==='PENDING'?'warning': a.status==='APPROVED'?'success':'destructive'}>{a.status}</Badge></TableCell><TableCell className="whitespace-nowrap">{a.status==='PENDING' && <><Button size="sm" variant="outline" className="mr-1" onClick={()=>decideApproval(a.id,'APPROVED')}>Approve</Button><Button size="sm" variant="ghost" className="mr-1" onClick={()=>decideApproval(a.id,'REJECTED')}>Reject</Button></>}<Button size="sm" variant="ghost" title="Delete request" onClick={()=>deleteApproval(a.id)}><Trash2 className="h-3 w-3"/></Button></TableCell></TableRow>)}
                 </TableBody></Table></CardContent></Card>
               )}
 
@@ -826,10 +924,10 @@ const [sRes, bRes, pRes]=await Promise.all([
                         <div className="flex justify-between"><span>Licence</span><span>{detailData.supplier.licence_number ?? "—"} {detailData.supplier.licence_expiry_date ? `(exp ${detailData.supplier.licence_expiry_date})` : ""}</span></div>
                         <div className="flex justify-between"><span>Verification</span><span>{detailData.supplier.verification_status ?? "Unverified"}</span></div>
                         <div className="flex justify-between"><span>Payment Terms</span><span>{detailData.supplier.payment_terms}</span></div>
-                        <div className="flex justify-between"><span>Credit Limit</span><span>UGX {Number(detailData.supplier.credit_limit ?? 0).toLocaleString()}</span></div>
+                        <div className="flex justify-between"><span>Credit Limit</span><span>{ugx(detailData.supplier.credit_limit ?? 0)}</span></div>
                         <div className="flex justify-between"><span>Currency</span><span>{detailData.supplier.currency}</span></div>
                         <div className="flex justify-between"><span>Lead Time</span><span>{detailData.supplier.lead_time_days ?? "—"} days</span></div>
-                        <div className="flex justify-between"><span>Min Order</span><span>UGX {Number(detailData.supplier.minimum_order_value ?? 0).toLocaleString()} / {detailData.supplier.minimum_order_quantity ?? 0} units</span></div>
+                        <div className="flex justify-between"><span>Min Order</span><span>{ugx(detailData.supplier.minimum_order_value ?? 0)} / {detailData.supplier.minimum_order_quantity ?? 0} units</span></div>
                         <div className="flex justify-between"><span>Account Ref</span><span>{detailData.supplier.account_reference ?? "—"}</span></div>
                         <div className="flex justify-between"><span>Branches</span><span>{(detailData.detail.branches ?? []).map((b:any)=> b.branches?.name ?? b.branch_id.slice(0,6)).join(", ") || "Global (all)"}</span></div>
                       </CardContent></Card>
@@ -854,8 +952,10 @@ const [sRes, bRes, pRes]=await Promise.all([
                       </div>
                       <div className="flex gap-2">
                         <Button size="sm" variant="outline" onClick={downloadCatalogueTemplate}><Download className="h-4 w-4 mr-1"/>Template</Button>
-                        <Button size="sm" variant="outline" onClick={()=>setShowCatalogue(true)}><Upload className="h-4 w-4 mr-1"/>Import Catalogue CSV</Button>
-                        {priceAlerts.length>0 && <Badge variant="warning" className="gap-1"><Bell className="h-3 w-3"/>{priceAlerts.length} price alerts (&gt;{priceThreshold}%)</Badge>}
+                        <Button size="sm" variant="outline" onClick={()=>setShowCatalogue(true)} disabled={catalogueEnabled===false} title={catalogueEnabled===false? "Supplier catalogue import is disabled for this organization": "Import supplier price list CSV"}><Upload className="h-4 w-4 mr-1"/>Import Catalogue CSV</Button>
+                        {catalogueEnabled===false && <span className="text-xs text-amber-600 self-center">Catalogue import disabled in settings</span>}
+                        {supplierAlerts.length>0 && <Badge variant="warning" className="gap-1"><Bell className="h-3 w-3"/>{supplierAlerts.length} price alerts (&gt;{priceThreshold}%)</Badge>}
+                        {supplierAlerts.length===0 && priceAlerts.length>0 && <Badge variant="outline" className="gap-1">{priceAlerts.length} org-wide alerts</Badge>}
                       </div>
                       {(detailData.detail.products ?? []).length===0 ? <p className="text-sm text-muted-foreground">No products linked. Link Paracetamol 500mg / Amoxicillin 500mg / ORS to test reorder → PO workflow.</p> :
                         <Table><TableHeader><TableRow><TableHead>Product</TableHead><TableHead>SKU</TableHead><TableHead>Supplier SKU</TableHead><TableHead>Last Price</TableHead><TableHead>Current</TableHead><TableHead>Lead</TableHead><TableHead>Preferred</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>
@@ -864,8 +964,8 @@ const [sRes, bRes, pRes]=await Promise.all([
                               <TableCell>{ps.products?.name} <div className="text-xs text-muted-foreground">{ps.products?.generic_name ?? ""} {ps.products?.strength ?? ""} {ps.products?.dosage_form ?? ""}</div></TableCell>
                               <TableCell className="font-mono text-xs">{ps.products?.sku ?? "—"}</TableCell>
                               <TableCell className="font-mono text-xs">{ps.supplier_product_code ?? ps.supplier_sku ?? "—"}</TableCell>
-                              <TableCell>UGX {Number(ps.last_purchase_price ?? ps.current_price ?? ps.supplier_price ?? 0).toLocaleString()}</TableCell>
-                              <TableCell>UGX {Number(ps.current_price ?? ps.supplier_price ?? 0).toLocaleString()}</TableCell>
+                              <TableCell>{ugx(ps.last_purchase_price ?? ps.current_price ?? ps.supplier_price ?? 0)}</TableCell>
+                              <TableCell>{ugx(ps.current_price ?? ps.supplier_price ?? 0)}</TableCell>
                               <TableCell>{ps.lead_time_days ?? detailData.supplier.lead_time_days ?? "—"}d</TableCell>
                               <TableCell>{ps.is_preferred ? <Badge variant="success">Preferred</Badge> : <Badge variant="outline">No</Badge>}</TableCell>
                               <TableCell><Button variant="ghost" size="sm" onClick={async()=>{ if(!confirm("Unlink?")) return; await fetch("/api/suppliers",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"unlink_product", id: ps.id})}); openDetail(showDetail!); }}><Trash2 className="h-3 w-3"/></Button></TableCell>
@@ -884,7 +984,7 @@ const [sRes, bRes, pRes]=await Promise.all([
                           {(detailData.detail.pos ?? []).map((p:any)=>{
                             const ord = (p.purchase_items ?? []).reduce((a:number,x:any)=>a+Number(x.quantity_ordered),0);
                             const rec = (p.purchase_items ?? []).reduce((a:number,x:any)=>a+Number(x.quantity_received),0);
-                            return <TableRow key={p.id}><TableCell className="font-mono text-xs">{p.purchase_number}</TableCell><TableCell className="text-xs">{new Date(p.created_at).toLocaleDateString()}</TableCell><TableCell className="text-xs">{p.expected_delivery_date ? new Date(p.expected_delivery_date).toLocaleDateString() : "—"}</TableCell><TableCell className="text-xs">{p.branches?.name ?? p.branch_id.slice(0,6)}</TableCell><TableCell>UGX {Number(p.total).toLocaleString()}</TableCell><TableCell>{ord} / {rec} <span className="text-[10px]">{ord-rec} outstanding</span></TableCell><TableCell><Badge variant={p.status==="RECEIVED"?"success": p.status==="PARTIALLY_RECEIVED"?"warning":"secondary"}>{p.status}</Badge></TableCell></TableRow>
+                            return <TableRow key={p.id}><TableCell className="font-mono text-xs">{p.purchase_number}</TableCell><TableCell className="text-xs">{new Date(p.created_at).toLocaleDateString()}</TableCell><TableCell className="text-xs">{p.expected_delivery_date ? new Date(p.expected_delivery_date).toLocaleDateString() : "—"}</TableCell><TableCell className="text-xs">{p.branches?.name ?? p.branch_id.slice(0,6)}</TableCell><TableCell>{ugx(p.total)}</TableCell><TableCell>{ord} / {rec} <span className="text-[10px]">{ord-rec} outstanding</span></TableCell><TableCell><Badge variant={p.status==="RECEIVED"?"success": p.status==="PARTIALLY_RECEIVED"?"warning":"secondary"}>{p.status}</Badge></TableCell></TableRow>
                           })}
                         </TableBody></Table>
                       }
@@ -896,14 +996,23 @@ const [sRes, bRes, pRes]=await Promise.all([
                     <div className="space-y-3">
                       {(detailData.detail.grns ?? []).length===0 ? <p className="text-sm text-muted-foreground">No GRNs — after PO, Receive Stock: capture Batch + Expiry + Qty + Cost → Inventory Movement IN. Supplier → PO → GRN → Batch → Stock → Payable (distinct events).</p> :
                         <Table><TableHeader><TableRow><TableHead>GRN</TableHead><TableHead>Date</TableHead><TableHead>Qty</TableHead><TableHead>Value</TableHead><TableHead>Items</TableHead></TableRow></TableHeader><TableBody>
-                          {(detailData.detail.grns ?? []).map((g:any)=><TableRow key={g.id}><TableCell className="font-mono text-xs">{g.grn_number}</TableCell><TableCell className="text-xs">{new Date(g.received_at).toLocaleDateString()}</TableCell><TableCell>{g.total_quantity}</TableCell><TableCell>UGX {Number(g.total_value).toLocaleString()}</TableCell><TableCell className="text-xs">{(g.goods_receipt_items ?? []).map((it:any)=> `${it.product_id.slice(0,4)} x${it.quantity_received} batch ${it.batch_number}`).join(", ")}</TableCell></TableRow>)}
+                          {(detailData.detail.grns ?? []).map((g:any)=><TableRow key={g.id}><TableCell className="font-mono text-xs">{g.grn_number}</TableCell><TableCell className="text-xs">{new Date(g.received_at).toLocaleDateString()}</TableCell><TableCell>{g.total_quantity}</TableCell><TableCell>{ugx(g.total_value)}</TableCell><TableCell className="text-xs">{(g.goods_receipt_items ?? []).map((it:any)=> `${it.product_id.slice(0,4)} x${it.quantity_received} batch ${it.batch_number}`).join(", ")}</TableCell></TableRow>)}
                         </TableBody></Table>
                       }
                       <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Batches (Supplier Traceability)</CardTitle><CardDescription>Each batch traceable to Supplier + GRN + cost + expiry + branch</CardDescription></CardHeader><CardContent className="p-0">
                         {(detailData.detail.batches ?? []).length===0 ? <p className="p-3 text-sm text-muted-foreground">No batches yet — GRN creates product_batches with supplier_id. Enables recall: which supplier supplied this expiry?</p> :
                           <Table><TableHeader><TableRow><TableHead>Batch</TableHead><TableHead>Product</TableHead><TableHead>Expiry</TableHead><TableHead>Qty Avail/Recv</TableHead><TableHead>Cost</TableHead><TableHead>Branch</TableHead></TableRow></TableHeader><TableBody>
                             {(detailData.detail.batches ?? []).map((b:any)=>(
-                              <TableRow key={b.id}><TableCell className="font-mono">{b.batch_number}</TableCell><TableCell>{b.products?.name ?? b.product_id.slice(0,8)}</TableCell><TableCell className="text-xs">{b.expiry_date} {new Date(b.expiry_date) < new Date() ? <Badge variant="destructive">Expired</Badge> : (Math.ceil((new Date(b.expiry_date).getTime()-Date.now())/86400000) < 90 ? <Badge variant="warning">Short dated</Badge> : "")}</TableCell><TableCell>{b.quantity_available} / {b.quantity_received}</TableCell><TableCell>UGX {Number(b.purchase_price).toLocaleString()}</TableCell><TableCell className="text-xs">{b.branch_id.slice(0,6)}</TableCell></TableRow>
+                              <TableRow key={b.id}><TableCell className="font-mono">{b.batch_number}</TableCell><TableCell>{b.products?.name ?? b.product_id.slice(0,8)}</TableCell><TableCell className="text-xs">{b.expiry_date} {new Date(b.expiry_date) < new Date() ? <Badge variant="destructive">Expired</Badge> : (Math.ceil((new Date(b.expiry_date).getTime()-Date.now())/86400000) < 90 ? <Badge variant="warning">Short dated</Badge> : "")}</TableCell><TableCell>{b.quantity_available} / {b.quantity_received}</TableCell><TableCell>{ugx(b.purchase_price)}</TableCell><TableCell className="text-xs">{b.branch_id.slice(0,6)}</TableCell></TableRow>
+                            ))}
+                          </TableBody></Table>
+                        }
+                      </CardContent></Card>
+                      <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Stock Movements (from GRNs)</CardTitle><CardDescription>Every receipt posts an inventory IN movement tied to the source PO/GRN</CardDescription></CardHeader><CardContent className="p-0">
+                        {(detailData.detail.movements ?? []).length===0 ? <p className="p-3 text-sm text-muted-foreground">No stock movements recorded for this supplier&apos;s POs yet.</p> :
+                          <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Product</TableHead><TableHead>Qty</TableHead><TableHead>Ref</TableHead></TableRow></TableHeader><TableBody>
+                            {(detailData.detail.movements ?? []).map((m:any)=>(
+                              <TableRow key={m.id}><TableCell className="text-xs">{m.created_at? new Date(m.created_at).toLocaleDateString(): "—"}</TableCell><TableCell><Badge variant={Number(m.quantity)>0?"success":"warning"}>{m.movement_type ?? m.type ?? "PURCHASE"} {Number(m.quantity)>0? "IN":"OUT"}</Badge></TableCell><TableCell className="text-xs">{m.products?.name ?? m.product_id?.slice(0,8) ?? "—"}</TableCell><TableCell>{m.quantity ?? "—"}</TableCell><TableCell className="font-mono text-xs">{String(m.reference_id ?? m.reference ?? "—").slice(0,8)}</TableCell></TableRow>
                             ))}
                           </TableBody></Table>
                         }
@@ -916,7 +1025,7 @@ const [sRes, bRes, pRes]=await Promise.all([
                     <div className="space-y-2">
                       {(detailData.detail.returns ?? []).length===0 ? <p className="text-sm text-muted-foreground">No returns. Return workflow: original GRN → select batch → reason (Damaged/Expired/Short-dated/Wrong/etc) → Qty → Inventory OUT → Credit.</p> :
                         <Table><TableHeader><TableRow><TableHead>Return #</TableHead><TableHead>Reason</TableHead><TableHead>Total</TableHead><TableHead>Status</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>
-                          {(detailData.detail.returns ?? []).map((r:any)=><TableRow key={r.id}><TableCell className="font-mono text-xs">{r.return_number}</TableCell><TableCell className="text-xs">{r.reason}</TableCell><TableCell>UGX {Number(r.total).toLocaleString()}</TableCell><TableCell><Badge variant={r.status==="completed"?"success":"warning"}>{r.status}</Badge></TableCell><TableCell className="text-xs">{new Date(r.created_at).toLocaleDateString()}</TableCell></TableRow>)}
+                          {(detailData.detail.returns ?? []).map((r:any)=><TableRow key={r.id}><TableCell className="font-mono text-xs">{r.return_number}</TableCell><TableCell className="text-xs">{r.reason}</TableCell><TableCell>{ugx(r.total)}</TableCell><TableCell><Badge variant={r.status==="completed"?"success":"warning"}>{r.status}</Badge></TableCell><TableCell className="text-xs">{new Date(r.created_at).toLocaleDateString()}</TableCell></TableRow>)}
                         </TableBody></Table>
                       }
                       <p className="text-xs text-muted-foreground">Never delete purchase to simulate return — return is separate event. Inventory decreases exactly by returned qty; supplier credit created.</p>
@@ -925,9 +1034,9 @@ const [sRes, bRes, pRes]=await Promise.all([
 
                   {detailTab==="payments" && (
                     <div className="space-y-3">
-                      {(detailData.detail.payments ?? []).length===0 ? <p className="text-sm text-muted-foreground">No payments — UGX {Number(detailData.detail.kpi.balance).toLocaleString()} outstanding. Payable derived: purchases − payments − returns.</p> :
+                      {(detailData.detail.payments ?? []).length===0 ? <p className="text-sm text-muted-foreground">No payments — {ugx(detailData.detail.kpi.balance)} outstanding. Payable derived: purchases − payments − returns.</p> :
                         <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Method</TableHead><TableHead>Reference</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader><TableBody>
-                          {(detailData.detail.payments ?? []).map((p:any)=><TableRow key={p.id}><TableCell className="text-xs">{new Date(p.payment_date).toLocaleDateString()}</TableCell><TableCell><Badge variant="outline">{p.payment_method}</Badge></TableCell><TableCell className="text-xs font-mono">{p.reference ?? "—"}</TableCell><TableCell className="text-right">UGX {Number(p.amount).toLocaleString()}</TableCell></TableRow>)}
+                          {(detailData.detail.payments ?? []).map((p:any)=><TableRow key={p.id}><TableCell className="text-xs">{new Date(p.payment_date).toLocaleDateString()}</TableCell><TableCell><Badge variant="outline">{p.payment_method}</Badge></TableCell><TableCell className="text-xs font-mono">{p.reference ?? "—"}</TableCell><TableCell className="text-right">{ugx(p.amount)}</TableCell></TableRow>)}
                         </TableBody></Table>
                       }
                       <Card><CardContent className="p-3 space-y-2">
@@ -955,14 +1064,15 @@ const [sRes, bRes, pRes]=await Promise.all([
                           const csv=[`Opening: ${statement.opening}`,h,rows,`Closing: ${statement.closing}`].join("\n");
                           const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`statement_${showDetail?.supplier_code ?? showDetail?.id.slice(0,6)}.csv`; a.click();
                         }}><Download className="h-4 w-4 mr-1"/>Export CSV</Button>}
+                        {statement && <Button size="sm" variant="outline" onClick={printStatement}><Printer className="h-4 w-4 mr-1"/>Print</Button>}
                       </div>
                       {!statement ? <p className="text-sm text-muted-foreground">Select date range and Load. Shows Debit/Purchases vs Credit/Payments+Returns with running balance. Print/Export supported.</p> :
                         <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Ref</TableHead><TableHead>Description</TableHead><TableHead className="text-right">Debit</TableHead><TableHead className="text-right">Credit</TableHead><TableHead className="text-right">Balance</TableHead></TableRow></TableHeader><TableBody>
-                          <TableRow><TableCell colSpan={5} className="text-right text-xs">Opening Balance</TableCell><TableCell className="text-right font-bold">UGX {Number(statement.opening).toLocaleString()}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={5} className="text-right text-xs">Opening Balance</TableCell><TableCell className="text-right font-bold">{ugx(statement.opening)}</TableCell></TableRow>
                           {statement.entries.map((e:any,i:number)=>(
-                            <TableRow key={i}><TableCell className="text-xs">{new Date(e.date).toLocaleDateString()}</TableCell><TableCell className="font-mono text-xs">{e.ref}</TableCell><TableCell className="text-xs">{e.desc}</TableCell><TableCell className="text-right">{e.debit? `UGX ${Number(e.debit).toLocaleString()}`: "—"}</TableCell><TableCell className="text-right">{e.credit? `UGX ${Number(e.credit).toLocaleString()}`: "—"}</TableCell><TableCell className="text-right font-mono">UGX {Number(e.balance).toLocaleString()}</TableCell></TableRow>
+                            <TableRow key={i}><TableCell className="text-xs">{new Date(e.date).toLocaleDateString()}</TableCell><TableCell className="font-mono text-xs">{e.ref}</TableCell><TableCell className="text-xs">{e.desc}</TableCell><TableCell className="text-right">{e.debit? ugx(e.debit): "—"}</TableCell><TableCell className="text-right">{e.credit? ugx(e.credit): "—"}</TableCell><TableCell className="text-right font-mono">{ugx(e.balance)}</TableCell></TableRow>
                           ))}
-                          <TableRow className="font-bold"><TableCell colSpan={5} className="text-right">Closing Balance</TableCell><TableCell className="text-right">UGX {Number(statement.closing).toLocaleString()}</TableCell></TableRow>
+                          <TableRow className="font-bold"><TableCell colSpan={5} className="text-right">Closing Balance</TableCell><TableCell className="text-right">{ugx(statement.closing)}</TableCell></TableRow>
                         </TableBody></Table>
                       }
                     </div>
@@ -970,29 +1080,55 @@ const [sRes, bRes, pRes]=await Promise.all([
 
                   {detailTab==="pricing" && (
                     <div className="space-y-3">
-                      <Card><CardContent className="p-3 flex flex-wrap gap-2 items-center">
-                        <span className="text-sm font-medium flex items-center gap-1"><Bell className="h-4 w-4"/>Price-Alert Threshold</span>
-                        <Input type="number" className="w-[90px]" value={priceThreshold} onChange={e=>setPriceThreshold(Number(e.target.value))}/>
-                        <span className="text-sm">% — alerts when change ≥ threshold (configurable; default 10%)</span>
-                        <Badge variant={priceAlerts.length? "destructive":"secondary"}>{priceAlerts.length} alerts</Badge>
-                        {priceAlerts.slice(0,3).map((a:any,i:number)=><Badge key={i} variant="warning" className="gap-1"><AlertTriangle className="h-3 w-3"/>{a.supplier_name}: {a.product_name} {a.prev} → {a.cur} ({a.pct}%)</Badge>)}
+                      <Card><CardContent className="p-3 space-y-2">
+                        <div className="flex flex-wrap gap-2 items-center">
+                          <span className="text-sm font-medium flex items-center gap-1"><Bell className="h-4 w-4"/>Price-Alert Threshold</span>
+                          <Input type="number" className="w-[90px]" value={priceThreshold} onChange={e=>setPriceThreshold(Number(e.target.value))}/>
+                          <span className="text-sm">% — org-wide; alerts when a price change ≥ threshold</span>
+                          <Button size="sm" onClick={saveThreshold} disabled={thresholdSaving}>{thresholdSaving? "Saving…" : "Save Threshold"}</Button>
+                          <Badge variant={supplierAlerts.length? "destructive":"secondary"}>{supplierAlerts.length} alert{supplierAlerts.length===1?"":"s"} for this supplier</Badge>
+                          {priceAlerts.length>supplierAlerts.length && <Badge variant="outline">{priceAlerts.length - supplierAlerts.length} from other suppliers</Badge>}
+                        </div>
+                        {supplierAlerts.length===0
+                          ? <p className="text-xs text-muted-foreground">No price movement at or above {priceThreshold}% for this supplier in recent history.</p>
+                          : <div className="flex flex-wrap gap-1">{supplierAlerts.slice(0,6).map((a:any,i:number)=><Badge key={i} variant="warning" className="gap-1"><AlertTriangle className="h-3 w-3"/>{a.product_name} {ugx(a.prev)} → {ugx(a.cur)} ({a.pct}%)</Badge>)}</div>}
                       </CardContent></Card>
                       {(detailData.detail.priceHistory ?? []).length===0 ? <p className="text-sm text-muted-foreground">No price history — each GRN preserves historical cost. Changing current price adds history row, never rewrites old PO.</p> :
                         <Table><TableHeader><TableRow><TableHead>Product</TableHead><TableHead>Price</TableHead><TableHead>Date</TableHead><TableHead>PO/GRN</TableHead></TableRow></TableHeader><TableBody>
                           {(detailData.detail.priceHistory ?? []).map((h:any)=>(
-                            <TableRow key={h.id}><TableCell>{h.products?.name ?? h.product_id.slice(0,8)}</TableCell><TableCell>UGX {Number(h.price ?? h.new_value ?? 0).toLocaleString()}</TableCell><TableCell className="text-xs">{new Date(h.effective_date ?? h.created_at).toLocaleDateString()}</TableCell><TableCell className="font-mono text-xs">{h.purchase_order_id?.slice(0,8) ?? "—"}</TableCell></TableRow>
+                            <TableRow key={h.id}><TableCell>{h.products?.name ?? h.product_id.slice(0,8)}</TableCell><TableCell>{ugx(h.price ?? h.new_value ?? 0)}</TableCell><TableCell className="text-xs">{new Date(h.effective_date ?? h.created_at).toLocaleDateString()}</TableCell><TableCell className="font-mono text-xs">{h.purchase_order_id?.slice(0,8) ?? "—"}</TableCell></TableRow>
                           ))}
                         </TableBody></Table>
                       }
-                      <Card><CardContent className="p-3">
-                        <h4 className="text-sm font-medium flex items-center gap-2"><TrendingUp className="h-4 w-4"/>Price Comparison (per product across suppliers)</h4>
-                        <p className="text-xs text-muted-foreground">Open Product detail → Suppliers tab to compare Supplier A/B/C price, MOQ, lead time, preferred. Cheapest ≠ best — consider reliability.</p>
-                        {Object.entries(detailData.detail.priceTrend as any).slice(0,3).map(([pid, hist]:any)=>(
-                          <div key={pid} className="mt-2 text-xs">
-                            <div className="font-medium">{(detailData.detail.products ?? []).find((p:any)=>p.product_id===pid)?.products?.name ?? pid.slice(0,8)} — {hist.length} price points: {hist.map((h:any)=>`UGX ${Number(h.price ?? h.new_value).toLocaleString()}`).join(" → ")}</div>
-                            {hist.length>=2 && (()=>{ const cur=Number(hist[0]?.price ?? hist[0]?.new_value ?? 0); const prev=Number(hist[hist.length-1]?.price ?? hist[hist.length-1]?.new_value ?? 1); const pct=((cur-prev)/prev*100).toFixed(1); return <div className="text-muted-foreground">Change: {pct}% {cur>prev ? "↑ price increased — alert threshold" : "↓"}</div>; })()}
-                          </div>
-                        ))}
+                      <Card><CardContent className="p-3 space-y-2">
+                        <h4 className="text-sm font-medium flex items-center gap-2"><TrendingUp className="h-4 w-4"/>Price Comparison (this supplier vs others)</h4>
+                        {(()=>{
+                          const comp:any[] = detailData.detail.comparison ?? [];
+                          const byProduct: Record<string, any[]> = {};
+                          for(const c of comp){ (byProduct[c.product_id]=byProduct[c.product_id]||[]).push(c); }
+                          const productName=(pid:string)=> (detailData.detail.products ?? []).find((p:any)=>p.product_id===pid)?.products?.name ?? pid.slice(0,8);
+                          const rows=Object.entries(byProduct);
+                          if(rows.length===0) return <p className="text-xs text-muted-foreground">No cross-supplier links yet. Link the same product to multiple suppliers to compare price, MOQ and lead time here.</p>;
+                          return <div className="space-y-3">{rows.slice(0,8).map(([pid, offers]:any)=>{
+                            const sorted=[...offers].sort((a,b)=> Number(a.current_price ?? a.supplier_price ?? Infinity) - Number(b.current_price ?? b.supplier_price ?? Infinity));
+                            const cheapest=sorted[0];
+                            const thisOffer=offers.find((o:any)=>o.supplier_id===showDetail?.id);
+                            const youAreCheapest=cheapest?.supplier_id===showDetail?.id;
+                            return <div key={pid} className="text-xs border rounded p-2">
+                              <div className="font-medium">{productName(pid)} <span className="text-muted-foreground">— {offers.length} supplier{offers.length===1?"":"s"}</span></div>
+                              <Table><TableHeader><TableRow><TableHead>Supplier</TableHead><TableHead>Price</TableHead><TableHead>MOQ</TableHead><TableHead>Lead</TableHead><TableHead>Preferred</TableHead></TableRow></TableHeader><TableBody>
+                                {sorted.map((o:any)=><TableRow key={o.id} className={o.supplier_id===showDetail?.id? "bg-muted/40":""}>
+                                  <TableCell className="text-xs">{o.suppliers?.name ?? o.supplier_id.slice(0,6)}{o.supplier_id===showDetail?.id? " (this)":""} {o.id===cheapest?.id && <Badge variant="success" className="ml-1">Cheapest</Badge>}</TableCell>
+                                  <TableCell>{ugx(o.current_price ?? o.supplier_price ?? 0)}</TableCell>
+                                  <TableCell>{o.minimum_order_quantity ?? "—"}</TableCell>
+                                  <TableCell>{o.lead_time_days ?? "—"}d</TableCell>
+                                  <TableCell>{o.is_preferred? <Badge variant="success">Yes</Badge>:"—"}</TableCell>
+                                </TableRow>)}
+                              </TableBody></Table>
+                              {thisOffer && !youAreCheapest && <div className="text-muted-foreground mt-1">{showDetail?.name} is {ugx(Number(thisOffer.current_price ?? thisOffer.supplier_price ?? 0) - Number(cheapest?.current_price ?? cheapest?.supplier_price ?? 0))} more than the cheapest ({cheapest?.suppliers?.name}).</div>}
+                            </div>;
+                          })}</div>;
+                        })()}
                       </CardContent></Card>
                     </div>
                   )}
@@ -1006,25 +1142,38 @@ const [sRes, bRes, pRes]=await Promise.all([
                       </div>
                       <Card><CardContent className="p-3">
                         <h4 className="text-sm font-medium">Scorecard (transparent)</h4>
-                        <div className="space-y-1 text-sm">
-                          <div className="flex justify-between"><span>Delivery {detailData.detail.performance.avgLeadTime? "94% (example weighted by lead)": "N/A"}</span><span>{detailData.detail.performance.avgLeadTime ? "Calculated from expected vs received" : "Insufficient data"}</span></div>
-                          <div className="flex justify-between"><span>Fulfillment</span><span>{detailData.detail.performance.partial} partial / {detailData.detail.performance.totalPOs} total</span></div>
-                          <div className="flex justify-between"><span>Quality</span><span>{detailData.detail.performance.returns===0 ? "98% (no returns)": `98% minus ${detailData.detail.performance.returns} returns`}</span></div>
-                          <div className="flex justify-between font-bold border-t pt-1"><span>Overall</span><span>{detailData.detail.performance.avgLeadTime===null? "N/A / Insufficient data" : "93% (weighted)"}</span></div>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-2">Scoring configurable — show formula, not hidden. Insufficient data → N/A, not 0.</p>
+                        {(()=>{
+                          const perf=detailData.detail.performance; const k=detailData.detail.kpi;
+                          const delivery = (perf.onTime+perf.late)>0 ? Math.round((perf.onTime/(perf.onTime+perf.late))*100) : null;
+                          const fulfillment = perf.totalPOs>0 ? Math.round((perf.completed/perf.totalPOs)*100) : null;
+                          const quality = perf.totalPOs>0 ? Math.max(0, Math.round(100 - (perf.returns/perf.totalPOs)*100)) : null;
+                          const parts=[delivery,fulfillment,quality].filter(v=>v!==null) as number[];
+                          const overall = parts.length ? Math.round(parts.reduce((a,b)=>a+b,0)/parts.length) : null;
+                          const score=(v:number|null)=> v===null? "N/A" : `${v}%`;
+                          return <div className="space-y-1 text-sm">
+                            <div className="flex justify-between"><span>Delivery (on-time / delivered)</span><span>{score(delivery)} <span className="text-muted-foreground text-xs">({perf.onTime} on-time, {perf.late} late)</span></span></div>
+                            <div className="flex justify-between"><span>Fulfillment (received / total POs)</span><span>{score(fulfillment)} <span className="text-muted-foreground text-xs">({perf.completed}/{perf.totalPOs})</span></span></div>
+                            <div className="flex justify-between"><span>Quality (100 − returns rate)</span><span>{score(quality)} <span className="text-muted-foreground text-xs">({perf.returns} returns)</span></span></div>
+                            <div className="flex justify-between"><span>Partial deliveries</span><span>{perf.partial} of {perf.totalPOs}</span></div>
+                            <div className="flex justify-between font-bold border-t pt-1"><span>Overall (average of scored dimensions)</span><span>{score(overall)}</span></div>
+                            {k.returnsValue>0 && <div className="flex justify-between text-xs text-muted-foreground"><span>Returns value</span><span>{ugx(k.returnsValue)}</span></div>}
+                          </div>;
+                        })()}
+                        <p className="text-xs text-muted-foreground mt-2">Computed from this supplier&apos;s own POs, GRNs and returns. Dimensions without data show N/A, never a fabricated value.</p>
                       </CardContent></Card>
-                      <p className="text-xs text-muted-foreground">Financial: Total spend UGX {Number(detailData.detail.kpi.totalPurchased).toLocaleString()} — use dashboard Reports → Supplier Spend for aggregated views.</p>
+                      <p className="text-xs text-muted-foreground">Financial: Total spend {ugx(detailData.detail.kpi.totalPurchased)} — use dashboard Reports → Supplier Spend for aggregated views.</p>
                     </div>
                   )}
 
                   {detailTab==="documents" && (
                     <div className="space-y-3">
-                      <div className="grid md:grid-cols-3 gap-2">
+                      <div className="grid md:grid-cols-5 gap-2">
                         <Select value={docForm.document_type} onChange={e=>setDocForm({...docForm, document_type:e.target.value})}><option value="AGREEMENT">Agreement</option><option value="LICENCE">Licence</option><option value="CERTIFICATE">Certificate</option><option value="PRICE_LIST">Price List</option><option value="CONTRACT">Contract</option><option value="STATEMENT">Statement</option><option value="INVOICE">Invoice</option><option value="DELIVERY_NOTE">Delivery Note</option><option value="OTHER">Other</option></Select>
+                        <Input type="file" className="md:col-span-2" onChange={handleDocFile} title="Choose a file (≤1.5 MB embeds as data URL; larger files need a storage URL)"/>
                         <Input placeholder="File name.pdf" value={docForm.file_name} onChange={e=>setDocForm({...docForm, file_name:e.target.value})}/>
-                        <Input placeholder="File URL or Supabase storage path" value={docForm.file_url} onChange={e=>setDocForm({...docForm, file_url:e.target.value})}/>
+                        <Input placeholder="File URL or storage path" value={docForm.file_url} onChange={e=>setDocForm({...docForm, file_url:e.target.value})}/>
                       </div>
+                      {docForm.file_size>0 && <p className="text-xs text-muted-foreground">Selected {docForm.file_name} ({(docForm.file_size/1024).toFixed(0)} KB{ (docForm.mime_type? ", "+docForm.mime_type:"")})</p>}
                       <Button size="sm" onClick={submitDoc}>Attach Document</Button>
                       {(detailData.detail.documents ?? []).length===0 ? <p className="text-sm text-muted-foreground">No documents — agreements, licences, certificates reuse existing storage bucket if configured.</p> :
                         <Table><TableHeader><TableRow><TableHead>Type</TableHead><TableHead>File</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>
@@ -1079,7 +1228,7 @@ const [sRes, bRes, pRes]=await Promise.all([
           <DialogHeader><DialogTitle className="flex items-center gap-2"><Upload className="h-5 w-5"/>Import Supplier Catalogue</DialogTitle><DialogDescription>CSV: sku,barcode,supplier_sku,price,moq,lead_time_days,availability,pack_size → Product Matching → Price Comparison → PO. Product must exist (SKU/barcode).</DialogDescription></DialogHeader>
           <div className="space-y-3">
             <Input type="file" accept=".csv" onChange={handleCatalogueFile}/>
-            <div className="flex gap-2"><Button variant="outline" size="sm" onClick={downloadCatalogueTemplate}>Download Template</Button><span className="text-xs text-muted-foreground">Enable via organization_settings supplier_catalogue_import_enabled</span></div>
+            <div className="flex gap-2"><Button variant="outline" size="sm" onClick={downloadCatalogueTemplate}>Download Template</Button><span className="text-xs text-muted-foreground">{catalogueEnabled===false? "Import is disabled for this organization (enable supplier_catalogue_import_enabled in Settings)." : "Matches products by SKU/barcode. Configure via Settings → supplier_catalogue_import_enabled."}</span></div>
             {catalogueRows.length>0 && <div className="border rounded p-2 max-h-48 overflow-auto text-xs"><div>{catalogueRows.length} rows parsed — preview 3:</div>{catalogueRows.slice(0,3).map((r:any,i:number)=><div key={i} className="font-mono">{r.sku||r.barcode} → {r.supplier_sku} UGX {r.price} MOQ {r.moq} lead {r.lead_time_days}d {r.availability}</div>)}{catalogueErrors.length>0 && <div className="text-destructive">{catalogueErrors.length} errors</div>}</div>}
             <Button onClick={submitCatalogue} disabled={catalogueRows.length===0} className="w-full">Import {catalogueRows.length} → product_suppliers + price_history</Button>
           </div>

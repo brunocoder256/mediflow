@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sanitizeError } from '@/lib/security';
-import { getSuppliers, createSupplier, getSupplierDetail, updateSupplier, deleteSupplier, getSupplierStatement, setSupplierStatus, getSupplierPriceHistory, addSupplierNote, addSupplierDocument, linkSupplierProduct, unlinkSupplierProduct, getPriceAlerts, importSupplierCatalogue, requestCreditApproval, getCreditApprovals, decideCreditApproval, deleteCreditApproval } from '@/lib/services/suppliers';
+import { getSuppliers, createSupplier, getSupplierDetail, updateSupplier, deleteSupplier, getSupplierStatement, setSupplierStatus, getSupplierPriceHistory, addSupplierNote, addSupplierDocument, linkSupplierProduct, unlinkSupplierProduct, getPriceAlerts, importSupplierCatalogue, requestCreditApproval, getCreditApprovals, decideCreditApproval, deleteCreditApproval, setSupplierPriceAlertThreshold } from '@/lib/services/suppliers';
 import { getSB } from '@/lib/services/supabase';
 
 export async function GET(req: Request){
@@ -14,7 +14,8 @@ export async function GET(req: Request){
     const creditApprovals = url.searchParams.get('creditApprovals');
 
     if(priceAlerts === '1'){
-      const alerts = await getPriceAlerts();
+      const sid = url.searchParams.get('supplier_id') ?? undefined;
+      const alerts = await getPriceAlerts({ supplierId: sid });
       return NextResponse.json(alerts);
     }
     if(creditApprovals === '1'){
@@ -52,8 +53,10 @@ export async function GET(req: Request){
     const page = url.searchParams.get('page') ? Number(url.searchParams.get('page')) : undefined;
     const perPage = url.searchParams.get('perPage') ? Number(url.searchParams.get('perPage')) : undefined;
     const includeInactive = url.searchParams.get('includeInactive') === '1' || url.searchParams.get('all') === '1';
+    const has_balance = url.searchParams.get('has_balance') === '1';
+    const has_open_po = url.searchParams.get('has_open_po') === '1';
 
-    const result = await getSuppliers({ search, supplier_type, status, branch_id, page, perPage, includeInactive });
+    const result = await getSuppliers({ search, supplier_type, status, branch_id, page, perPage, includeInactive, has_balance, has_open_po });
     // support both array and paginated response
     if(page){
       return NextResponse.json(result);
@@ -101,6 +104,10 @@ export async function POST(req: Request){
     }
     if(body.action === 'delete_credit_approval'){
       const data = await deleteCreditApproval(body.id);
+      return NextResponse.json(data);
+    }
+    if(body.action === 'set_price_alert_threshold'){
+      const data = await setSupplierPriceAlertThreshold(body.threshold ?? body.pct);
       return NextResponse.json(data);
     }
     const data = await createSupplier(body);

@@ -7,6 +7,21 @@ function cleanEmpty(v: any) {
   return v;
 }
 
+const OPEN_PO_STATUSES = ["DRAFT", "PENDING_APPROVAL", "APPROVED", "SENT", "ORDERED", "PARTIALLY_RECEIVED"];
+const BALANCE_PO_STATUSES = ["ORDERED", "PARTIALLY_RECEIVED", "RECEIVED"];
+
+export type SupplierListSummary = {
+  total: number;
+  active: number;
+  outstanding: number;
+  withOpenPO: number;
+  products: number;
+};
+
+export function emptySupplierSummary(): SupplierListSummary {
+  return { total: 0, active: 0, outstanding: 0, withOpenPO: 0, products: 0 };
+}
+
 export async function getSuppliers(params?: {
   search?: string;
   supplier_type?: string;
@@ -16,96 +31,158 @@ export async function getSuppliers(params?: {
   page?: number;
   perPage?: number;
   includeInactive?: boolean;
+  has_balance?: boolean;
+  has_open_po?: boolean;
 }) {
   const sb: any = await getSB();
   const orgId = await getOrgId();
   if (!orgId) throw new Error("Missing organization");
-  let q = sb.from("suppliers").select("*", { count: "exact" }).eq("organization_id", orgId).order("name");
 
-  // default hide inactive unless requested
-  if (!params?.includeInactive) {
-    if (params?.status) q = q.eq("status", params.status);
-    else q = q.neq("status", "Inactive");
-  } else if (params?.status) {
-    q = q.eq("status", params.status);
-  }
-
-  if (params?.supplier_type && params.supplier_type !== "all") q = q.eq("supplier_type", params.supplier_type);
-  if (params?.city) q = q.eq("city", params.city);
-
-  // branch filter via junction if exists
+  // Branch scoping is resolved up-front so pagination and totals stay correct
+  // (previously it was applied *after* the page range, which broke counts).
   let branchSupplierIds: string[] | null = null;
   if (params?.branch_id && params.branch_id !== "all") {
     try {
       const { data: links } = await sb.from("supplier_branches").select("supplier_id").eq("branch_id", params.branch_id).eq("is_active", true);
-      branchSupplierIds = (links ?? []).map((l: any) => l.supplier_id);
-      if ((branchSupplierIds as string[]).length === 0) return { data: [], count: 0 };
+      const mapped: string[] = (links ?? []).map((l: any) => l.supplier_id).filter(Boolean);
+      branchSupplierIds = mapped;
+      if (mapped.length === 0) {
+        return { data: [], count: 0, summary: emptySupplierSummary() };
+      }
     } catch {
-      // table missing -> ignore
+      branchSupplierIds = null; // junction table missing -> ignore branch filter
     }
   }
 
-  if (params?.search && params.search.trim()) {
-    const s = params.search.trim();
-    // server-side ilike on name/code/phone/email/contact
-    q = q.or(`name.ilike.%${s}%,supplier_code.ilike.%${s}%,contact_person.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%,business_registration_number.ilike.%${s}%,city.ilike.%${s}%`);
-  }
+  const buildQuery = (selectExpr: string, withCount: boolean) => {
+    let q = sb
+      .from("suppliers")
+      .select(selectExpr, withCount ? { count: "exact" } : undefined)
+      .eq("organization_id", orgId)
+      .order("name");
+    // default hide inactive unless requested
+    if (!params?.includeInactive) {
+      if (params?.status) q = q.eq("status", params.status);
+      else q = q.neq("status", "Inactive");
+    } else if (params?.status) {
+      q = q.eq("status", params.status);
+    }
+    if (params?.supplier_type && params.supplier_type !== "all") q = q.eq("supplier_type", params.supplier_type);
+    if (params?.city) q = q.eq("city", params.city);
+    if (branchSupplierIds && branchSupplierIds.length) q = q.in("id", branchSupplierIds);
+    if (params?.search && params.search.trim()) {
+      const s = params.search.trim();
+      // server-side ilike on name/code/phone/email/contact
+      q = q.or(`name.ilike.%${s}%,supplier_code.ilike.%${s}%,contact_person.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%,business_registration_number.ilike.%${s}%,city.ilike.%${s}%`);
+    }
+    return q;
+  };
 
-  if (params?.page && params?.perPage) {
+  // Balance / open-PO filters are derived from related tables, so they cannot be
+  // pushed into SQL. When active we fetch + enrich the whole filtered set, then
+  // filter and paginate in memory so `count` stays accurate.
+  const derived = !!(params?.has_balance || params?.has_open_po);
+
+  let listQuery = buildQuery("*", true);
+  if (!derived && params?.page && params?.perPage) {
     const from = (params.page - 1) * params.perPage;
-    q = q.range(from, from + params.perPage - 1);
+    listQuery = listQuery.range(from, from + params.perPage - 1);
   }
 
-  const { data, error, count } = await q;
+  const { data, error, count } = await listQuery;
   if (error) throw new Error(error.message);
+
   let list = (data ?? []) as any[];
-  if (branchSupplierIds && branchSupplierIds.length>=0) {
-    const set = new Set(branchSupplierIds as string[]);
-    list = list.filter((s: any) => set.has(s.id));
+  await enrichSuppliers(sb, orgId, list);
+
+  if (derived) {
+    if (params?.has_balance) list = list.filter((s) => Number(s.balance) > 0);
+    if (params?.has_open_po) list = list.filter((s) => Number(s.open_pos) > 0);
+  }
+  const total = derived ? list.length : count ?? list.length;
+  if (derived && params?.page && params?.perPage) {
+    const from = (params.page - 1) * params.perPage;
+    list = list.slice(from, from + params.perPage);
   }
 
-  // enrich with balances (transaction-derived, never stale local)
-  // Use rpc if available, fallback to computed
-  const enriched = await Promise.all(
+  const summary = await getSupplierSummary(sb, orgId, buildQuery("id,status,is_active", false));
+
+  return { data: list, count: total, summary };
+}
+
+async function enrichSuppliers(sb: any, orgId: string, list: any[]) {
+  await Promise.all(
     list.map(async (s: any) => {
+      // transaction-derived balance (never stale local totals)
       try {
         let bal: number = 0;
         try {
           const { data: rb } = await sb.rpc("get_supplier_balance", { p_supplier_id: s.id, p_org_id: orgId });
           bal = rb?.[0]?.balance ?? rb?.balance ?? 0;
         } catch {
-          // fallback: compute from purchase_orders + payments
           const [{ data: pos }, { data: pays }, { data: rets }] = await Promise.all([
             sb.from("purchase_orders").select("total").eq("supplier_id", s.id).eq("organization_id", orgId).neq("status", "CANCELLED"),
             sb.from("supplier_payments").select("amount").eq("supplier_id", s.id).eq("organization_id", orgId),
-            sb.from("purchase_returns").select("total").eq("supplier_id", s.id).eq("organization_id", orgId).in("status", ["approved", "completed"]).then((r: any) => r).catch(() => ({ data: [] })) as any,
+            sb.from("purchase_returns").select("total,status").eq("supplier_id", s.id).eq("organization_id", orgId).in("status", ["approved", "completed"]).then((r: any) => r).catch(() => ({ data: [] })) as any,
           ]);
           const ordered = (pos ?? []).reduce((a: number, p: any) => a + Number(p.total), 0);
           const paid = (pays ?? []).reduce((a: number, p: any) => a + Number(p.amount), 0);
-          const ret = (rets?.data ?? rets ?? []).reduce((a: number, r: any) => a + Number(r.total ?? 0), 0);
+          const ret = ((rets as any)?.data ?? rets ?? []).reduce((a: number, r: any) => a + Number(r.total ?? 0), 0);
           bal = ordered - paid - ret;
         }
-        return { ...s, balance: Number(bal) };
+        s.balance = Number(bal);
       } catch {
-        return { ...s, balance: 0 };
+        s.balance = 0;
       }
-    })
+
+      // counts + last purchase date
+      try {
+        const [prodRes, openRes, lastRes] = await Promise.all([
+          sb.from("product_suppliers").select("id", { count: "exact", head: true }).eq("supplier_id", s.id).then((r: any) => ({ count: r.count ?? 0 })).catch(() => ({ count: 0 })) as any,
+          sb.from("purchase_orders").select("status").eq("supplier_id", s.id).eq("organization_id", orgId).in("status", OPEN_PO_STATUSES).then((r: any) => r).catch(() => ({ data: [] })) as any,
+          sb.from("purchase_orders").select("created_at").eq("supplier_id", s.id).eq("organization_id", orgId).neq("status", "CANCELLED").order("created_at", { ascending: false }).limit(1).then((r: any) => r).catch(() => ({ data: [] })) as any,
+        ]);
+        s.products_count = (prodRes as any)?.count ?? 0;
+        s.open_pos = ((openRes as any)?.data ?? []).length;
+        s.last_purchase_at = ((lastRes as any)?.data ?? [])[0]?.created_at ?? null;
+      } catch {
+        s.products_count = s.products_count ?? 0;
+        s.open_pos = s.open_pos ?? 0;
+        s.last_purchase_at = s.last_purchase_at ?? null;
+      }
+    }),
   );
+}
 
-  // attach counts: products, open POs
-  for (const s of enriched) {
-    try {
-      const [{ count: pc }, { data: pos }] = await Promise.all([
-        sb.from("product_suppliers").select("id", { count: "exact", head: true }).eq("supplier_id", s.id).then((r: any) => ({ count: r.count ?? 0 })).catch(() => ({ count: 0 })) as any,
-        sb.from("purchase_orders").select("status").eq("supplier_id", s.id).eq("organization_id", orgId).in("status", ["DRAFT", "ORDERED", "PARTIALLY_RECEIVED", "SENT", "APPROVED", "PENDING_APPROVAL"]).then((r: any) => r).catch(() => ({ data: [] })) as any,
-      ]);
-      (s as any).products_count = pc ?? 0;
-      (s as any).open_pos = (pos ?? []).length;
-      (s as any).last_purchase_at = null; // filled in detail
-    } catch {}
-  }
+async function getSupplierSummary(sb: any, orgId: string, idQuery: any): Promise<SupplierListSummary> {
+  const EMPTY = emptySupplierSummary();
+  const { data: rows, error } = await idQuery;
+  if (error) return EMPTY;
+  const ids = (rows ?? []).map((r: any) => r.id);
+  if (!ids.length) return EMPTY;
 
-  return { data: enriched, count: count ?? enriched.length };
+  const active = (rows ?? []).filter((r: any) => r.status === "Active" || (r.is_active && r.status !== "Inactive" && r.status !== "Suspended")).length;
+
+  const [prodRes, poRes, payRes, retRes] = await Promise.all([
+    sb.from("product_suppliers").select("id", { count: "exact", head: true }).in("supplier_id", ids).then((r: any) => ({ count: r.count ?? 0 })).catch(() => ({ count: 0 })) as any,
+    sb.from("purchase_orders").select("supplier_id,status,total").eq("organization_id", orgId).in("supplier_id", ids).then((r: any) => r).catch(() => ({ data: [] })) as any,
+    sb.from("supplier_payments").select("amount").eq("organization_id", orgId).in("supplier_id", ids).then((r: any) => r).catch(() => ({ data: [] })) as any,
+    sb.from("purchase_returns").select("total,status").eq("organization_id", orgId).in("supplier_id", ids).then((r: any) => r).catch(() => ({ data: [] })) as any,
+  ]);
+
+  const pos = (poRes as any)?.data ?? [];
+  const purchased = pos.filter((p: any) => BALANCE_PO_STATUSES.includes(p.status)).reduce((a: number, p: any) => a + Number(p.total), 0);
+  const openSupplierIds = new Set(pos.filter((p: any) => OPEN_PO_STATUSES.includes(p.status)).map((p: any) => p.supplier_id));
+  const paid = ((payRes as any)?.data ?? []).reduce((a: number, p: any) => a + Number(p.amount), 0);
+  const returned = ((retRes as any)?.data ?? []).filter((r: any) => ["approved", "completed"].includes(r.status)).reduce((a: number, r: any) => a + Number(r.total), 0);
+
+  return {
+    total: ids.length,
+    active,
+    outstanding: purchased - paid - returned,
+    withOpenPO: openSupplierIds.size,
+    products: (prodRes as any)?.count ?? 0,
+  };
 }
 
 export async function getSupplierById(id: string) {
@@ -206,6 +283,37 @@ export async function getSupplierDetail(id: string) {
   const returnsCount = (returns as any[]).length;
   const partialCount = (pos ?? []).filter((p: any) => p.status === "PARTIALLY_RECEIVED").length;
 
+  // Related audit trail: the supplier entity plus its POs / GRNs / payments /
+  // returns so the Activity tab reflects the whole relationship, not just
+  // supplier-master edits.
+  let relatedAudit: any[] = audit as any[];
+  try {
+    const relatedIds = [
+      id,
+      ...poIds,
+      ...(grns as any[]).map((g) => g.id),
+      ...(payments as any[]).map((p) => p.id),
+      ...(returns as any[]).map((r) => r.id),
+    ]
+      .filter(Boolean)
+      .slice(0, 200);
+    const { data: rel } = await sb.from("audit_logs").select("*").in("entity_id", relatedIds).order("created_at", { ascending: false }).limit(100);
+    if (rel && rel.length) relatedAudit = rel;
+  } catch {}
+
+  // Cross-supplier price comparison for the products this supplier supplies.
+  let comparison: any[] = [];
+  try {
+    const productIds = Array.from(new Set((products as any[]).map((p) => p.product_id).filter(Boolean)));
+    if (productIds.length) {
+      const { data: ps } = await sb
+        .from("product_suppliers")
+        .select("id, product_id, supplier_id, supplier_price, current_price, minimum_order_quantity, lead_time_days, is_preferred, suppliers(name)")
+        .in("product_id", productIds);
+      comparison = ps ?? [];
+    }
+  } catch {}
+
   // Timeline: union of events sorted by date
   const timeline: any[] = [];
   timeline.push({ date: supplier.created_at, type: "Supplier created", user: supplier.created_by, ref: supplier.supplier_code, desc: supplier.name });
@@ -232,10 +340,11 @@ export async function getSupplierDetail(id: string) {
       returns,
       movements,
       priceHistory,
-      audit,
+      audit: relatedAudit,
       branches,
       notes,
       documents,
+      comparison,
       timeline: timeline.slice(0, 80),
       kpi: {
         totalPurchased,
@@ -542,7 +651,10 @@ export async function getSupplierStatement(supplierId: string, params?: { from?:
   if (from) filtered = filtered.filter((e) => new Date(e.date) >= from);
   if (to) filtered = filtered.filter((e) => new Date(e.date) <= to);
   const opening = entries.filter((e) => from && new Date(e.date) < from).reduce((a, e) => a + e.debit - e.credit, 0);
-  return { entries: filtered, opening, closing: bal };
+  // Closing balance must reflect the same window as the returned entries, so a
+  // historical `to` date shows the balance as of that date (not today's).
+  const closing = filtered.reduce((a, e) => a + e.debit - e.credit, opening);
+  return { entries: filtered, opening, closing };
 }
 
 export async function linkSupplierProduct(input: any) {
@@ -641,6 +753,16 @@ export async function deleteCreditApproval(id: string){
 export async function importSupplierCatalogue(supplierId: string, rows: Array<{ product_id?: string; sku?: string; barcode?: string; supplier_sku?: string; price: number; moq?: number; lead_time_days?: number; availability?: string; pack_size?: number }>){
   const sb:any = await getSB();
   const orgId = await getOrgId();
+  // Respect the organization-level feature flag (previously referenced in the UI
+  // copy but never actually enforced).
+  let importEnabled = true;
+  try {
+    const { data: settings } = await sb.from('organization_settings').select('supplier_catalogue_import_enabled').eq('organization_id', orgId).maybeSingle();
+    if (settings && settings.supplier_catalogue_import_enabled === false) importEnabled = false;
+  } catch {
+    // column/table missing -> fail-open so importing still works pre-migration
+  }
+  if (!importEnabled) throw new Error('Supplier catalogue import is disabled for this organization (enable supplier_catalogue_import_enabled).');
   let imported=0; const errors:any[]=[];
   for(let i=0;i<rows.length;i++){
     const r=rows[i] as any;
@@ -669,13 +791,35 @@ export async function importSupplierCatalogue(supplierId: string, rows: Array<{ 
   await createAuditLog('SUPPLIER_CATALOGUE_IMPORTED','suppliers',supplierId,null,{ imported, errorCount: errors.length });
   return { imported, errors };
 }
-export async function getPriceAlerts(thresholdPct?: number){
+
+/** Persist the organization-wide supplier price-alert threshold (%). */
+export async function setSupplierPriceAlertThreshold(pct: number){
   const sb:any = await getSB();
   const orgId = await getOrgId();
-  let threshold = thresholdPct ?? 10;
-  try{ const { data } = await sb.from('organization_settings').select('supplier_price_alert_pct').eq('organization_id',orgId).maybeSingle(); if(data?.supplier_price_alert_pct) threshold = Number(data.supplier_price_alert_pct); }catch{}
+  if(!orgId) throw new Error("Missing organization");
+  const value = Math.max(0, Math.min(100, Math.round(Number(pct))));
+  if(!Number.isFinite(value)) throw new Error("Invalid threshold");
+  const { data: existing } = await sb.from('organization_settings').select('id').eq('organization_id', orgId).maybeSingle();
+  if(existing){
+    const { error } = await sb.from('organization_settings').update({ supplier_price_alert_pct: value, updated_at: new Date().toISOString() }).eq('organization_id', orgId);
+    if(error) throw new Error(error.message);
+  } else {
+    const { error } = await sb.from('organization_settings').insert({ organization_id: orgId, supplier_price_alert_pct: value });
+    if(error) throw new Error(error.message);
+  }
+  await createAuditLog('SUPPLIER_PRICE_ALERT_THRESHOLD_CHANGED','organization_settings', existing?.id ?? null, null, { supplier_price_alert_pct: value }).catch(()=>{});
+  return { supplier_price_alert_pct: value };
+}
+
+export async function getPriceAlerts(opts?: { thresholdPct?: number; supplierId?: string }){
+  const sb:any = await getSB();
+  const orgId = await getOrgId();
+  let threshold = opts?.thresholdPct ?? 10;
+  try{ const { data } = await sb.from('organization_settings').select('supplier_price_alert_pct').eq('organization_id',orgId).maybeSingle(); if(data?.supplier_price_alert_pct != null) threshold = Number(data.supplier_price_alert_pct); }catch{}
   // fetch recent price history and compute pct locally to avoid view dependence
-  const { data } = await sb.from('supplier_price_history').select('*, products(name), suppliers(name)').eq('organization_id',orgId).order('created_at',{ascending:false}).limit(100);
+  let hq = sb.from('supplier_price_history').select('*, products(name), suppliers(name)').eq('organization_id',orgId).order('created_at',{ascending:false}).limit(100);
+  if(opts?.supplierId) hq = hq.eq('supplier_id', opts.supplierId);
+  const { data } = await hq;
   const grouped: Record<string, any[]> = {};
   for(const h of (data??[]) as any[]){ const k=h.supplier_id+'|'+h.product_id; (grouped[k]=grouped[k]||[]).push(h); }
   const alerts:any[]=[];
@@ -686,5 +830,5 @@ export async function getPriceAlerts(thresholdPct?: number){
       if(prev>0){ const pct=Math.abs(cur-prev)/prev*100; if(pct>=threshold) alerts.push({ supplier_id: arr[0].supplier_id, supplier_name: arr[0].suppliers?.name, product_id: arr[0].product_id, product_name: arr[0].products?.name, prev, cur, pct: Number(pct.toFixed(1)), date: arr[0].effective_date }); }
     }
   }
-  return alerts;
+  return { alerts, threshold };
 }

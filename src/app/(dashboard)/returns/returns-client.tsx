@@ -103,6 +103,32 @@ export default function ReturnsPage(){
   React.useEffect(()=>{ const id=setTimeout(()=>setDebouncedQ(q),300); return ()=>clearTimeout(id); },[q]);
   React.useEffect(()=>{ getReturnsPendingCount().then(c=>setPendingCount(c)).catch(()=>{}); const id=setInterval(()=> getReturnsPendingCount().then(c=>setPendingCount(c)).catch(()=>{}),5000); return ()=>clearInterval(id); },[]);
 
+  // Deep-link support: the Suppliers page uses "Create Return" which navigates
+  // here with ?supplier_id=…&po_id=…. Open the Purchase Return wizard with the
+  // supplier's most recent PO preloaded so staff land directly in the form.
+  const preloadRef=React.useRef(false);
+  React.useEffect(()=>{
+    if(preloadRef.current) return; preloadRef.current=true;
+    (async()=>{
+      try{
+        const sp=new URLSearchParams(window.location.search);
+        const sid=sp.get("supplier_id"); const poid=sp.get("po_id");
+        if(!sid && !poid) return;
+        let targetId=poid;
+        if(!targetId && sid){
+          const list=await cachedFetch<any>(`/api/purchases?supplier_id=${encodeURIComponent(sid)}&perPage=1`).catch(()=>null);
+          targetId=list?.data?.[0]?.id ?? null;
+        }
+        setNewType('PURCHASE'); setTypeFilter('purchase'); setShowNew(true);
+        if(targetId){
+          const d=await cachedFetch<any>(`/api/purchases?id=${encodeURIComponent(targetId)}`).catch(()=>null);
+          if(d?.id){ setPoDetail(d); setPoId(d.purchase_number ?? d.id); }
+        }
+        try{ window.history.replaceState({}, "", window.location.pathname); }catch{}
+      }catch{}
+    })();
+  },[]);
+
   const fetchAll=React.useCallback(async()=>{
     setLoading(true); setErr(null);
     try{
