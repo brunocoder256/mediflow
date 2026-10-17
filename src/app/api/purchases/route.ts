@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sanitizeError } from '@/lib/security';
-import { getPurchases, getPurchaseById, createPurchase, receivePurchase, updatePurchaseStatus, cancelPurchase, getPurchaseKPIs } from '@/lib/services/purchases';
+import { getPurchases, getPurchaseById, createPurchase, receivePurchase, updatePurchaseStatus, cancelPurchase, getPurchaseKPIs, getSupplierPurchaseHistory } from '@/lib/services/purchases';
 import { createPurchaseSchema, receivePurchaseSchema, purchaseStatusSchema } from '@/lib/validations/purchases';
 
 export async function GET(request: Request) {
@@ -22,6 +22,8 @@ export async function GET(request: Request) {
             return NextResponse.json(data);
         }
         if(id){ const d=await getPurchaseById(id); return NextResponse.json(d); }
+        const supplierHistory = searchParams.get('supplierHistory');
+        if(supplierHistory){ const d=await getSupplierPurchaseHistory(supplierHistory, product_id); return NextResponse.json(d); }
         const data = await getPurchases({ branch_id, status, supplier_id, search, date_from, date_to, product_id, page, perPage });
         return NextResponse.json(data);
     } catch (error: any) {

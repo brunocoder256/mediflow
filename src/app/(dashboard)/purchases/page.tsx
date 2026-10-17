@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Search, Plus, Eye, Truck, Trash2, Wifi, WifiOff, RefreshCw, Download, CreditCard, Undo2, Layers, TrendingUp, Package, Building2, Users, FileText, History } from "lucide-react";
+import { Search, Plus, Eye, Truck, Trash2, Wifi, WifiOff, RefreshCw, Download, CreditCard, Undo2, Layers, TrendingUp, Package, Building2, Users, FileText, History, Printer } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatCard } from "@/components/ui/stat-card";
@@ -19,7 +19,7 @@ import { queuePurchaseCreate, queuePurchaseReceive, queuePurchaseStatus, queuePu
 import { cachedFetch, invalidateCache } from "@/lib/offline/cached-fetch";
 import { usePendingPurchases } from "@/lib/offline/pending-overlay";
 
-type Purchase = { id:string; purchase_number:string; supplier_id:string; branch_id:string; status:string; total:number; subtotal?:number; discount?:number; tax?:number; created_at:string; ordered_at?:string; received_at?:string; suppliers?:{name:string}; branches?:{name:string}; purchase_items?:any[]; pendingSync?: boolean };
+type Purchase = { id:string; purchase_number:string; supplier_id:string; branch_id:string; status:string; total:number; subtotal?:number; discount?:number; tax?:number; created_at:string; ordered_at?:string; received_at?:string; suppliers?:{name:string}; branches?:{name:string}; purchase_items?:any[]; paid_amount?:number; pendingSync?: boolean };
 type Line = { product_id:string; product_name?:string; quantity_ordered:number; unit_cost:number; discount:number; tax:number; search_query?:string };
 
 export default function PurchasesPage(){
@@ -52,19 +52,45 @@ export default function PurchasesPage(){
   const [returnForm,setReturnForm]=React.useState<{items:any[]; reason:string}>({items:[], reason:""});
   const [attachForm,setAttachForm]=React.useState({document_type:"SUPPLIER_INVOICE", file_name:"", file_url:""});
   const [searchOpen,setSearchOpen]=React.useState<number|null>(null);
+  const [canViewFin,setCanViewFin]=React.useState(true);
+  const [supplierHistory,setSupplierHistory]=React.useState<any[]>([]);
   const perPage=20;
   const pendingPurchases = usePendingPurchases();
   const mergedPurchases = React.useMemo<Purchase[]>(()=>{
     if(tab!=="all") return data;
+    if(tab!=="all") return data;
     const pend = pendingPurchases.filter(pp=>!data.some(p=>p.id===pp.id));
     return [...(pend as unknown as Purchase[]), ...data];
   },[tab, pendingPurchases, data]);
+
+  // Sensitive money is masked only when we positively know the user lacks a
+  // purchasing/financial permission (fail-open while permissions load).
+  const hideFin = !canViewFin;
+  const ugx = (n:any)=> hideFin ? "UGX ••••••" : `UGX ${Number(n??0).toLocaleString()}`;
+  const receivedValueOf = (p:any) => ((p?.purchase_items ?? []) as any[]).reduce((s:number,it:any)=> s + Number(it.quantity_received ?? 0) * Number(it.unit_cost ?? 0), 0);
+  const datePart = (d:any)=> d ? (typeof d==="string" ? d.slice(0,10) : new Date(d).toISOString().slice(0,10)) : "";
 
   React.useEffect(()=>{ const id=setTimeout(()=>setDebouncedQ(q),300); return ()=>clearTimeout(id); },[q]);
   React.useEffect(()=>{
     getPurchasePendingCount().then(c=>setPendingCount(c)).catch(()=>{});
     const id=setInterval(()=> getPurchasePendingCount().then(c=>setPendingCount(c)).catch(()=>{}), 5000);
     return ()=>clearInterval(id);
+  },[]);
+  // Fail-open: only mask purchase money once we positively know the user lacks a
+  // purchasing/financial permission (kept consistent with the Suppliers page).
+  React.useEffect(()=>{
+    fetch("/api/me").then(r=>r.ok? r.json(): null).then(j=>{
+      if(j && Array.isArray(j.permissions)){
+        const p = j.permissions;
+        setCanViewFin(
+          p.includes("users.manage") ||
+          p.includes("purchases.approve") ||
+          p.includes("suppliers.view_financials") ||
+          p.includes("reports.view_financial") ||
+          p.includes("reports.view_costs")
+        );
+      }
+    }).catch(()=>{});
   },[]);
 
   // Supplier page "Create Purchase Order" hands off via ?supplier_id=<id> (and a
@@ -134,6 +160,17 @@ export default function PurchasesPage(){
     window.addEventListener("mediflow:synced", onSync);
     return ()=>window.removeEventListener("mediflow:synced", onSync);
   },[fetchAll]);
+
+  // Load the selected supplier's recent purchase price history for the detail
+  // "Supplier" tab (real data instead of a static hint).
+  React.useEffect(()=>{
+    if(detailTab!=="supplier" || !showDetail?.supplier_id){ return; }
+    let cancelled=false;
+    cachedFetch<any>(`/api/purchases?supplierHistory=${showDetail.supplier_id}`).then((rows:any)=>{
+      if(!cancelled) setSupplierHistory(Array.isArray(rows)? rows: []);
+    }).catch(()=>{ if(!cancelled) setSupplierHistory([]); });
+    return ()=>{ cancelled=true; };
+  },[detailTab, showDetail]);
 
   const addLine=()=> setForm({...form, lines:[...form.lines, {product_id:"", quantity_ordered:1, unit_cost:0, discount:0, tax:0}]});
   const updateLine=(i:number, patch:Partial<Line>)=> setForm({...form, lines: form.lines.map((l,idx)=> idx===i ? {...l, ...patch}: l)});
@@ -272,6 +309,47 @@ export default function PurchasesPage(){
     if(!r.ok) alert(j.error); else { alert("Document attached"); setAttachForm({document_type:"SUPPLIER_INVOICE", file_name:"", file_url:""}); openDetail(showDetail); }
   };
 
+  const csvCell=(v:any)=>{ const s=String(v ?? ""); return /[",\n]/.test(s)? `"${s.replace(/"/g,'""')}"` : s; };
+  const exportCsv=(rows:Purchase[])=>{
+    const header=["PO","Supplier","Branch","Date","Status","Ordered","Received","Paid","Items"];
+    const lines=rows.map((p:any)=>[
+      p.purchase_number,
+      p.suppliers?.name ?? "",
+      p.branches?.name ?? (branches.find((b:any)=>b.id===p.branch_id)?.name ?? (p.branch_id? String(p.branch_id).slice(0,6): "")),
+      datePart(p.created_at),
+      p.status,
+      hideFin? "": Number(p.total ?? 0),
+      hideFin? "": receivedValueOf(p),
+      hideFin? "": Number(p.paid_amount ?? 0),
+      (p.purchase_items?.length ?? ""),
+    ]);
+    const csv=[header, ...lines].map((r:any[])=>r.map(csvCell).join(",")).join("\n");
+    const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`purchases_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
+  };
+  // Open a print-friendly PO document in a new window (avoids leaking the whole
+  // dashboard chrome / other rows into the printed sheet).
+  const printPO=(po:any, itemsOverride?:any[])=>{
+    if(!po) return;
+    const items = itemsOverride ?? po.purchase_items ?? [];
+    const rows = items.map((it:any)=>`<tr><td>${it.products?.name ?? it.product_id ?? ""}</td><td style="text-align:right">${it.quantity_ordered ?? ""}</td><td style="text-align:right">${it.quantity_received ?? 0}</td><td style="text-align:right">${hideFin? "•••": Number(it.unit_cost ?? 0).toLocaleString()}</td><td style="text-align:right">${hideFin? "•••": Number(it.subtotal ?? (Number(it.quantity_ordered||0)*Number(it.unit_cost||0))).toLocaleString()}</td></tr>`).join("");
+    const totalRows = hideFin? "" : `<tr><td colspan="4" style="text-align:right">Subtotal</td><td style="text-align:right">${Number(po.subtotal ?? 0).toLocaleString()}</td></tr>
+      <tr><td colspan="4" style="text-align:right">Discount</td><td style="text-align:right">-${Number(po.discount ?? 0).toLocaleString()}</td></tr>
+      <tr><td colspan="4" style="text-align:right">Tax</td><td style="text-align:right">+${Number(po.tax ?? 0).toLocaleString()}</td></tr>
+      <tr><td colspan="4" style="text-align:right"><strong>Total</strong></td><td style="text-align:right"><strong>${Number(po.total ?? 0).toLocaleString()}</strong></td></tr>`;
+    const html = `<!doctype html><html><head><title>${po.purchase_number}</title>
+      <style>body{font-family:Arial,Helvetica,sans-serif;padding:24px;color:#111}h1{font-size:18px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #ccc;padding:6px 8px;font-size:12px}th{background:#f3f3f3;text-align:left}.meta{font-size:12px;color:#444;margin-top:4px}</style>
+      </head><body>
+      <h1>Purchase Order ${po.purchase_number}</h1>
+      <div class="meta">Supplier: ${po.suppliers?.name ?? ""}</div>
+      <div class="meta">Branch: ${po.branches?.name ?? ""} • Status: ${po.status} • Date: ${datePart(po.created_at)}</div>
+      <div class="meta">Expected delivery: ${po.expected_delivery_date ?? "—"} • Currency: ${po.currency ?? "UGX"} • Terms: ${po.payment_terms ?? "—"}</div>
+      <table><thead><tr><th>Product</th><th style="text-align:right">Ordered</th><th style="text-align:right">Received</th><th style="text-align:right">Unit cost</th><th style="text-align:right">Subtotal</th></tr></thead>
+      <tbody>${rows}${totalRows}</tbody></table>
+      ${po.notes? `<p class="meta">Notes: ${po.notes}</p>`:""}
+      <p class="meta">Generated ${new Date().toLocaleString()}</p>
+      </body></html>`;
+    const w=window.open("", "_blank", "width=900,height=700"); if(!w) return; w.document.write(html); w.document.close(); w.focus(); w.print();
+  };
   const badge=(s:string)=>{
     if(s==="PENDING_SYNC") return <Badge variant="warning">Pending Sync</Badge>;
     if(s==="DRAFT") return <Badge variant="secondary">Draft</Badge>;
@@ -299,24 +377,20 @@ export default function PurchasesPage(){
 
       {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={TrendingUp} title="Purchases This Period" value={`UGX ${(kpi?.totalThisPeriod ?? 0).toLocaleString()}`} description={`${kpi?.totalCount ?? 0} orders • ${new Date().toLocaleDateString(undefined,{month:'long'})}`}/>
+        <StatCard icon={TrendingUp} title="Purchases This Period" value={ugx(kpi?.totalThisPeriod ?? 0)} description={`${kpi?.totalCount ?? 0} orders • ${new Date().toLocaleDateString(undefined,{month:'long'})}`}/>
         <StatCard icon={FileText} title="Pending POs" value={kpi?.pendingPOs ?? 0} description="Draft + Ordered awaiting delivery"/>
         <StatCard icon={Package} title="Pending Receipts / Partial" value={<>{kpi?.pendingReceipts ?? 0} {(kpi?.partially ?? 0)>0 && <span className="text-sm font-normal text-muted-foreground">({kpi?.partially ?? 0} partial)</span>}</>} description="Outstanding quantities"/>
-        <StatCard icon={CreditCard} title="Unpaid / Returns" value={`UGX ${(kpi?.unpaidTotal ?? 0).toLocaleString()}`} description={`${kpi?.returnsCount ?? 0} returns (UGX ${(kpi?.returnsValue ?? 0).toLocaleString()}) this period • Payable = billed − paid − returns`}/>
+        <StatCard icon={CreditCard} title="Unpaid / Returns" value={ugx(kpi?.unpaidTotal ?? 0)} description={hideFin? "Restricted — financial permission required" : `${kpi?.returnsCount ?? 0} returns (${ugx(kpi?.returnsValue ?? 0)}) this period • Payable = billed − paid − returns`}/>
       </div>
 
       <Card className="mb-1"><CardContent className="p-4 space-y-3">
         <div className="flex flex-col gap-3 md:flex-row">
           <div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input placeholder="Search PO#, GRN batch, supplier, product, SKU, invoice..." value={q} onChange={e=>setQ(e.target.value)} className="pl-9"/></div>
           <Button variant="outline" onClick={()=>{setQ(""); setSupplierFilter("all"); setBranchFilter("all"); setDateFrom(""); setDateTo(""); setTab("all"); setPage(1);}}>Clear Filters</Button>
-          <Button variant="outline" size="sm" onClick={()=>{
-            const header=["PO","Supplier","Branch","Date","Status","Total","Items"].join(",");
-            const lines=data.map(p=>[p.purchase_number, p.suppliers?.name ?? "", p.branch_id.slice(0,6), new Date(p.created_at).toLocaleDateString(), p.status, p.total, (p.purchase_items?.length ?? "")].join(","));
-            const csv=[header,...lines].join("\n"); const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`purchases_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
-          }}><Download className="h-4 w-4 mr-1"/>Export</Button>
+          <Button variant="outline" size="sm" onClick={()=>exportCsv(mergedPurchases)} disabled={mergedPurchases.length===0}><Download className="h-4 w-4 mr-1"/>Export</Button>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Select value={supplierFilter} onChange={e=>{setSupplierFilter(e.target.value); setPage(1);}} className="w-[180px]"><option value="all">All Suppliers</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name} {s.balance?` (UGX ${Number(s.balance).toLocaleString()})`:""}</option>)}</Select>
+          <Select value={supplierFilter} onChange={e=>{setSupplierFilter(e.target.value); setPage(1);}} className="w-[180px]"><option value="all">All Suppliers</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name} {(!hideFin && s.balance)?` (UGX ${Number(s.balance).toLocaleString()})`:""}</option>)}</Select>
           <Select value={branchFilter} onChange={e=>{setBranchFilter(e.target.value); setPage(1);}} className="w-[160px]"><option value="all">All Branches</option>{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</Select>
           <Input type="date" value={dateFrom} onChange={e=>{setDateFrom(e.target.value); setPage(1);}} className="w-[150px]" placeholder="From"/>
           <Input type="date" value={dateTo} onChange={e=>{setDateTo(e.target.value); setPage(1);}} className="w-[150px]" placeholder="To"/>
@@ -337,9 +411,11 @@ export default function PurchasesPage(){
                 {mergedPurchases.map(p=>{
                   const pending=p.pendingSync===true;
                   const itemsCount=(p as any).purchase_items?.length ?? "-";
-                  const ordered=p.total;
-                  // Approx received value from detail? fallback to status
-                  const receivedHint = p.status==="RECEIVED" ? ordered : p.status==="PARTIALLY_RECEIVED" ? Math.round(ordered*0.6) : 0;
+                  const ordered=Number(p.total ?? 0);
+                  const received=receivedValueOf(p);
+                  const paid=Number((p as any).paid_amount ?? 0);
+                  const payStatus = paid<=0 ? (ordered<=0?"UNBILLED":"UNPAID") : paid>=ordered ? "PAID" : "PARTIAL";
+                  const payVariant = payStatus==="PAID"?"success": payStatus==="PARTIAL"?"warning": payStatus==="UNPAID"?"destructive":"outline";
                   return (
                   <TableRow key={p.id} className="hover:bg-muted/40">
                     <TableCell className="font-mono text-xs cursor-pointer underline" onClick={()=>openDetail(p)}>{p.purchase_number}{pending && <Badge variant="warning" className="ml-2 text-[10px]">Pending</Badge>}</TableCell>
@@ -347,12 +423,13 @@ export default function PurchasesPage(){
                     <TableCell className="text-sm">{(p as any).suppliers?.name ?? p.supplier_id.slice(0,8)}</TableCell>
                     <TableCell className="text-xs">{(p as any).branches?.name ?? p.branch_id.slice(0,6)}</TableCell>
                     <TableCell className="text-sm">{itemsCount}</TableCell>
-                    <TableCell className="text-right text-sm">UGX {Number(ordered).toLocaleString()}</TableCell>
-                    <TableCell className="text-right text-sm">{p.status==="RECEIVED"||p.status==="PARTIALLY_RECEIVED" ? `UGX ${receivedHint.toLocaleString()}`: "—"}</TableCell>
-                    <TableCell className="text-xs"><Badge variant="outline">Billed</Badge><span className="text-[10px] text-muted-foreground block">Pay → Suppliers</span></TableCell>
+                    <TableCell className="text-right text-sm">{ugx(ordered)}</TableCell>
+                    <TableCell className="text-right text-sm">{received>0 ? ugx(received) : "—"}</TableCell>
+                    <TableCell className="text-xs">{pending ? <span className="text-muted-foreground">—</span> : <><Badge variant={payStatus==="PAID"?"success":payStatus==="PARTIAL"?"warning":payStatus==="UNPAID"?"destructive":"outline"}>{payStatus==="PAID"?"Paid":payStatus==="PARTIAL"?"Partial":payStatus==="UNPAID"?"Unpaid":"Billed"}</Badge>{hideFin? <span className="text-[10px] text-muted-foreground block">Amount restricted</span> : <span className="text-[10px] text-muted-foreground block">Paid {Number(p.paid_amount??0).toLocaleString()} / {Number(ordered).toLocaleString()}</span>}</>}</TableCell>
                     <TableCell>{badge(p.status)}</TableCell>
                     <TableCell className="text-right space-x-1">
                       <Button variant="ghost" size="icon" onClick={()=>openDetail(p)} title="View detail"><Eye className="h-4 w-4"/></Button>
+                      <Button variant="ghost" size="icon" onClick={()=>printPO(p)} title="Print PO"><Printer className="h-4 w-4"/></Button>
                       {(p.status==="DRAFT") && <Button variant="ghost" size="icon" onClick={()=>handleStatus(p,"ORDERED")} title="Mark Ordered"><FileText className="h-4 w-4"/></Button>}
                       {(p.status==="DRAFT" || p.status==="ORDERED" || p.status==="PARTIALLY_RECEIVED") && <Button variant="ghost" size="icon" onClick={()=>openReceive(p)} title="Receive goods"><Truck className="h-4 w-4"/></Button>}
                       {(p.status==="DRAFT"||p.status==="ORDERED") && <Button variant="ghost" size="icon" onClick={()=>handleCancel(p)} title="Cancel"><Trash2 className="h-4 w-4"/></Button>}
@@ -366,7 +443,7 @@ export default function PurchasesPage(){
                     <CardContent className="p-3 space-y-2">
                       <div className="flex justify-between"><span className="font-mono text-xs">{p.purchase_number}</span><span className="flex items-center gap-1">{p.pendingSync && <Badge variant="warning" className="text-[10px]">Pending</Badge>}{badge(p.status)}</span></div>
                       <div className="text-sm">{(p as any).suppliers?.name} • {(p as any).branches?.name ?? p.branch_id.slice(0,6)}</div>
-                      <div className="flex justify-between text-xs"><span>{new Date(p.created_at).toLocaleDateString()}</span><span className="font-bold">UGX {Number(p.total).toLocaleString()}</span></div>
+                      <div className="flex justify-between text-xs"><span>{new Date(p.created_at).toLocaleDateString()}</span><span className="font-bold">{ugx(p.total)}</span></div>
                       <div className="flex gap-2" onClick={e=>e.stopPropagation()}>
                         <Button size="sm" variant="outline" className="flex-1" onClick={()=>openDetail(p)}><Eye className="h-4 w-4 mr-1"/>View</Button>
                         {(p.status==="DRAFT"||p.status==="ORDERED"||p.status==="PARTIALLY_RECEIVED") && <Button size="sm" variant="outline" onClick={()=>openReceive(p)}><Truck className="h-4 w-4"/></Button>}
@@ -496,12 +573,13 @@ export default function PurchasesPage(){
                         <div className="flex justify-between"><span>Payment Terms</span><span>{detailData.payment_terms ?? "—"}</span></div>
                       </CardContent></Card>
                       <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Financial</CardTitle></CardHeader><CardContent className="text-sm space-y-1">
-                        <div className="flex justify-between"><span>Subtotal</span><span>UGX {Number(detailData.subtotal).toLocaleString()}</span></div>
-                        <div className="flex justify-between"><span>Discount</span><span>-UGX {Number(detailData.discount).toLocaleString()}</span></div>
-                        <div className="flex justify-between"><span>Tax</span><span>+UGX {Number(detailData.tax).toLocaleString()}</span></div>
-                        <div className="flex justify-between font-bold border-t pt-1"><span>Total (Ordered)</span><span>UGX {Number(detailData.total).toLocaleString()}</span></div>
-                        <div className="flex justify-between text-xs text-muted-foreground"><span>Paid</span><span>UGX {(detailData.supplier_payments ?? []).reduce((s:any,p:any)=>s+Number(p.amount),0).toLocaleString()} (separate)</span></div>
-                        <div className="flex justify-between text-xs"><span>Outstanding</span><span className="font-bold">UGX {Math.max(0, Number(detailData.total) - (detailData.supplier_payments ?? []).reduce((s:any,p:any)=>s+Number(p.amount),0)).toLocaleString()}</span></div>
+                        <div className="flex justify-between"><span>Ordered value</span><span>{ugx(detailData.subtotal)}</span></div>
+                        <div className="flex justify-between"><span>Discount</span><span>{hideFin? "•••" : `-UGX ${Number(detailData.discount??0).toLocaleString()}`}</span></div>
+                        <div className="flex justify-between"><span>Tax</span><span>{hideFin? "•••" : `+UGX ${Number(detailData.tax??0).toLocaleString()}`}</span></div>
+                        <div className="flex justify-between"><span>Received value</span><span>{ugx(receivedValueOf(detailData))}</span></div>
+                        <div className="flex justify-between font-bold border-t pt-1"><span>Total (Ordered)</span><span>{ugx(detailData.total)}</span></div>
+                        <div className="flex justify-between text-xs text-muted-foreground"><span>Paid</span><span>{ugx((detailData.supplier_payments ?? []).reduce((s:any,p:any)=>s+Number(p.amount),0))} (separate)</span></div>
+                        <div className="flex justify-between text-xs"><span>Outstanding</span><span className="font-bold">{ugx(Math.max(0, Number(detailData.total) - (detailData.supplier_payments ?? []).reduce((s:any,p:any)=>s+Number(p.amount),0)))}</span></div>
                         <p className="text-[10px] text-muted-foreground">Payment status ≠ Receiving status. Receive adds stock; Pay reduces payable.</p>
                       </CardContent></Card>
                       <Card className="md:col-span-2"><CardContent className="p-3 text-xs">Notes: {detailData.notes ?? "—"} • PO: {detailData.purchase_number} • GRN: {(detailData.goods_receipts ?? []).map((g:any)=>g.grn_number).join(", ") || "—"} • ID: {detailData.id.slice(0,8)} • Approved: {detailData.approved_at ? new Date(detailData.approved_at).toLocaleDateString() : "—"} • Sent: {detailData.sent_at ? new Date(detailData.sent_at).toLocaleDateString() : "—"}</CardContent></Card>
@@ -512,6 +590,7 @@ export default function PurchasesPage(){
                         {(detailData.status==="SENT") && <Button size="sm" onClick={()=>handleStatus(detailData,"ORDERED")}>Confirm Ordered</Button>}
                         {(detailData.status==="RECEIVED") && <Button size="sm" onClick={()=>handleStatus(detailData,"CLOSED")}>Close PO</Button>}
                         {(detailData.status==="DRAFT"||detailData.status==="APPROVED"||detailData.status==="SENT"||detailData.status==="ORDERED"||detailData.status==="PARTIALLY_RECEIVED") && <Button size="sm" variant="outline" onClick={()=>{ setShowDetail(null); openReceive(detailData); }}>Receive Goods (GRN)</Button>}
+                        <Button size="sm" variant="outline" onClick={()=>printPO(detailData, detailData.purchase_items)}><Printer className="h-4 w-4 mr-1"/>Print PO</Button>
                         {(["DRAFT","PENDING_APPROVAL","APPROVED","SENT","ORDERED"].includes(detailData.status)) && <Button size="sm" variant="destructive" onClick={()=>handleCancel(detailData)}>Cancel</Button>}
                       </div>
                     </div>
@@ -519,7 +598,7 @@ export default function PurchasesPage(){
                   {detailTab==="items" && (
                     <Table><TableHeader><TableRow><TableHead>Product</TableHead><TableHead>Ordered</TableHead><TableHead>Received</TableHead><TableHead>Outstanding</TableHead><TableHead>Unit Cost</TableHead><TableHead>Subtotal</TableHead></TableRow></TableHeader><TableBody>
                       {(detailData.purchase_items ?? []).map((it:any)=>(
-                        <TableRow key={it.id}><TableCell>{it.products?.name ?? it.product_id.slice(0,8)}<div className="text-xs text-muted-foreground">{it.products?.sku ?? ""}</div></TableCell><TableCell>{it.quantity_ordered}</TableCell><TableCell className="font-bold">{it.quantity_received} {Number(it.quantity_received)<Number(it.quantity_ordered) && <Badge variant="warning" className="ml-1">{Number(it.quantity_ordered)-Number(it.quantity_received)} left</Badge>}</TableCell><TableCell>{Number(it.quantity_ordered)-Number(it.quantity_received)}</TableCell><TableCell>UGX {Number(it.unit_cost).toLocaleString()}</TableCell><TableCell>UGX {Number(it.subtotal).toLocaleString()}</TableCell></TableRow>
+                        <TableRow key={it.id}><TableCell>{it.products?.name ?? it.product_id.slice(0,8)}<div className="text-xs text-muted-foreground">{it.products?.sku ?? ""}</div></TableCell><TableCell>{it.quantity_ordered}</TableCell><TableCell className="font-bold">{it.quantity_received} {Number(it.quantity_received)<Number(it.quantity_ordered) && <Badge variant="warning" className="ml-1">{Number(it.quantity_ordered)-Number(it.quantity_received)} left</Badge>}</TableCell><TableCell>{Number(it.quantity_ordered)-Number(it.quantity_received)}</TableCell><TableCell>{ugx(it.unit_cost)}</TableCell><TableCell>{ugx(it.subtotal)}</TableCell></TableRow>
                       ))}
                     </TableBody></Table>
                   )}
@@ -528,7 +607,7 @@ export default function PurchasesPage(){
                       {(detailData.goods_receipts ?? []).length>0 && (
                         <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Goods Received Notes (GRN)</CardTitle><CardDescription>Server-authoritative GRN numbers: GRN-YYYYMMDD-XXXXXX</CardDescription></CardHeader><CardContent className="p-0">
                           <Table><TableHeader><TableRow><TableHead>GRN</TableHead><TableHead>Date</TableHead><TableHead>Qty</TableHead><TableHead>Value</TableHead><TableHead>By</TableHead></TableRow></TableHeader><TableBody>
-                            {(detailData.goods_receipts ?? []).map((g:any)=><TableRow key={g.id}><TableCell className="font-mono text-xs">{g.grn_number}</TableCell><TableCell className="text-xs">{new Date(g.received_at).toLocaleDateString()}</TableCell><TableCell>{g.total_quantity}</TableCell><TableCell>UGX {Number(g.total_value).toLocaleString()}</TableCell><TableCell className="text-xs">{g.received_by?.slice(0,8) ?? "—"}</TableCell></TableRow>)}
+                            {(detailData.goods_receipts ?? []).map((g:any)=><TableRow key={g.id}><TableCell className="font-mono text-xs">{g.grn_number}</TableCell><TableCell className="text-xs">{new Date(g.received_at).toLocaleDateString()}</TableCell><TableCell>{g.total_quantity}</TableCell><TableCell>{ugx(g.total_value)}</TableCell><TableCell className="text-xs">{g.received_by?.slice(0,8) ?? "—"}</TableCell></TableRow>)}
                           </TableBody></Table>
                         </CardContent></Card>
                       )}
@@ -536,7 +615,7 @@ export default function PurchasesPage(){
                         <Table><TableHeader><TableRow><TableHead>GRN/Batch</TableHead><TableHead>Product</TableHead><TableHead>Qty</TableHead><TableHead>Cost</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>
                           {(detailData.stock_movements ?? []).map((m:any)=>{
                             const grn = (detailData.goods_receipts ?? []).find((g:any)=> g.received_at?.slice(0,10)===m.created_at?.slice(0,10));
-                            return <TableRow key={m.id}><TableCell className="font-mono text-xs">{grn?.grn_number ?? m.batch_id?.slice(0,8)}</TableCell><TableCell>{m.product_id.slice(0,8)}</TableCell><TableCell>+{m.quantity}</TableCell><TableCell>UGX {Number(m.unit_cost).toLocaleString()}</TableCell><TableCell className="text-xs">{new Date(m.created_at).toLocaleDateString()}</TableCell></TableRow>
+                            return <TableRow key={m.id}><TableCell className="font-mono text-xs">{grn?.grn_number ?? m.batch_id?.slice(0,8)}</TableCell><TableCell>{m.product_id.slice(0,8)}</TableCell><TableCell>+{m.quantity}</TableCell><TableCell>{ugx(m.unit_cost)}</TableCell><TableCell className="text-xs">{new Date(m.created_at).toLocaleDateString()}</TableCell></TableRow>
                           })}
                         </TableBody></Table>
                       }
@@ -550,7 +629,7 @@ export default function PurchasesPage(){
                         <Table><TableHeader><TableRow><TableHead>Batch</TableHead><TableHead>Expiry</TableHead><TableHead>Qty Avail/Recv</TableHead><TableHead>Cost/Sell</TableHead><TableHead>Supplier</TableHead></TableRow></TableHeader><TableBody>
                           {(detailData.batches ?? []).map((b:any)=>{
                             const days=Math.ceil((new Date(b.expiry_date).getTime()-Date.now())/86400000);
-                            return <TableRow key={b.id}><TableCell className="font-mono">{b.batch_number}</TableCell><TableCell>{new Date(b.expiry_date).toLocaleDateString()}<div className="text-xs">{days<90 && days>0 ? <Badge variant="warning">{days}d — short-dated</Badge> : days<=0 ? <Badge variant="destructive">Expired</Badge> : `${days}d`}</div></TableCell><TableCell>{b.quantity_available} / {b.quantity_received}</TableCell><TableCell>UGX {Number(b.purchase_price).toLocaleString()} / UGX {Number(b.selling_price).toLocaleString()}</TableCell><TableCell className="text-xs">{b.supplier_id?.slice(0,6)}</TableCell></TableRow>
+                            return <TableRow key={b.id}><TableCell className="font-mono">{b.batch_number}</TableCell><TableCell>{new Date(b.expiry_date).toLocaleDateString()}<div className="text-xs">{days<90 && days>0 ? <Badge variant="warning">{days}d — short-dated</Badge> : days<=0 ? <Badge variant="destructive">Expired</Badge> : `${days}d`}</div></TableCell><TableCell>{b.quantity_available} / {b.quantity_received}</TableCell><TableCell>{hideFin? "•••" : `UGX ${Number(b.purchase_price??0).toLocaleString()} / UGX ${Number(b.selling_price??0).toLocaleString()}`}</TableCell><TableCell className="text-xs">{b.supplier_id?.slice(0,6)}</TableCell></TableRow>
                           })}
                         </TableBody></Table>
                       }
@@ -558,9 +637,9 @@ export default function PurchasesPage(){
                   )}
                   {detailTab==="payments" && (
                     <div className="space-y-3">
-                      {(detailData.supplier_payments ?? []).length===0 ? <p className="text-sm text-muted-foreground">No payments recorded — UGX {Number(detailData.total).toLocaleString()} outstanding. Receiving ≠ Paid.</p> :
+                      {(detailData.supplier_payments ?? []).length===0 ? <p className="text-sm text-muted-foreground">No payments recorded — {ugx(detailData.total)} outstanding. Receiving ≠ Paid.</p> :
                         <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Method</TableHead><TableHead>Reference</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader><TableBody>
-                          {(detailData.supplier_payments ?? []).map((p:any)=><TableRow key={p.id}><TableCell className="text-xs">{new Date(p.payment_date).toLocaleDateString()}</TableCell><TableCell><Badge variant="outline">{p.payment_method}</Badge></TableCell><TableCell className="text-xs">{p.reference ?? "—"}</TableCell><TableCell className="text-right">UGX {Number(p.amount).toLocaleString()}</TableCell></TableRow>)}
+                          {(detailData.supplier_payments ?? []).map((p:any)=><TableRow key={p.id}><TableCell className="text-xs">{new Date(p.payment_date).toLocaleDateString()}</TableCell><TableCell><Badge variant="outline">{p.payment_method}</Badge></TableCell><TableCell className="text-xs">{p.reference ?? "—"}</TableCell><TableCell className="text-right">{ugx(p.amount)}</TableCell></TableRow>)}
                         </TableBody></Table>
                       }
                       <Card><CardContent className="p-3 space-y-2">
@@ -579,7 +658,7 @@ export default function PurchasesPage(){
                     <div className="space-y-3">
                       {(detailData.purchase_returns ?? []).length===0 ? <p className="text-sm text-muted-foreground">No returns — if delivery damaged/incorrect/expired, create return.</p> :
                         <Table><TableHeader><TableRow><TableHead>Return #</TableHead><TableHead>Reason</TableHead><TableHead>Total</TableHead><TableHead>Status</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>
-                          {(detailData.purchase_returns ?? []).map((r:any)=><TableRow key={r.id}><TableCell className="font-mono">{r.return_number}</TableCell><TableCell className="text-xs">{r.reason}</TableCell><TableCell>UGX {Number(r.total).toLocaleString()}</TableCell><TableCell><Badge variant={r.status==="completed"?"success":"warning"}>{r.status}</Badge></TableCell><TableCell className="text-xs">{new Date(r.created_at).toLocaleDateString()}</TableCell></TableRow>)}
+                          {(detailData.purchase_returns ?? []).map((r:any)=><TableRow key={r.id}><TableCell className="font-mono">{r.return_number}</TableCell><TableCell className="text-xs">{r.reason}</TableCell><TableCell>{ugx(r.total)}</TableCell><TableCell><Badge variant={r.status==="completed"?"success":"warning"}>{r.status}</Badge></TableCell><TableCell className="text-xs">{new Date(r.created_at).toLocaleDateString()}</TableCell></TableRow>)}
                         </TableBody></Table>
                       }
                       <Card><CardContent className="p-3 space-y-2">
@@ -636,21 +715,36 @@ export default function PurchasesPage(){
                         <Button size="sm" onClick={submitAttachment}>Attach</Button>
                         <p className="text-xs text-muted-foreground">If Supabase storage bucket exists, replace file_url with storage public URL. Table keeps metadata, not duplicate storage.</p>
                       </CardContent></Card>
-                      {(detailData.goods_receipts ?? []).length>0 && <p className="text-xs">GRN docs: {(detailData.goods_receipts ?? []).map((g:any)=>`${g.grn_number} (UGX ${Number(g.total_value).toLocaleString()})`).join(" • ")}</p>}
+                      {(detailData.goods_receipts ?? []).length>0 && <p className="text-xs">GRN docs: {(detailData.goods_receipts ?? []).map((g:any)=>`${g.grn_number} (${hideFin? "•••": `UGX ${Number(g.total_value??0).toLocaleString()}`})`).join(" • ")}</p>}
                     </div>
                   )}
                   {detailTab==="supplier" && (
-                    <div className="space-y-2 text-sm">
-                      <p><strong>{detailData.suppliers?.name}</strong> — {detailData.suppliers?.phone ?? ""} {detailData.suppliers?.email ?? ""}</p>
-                      <p className="text-xs text-muted-foreground">{detailData.suppliers?.address ?? ""}</p>
-                      <Button size="sm" variant="outline" onClick={()=>window.location.href="/suppliers"}>Open Suppliers</Button>
-                      <p className="text-xs">Product price history: compare last costs across suppliers (based on actual purchases).</p>
+                    <div className="space-y-3 text-sm">
+                      <Card><CardContent className="p-3 grid md:grid-cols-2 gap-3 text-sm">
+                        <div><div className="text-xs text-muted-foreground">Name</div><div className="font-medium">{detailData.suppliers?.name ?? "—"}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Contact person</div><div>{detailData.suppliers?.contact_person ?? "—"}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Phone</div><div>{detailData.suppliers?.phone ?? "—"}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Email</div><div>{detailData.suppliers?.email ?? "—"}</div></div>
+                        <div className="md:col-span-2"><div className="text-xs text-muted-foreground">Address</div><div>{detailData.suppliers?.address ?? "—"}</div></div>
+                      </CardContent></Card>
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-medium text-sm">Recent purchase price history</h4>
+                        <Button size="sm" variant="outline" onClick={()=>window.location.href=`/suppliers?supplier_id=${detailData.supplier_id}`}>Open Suppliers</Button>
+                      </div>
+                      {supplierHistory.length===0 ? <p className="text-xs text-muted-foreground">No purchase history yet — costs appear here after goods are received.</p> :
+                        <Table><TableHeader><TableRow><TableHead>Product</TableHead><TableHead>PO #</TableHead><TableHead>Date</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Unit cost</TableHead></TableRow></TableHeader><TableBody>
+                          {supplierHistory.map((h:any,i:number)=><TableRow key={`${h.purchase_order_id}_${h.product_id}_${i}`}><TableCell>{h.products?.name ?? h.product_id?.slice(0,8)}<div className="text-xs text-muted-foreground">{h.products?.sku ?? ""}</div></TableCell><TableCell className="font-mono text-xs">{h.purchase_orders?.purchase_number ?? "—"}</TableCell><TableCell className="text-xs">{h.purchase_orders?.created_at ? new Date(h.purchase_orders.created_at).toLocaleDateString() : "—"}</TableCell><TableCell className="text-right">{h.quantity_ordered}</TableCell><TableCell className="text-right">{ugx(h.unit_cost)}</TableCell></TableRow>)}
+                        </TableBody></Table>}
                     </div>
                   )}
                   {detailTab==="audit" && (
-                    <div className="space-y-2 text-xs">
+                    <div className="space-y-3 text-xs">
                       <p>Created: {new Date(detailData.created_at).toLocaleString()} • Status: {detailData.status} • Received: {detailData.received_at ? new Date(detailData.received_at).toLocaleString() : "—"}</p>
-                      <p className="text-muted-foreground">Full audit in Audit logs — PURCHASE_CREATED, PURCHASE_RECEIVED, PURCHASE_STATUS_CHANGED, SUPPLIER_PAYMENT.</p>
+                      {(detailData.audit ?? []).length===0 ? <p className="text-muted-foreground">No activity recorded yet — create, status changes, receipt, payment and attachments appear here.</p> :
+                        <Table><TableHeader><TableRow><TableHead>When</TableHead><TableHead>Action</TableHead><TableHead>Entity</TableHead><TableHead>By</TableHead></TableRow></TableHeader><TableBody>
+                          {(detailData.audit ?? []).map((a:any)=><TableRow key={a.id}><TableCell className="text-xs">{new Date(a.created_at).toLocaleString()}</TableCell><TableCell className="font-medium">{a.action}</TableCell><TableCell className="text-xs">{a.entity_type}{a.entity_id? ` • ${String(a.entity_id).slice(0,8)}`:""}</TableCell><TableCell className="text-xs font-mono">{a.created_by? String(a.created_by).slice(0,8):"—"}</TableCell></TableRow>)}
+                        </TableBody></Table>
+                      }
                       <Button size="sm" variant="outline" onClick={()=>window.location.href="/audit"}>Open Audit</Button>
                     </div>
                   )}
@@ -670,7 +764,7 @@ export default function PurchasesPage(){
               {!isOnline && <Card><CardContent className="p-3 text-xs text-amber-700 bg-amber-50">Offline — receipt will queue. Capture actual quantities, batches, expiry. Sync applies as transaction (+qty), not overwrite.</CardContent></Card>}
               {receiveGroups.map((g:any, idx:number)=>(
                 <Card key={idx} className="border">
-                  <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Package className="h-4 w-4"/>{g.product_name} — Ordered {g.quantity_ordered}, Received {g.quantity_received}, Remaining {g.remaining} {g.remaining>0 && <Badge variant="warning">{g.remaining} outstanding</Badge>}</CardTitle><CardDescription className="text-xs">Unit cost UGX {Number(products.find(p=>p.id===g.product_id)?.default_purchase_cost ?? g.batches[0]?.unit_cost ?? 0).toLocaleString()} • If delivered ≠ ordered, variance shown. Over-receiving flagged, not silently corrected.</CardDescription></CardHeader>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Package className="h-4 w-4"/>{g.product_name} — Ordered {g.quantity_ordered}, Received {g.quantity_received}, Remaining {g.remaining} {g.remaining>0 && <Badge variant="warning">{g.remaining} outstanding</Badge>}</CardTitle><CardDescription className="text-xs">Unit cost {hideFin? "•••" : `UGX ${Number(products.find(p=>p.id===g.product_id)?.default_purchase_cost ?? g.batches[0]?.unit_cost ?? 0).toLocaleString()}`} • If delivered ≠ ordered, variance shown. Over-receiving flagged, not silently corrected.</CardDescription></CardHeader>
                   <CardContent className="space-y-3">
                     {g.batches.map((b:any,bIdx:number)=>(
                       <div key={bIdx} className="border rounded p-3 space-y-2 bg-muted/10">

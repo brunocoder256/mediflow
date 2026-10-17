@@ -414,7 +414,7 @@ export async function getPurchases(params: { branch_id?: string; page?: number; 
   const sb: any = await getSB();
   const { branch_id, page = 1, perPage = 20, status, supplier_id, search, date_from, date_to, product_id } = params;
   // Server-side: purchase_number ilike via PostgREST .ilike; supplier/product/batch handled via post-filter fallback
-  let query = sb.from('purchase_orders').select('*, suppliers(name), purchase_items(product_id), product_batches:product_batches!inner(batch_number)', { count: 'exact' });
+  let query = sb.from('purchase_orders').select('*, suppliers(name), branches(name), purchase_items(quantity_ordered, quantity_received, unit_cost, subtotal)', { count: 'exact' });
   // Try server-side ilike for purchase_number; if fails due to join, fallback to client
   try {
     if (search && search.trim()) {
@@ -436,7 +436,7 @@ export async function getPurchases(params: { branch_id?: string; page?: number; 
     if (error && /product_batches|inner/i.test(error.message)) throw error;
   } catch (e:any) {
     // Fallback without product_batches join (e.g., no batches yet or postgREST join error)
-    let q2 = sb.from('purchase_orders').select('*, suppliers(name), purchase_items(product_id)', { count: 'exact' });
+    let q2 = sb.from('purchase_orders').select('*, suppliers(name), branches(name), purchase_items(quantity_ordered, quantity_received, unit_cost, subtotal)', { count: 'exact' });
     if (search && search.trim()) q2 = q2.ilike('purchase_number', `%${search.trim()}%`);
     if (branch_id) q2 = q2.eq('branch_id', branch_id);
     if (status) q2 = q2.eq('status', status);
@@ -459,7 +459,7 @@ export async function getPurchases(params: { branch_id?: string; page?: number; 
     const hasServerHits = filtered.length > 0;
     if (!hasServerHits) {
       // Fetch without ilike for this page and apply client filter (supplier/batch/SKU)
-      let q3 = sb.from('purchase_orders').select('*, suppliers(name), purchase_items(product_id, products(sku, barcode)), product_batches(batch_number)', { count: 'exact' });
+      let q3 = sb.from('purchase_orders').select('*, suppliers(name), branches(name), purchase_items(quantity_ordered, quantity_received, unit_cost, subtotal, products(sku, barcode))', { count: 'exact' });
       if (branch_id) q3 = q3.eq('branch_id', branch_id);
       if (status) q3 = q3.eq('status', status);
       if (supplier_id) q3 = q3.eq('supplier_id', supplier_id);
@@ -493,6 +493,21 @@ export async function getPurchases(params: { branch_id?: string; page?: number; 
       );
     }
   }
+  // Attach the actual amount paid against each PO so the list can show a real
+  // payment status instead of a static "Billed" badge (payments are recorded
+  // against a PO via supplier_payments.purchase_order_id).
+  const poIds = filtered.map((po: any) => po.id).filter(Boolean);
+  if (poIds.length) {
+    try {
+      const { data: pays } = await sb.from('supplier_payments').select('purchase_order_id, amount').in('purchase_order_id', poIds);
+      const paidByPO: Record<string, number> = {};
+      for (const pay of (pays ?? [])) {
+        if (!pay.purchase_order_id) continue;
+        paidByPO[pay.purchase_order_id] = (paidByPO[pay.purchase_order_id] ?? 0) + Number(pay.amount ?? 0);
+      }
+      filtered = filtered.map((po: any) => ({ ...po, paid_amount: paidByPO[po.id] ?? 0 }));
+    } catch { /* payments optional */ }
+  }
   return { data: filtered, count: count ?? filtered.length };
 }
 
@@ -500,28 +515,13 @@ export async function getPurchaseById(id: string) {
   const sb: any = await getSB();
   const { data, error } = await sb
     .from('purchase_orders')
-    .select(`*, suppliers(*), branches(*), purchase_items(*, products(*)), audit_logs: audit_logs(*)` )
+    .select(`*, suppliers(*), branches(*), purchase_items(*, products(*))`)
     .eq('id', id)
     .single();
-  if (error) {
-    // fallback without audit_logs join if relation missing
-    const { data: d2, error: e2 } = await sb.from('purchase_orders').select(`*, suppliers(*), branches(*), purchase_items(*, products(*))`).eq('id', id).single();
-    if (e2) throw new Error(`Failed to fetch purchase: ${e2.message}`);
-    // also fetch batches & movements
-    const { data: batches } = await sb.from('product_batches').select('*').eq('purchase_item_id', id).limit(1);
-    // Actually fetch by purchase_order via stock_movements
-    const { data: movements } = await sb.from('stock_movements').select('*, product_batches(*)').eq('reference_id', id).eq('reference_type', 'PURCHASE_ORDER');
-    const { data: batches2 } = await sb.from('product_batches').select('*').in('id', (movements ?? []).map((m: any) => m.batch_id).filter(Boolean));
-    const { data: payments } = await sb.from('supplier_payments').select('*').eq('purchase_order_id', id);
-    const { data: returns } = await sb.from('purchase_returns').select('*, purchase_return_items(*)').eq('purchase_order_id', id);
-    const { data: grnBatches } = await sb.from('product_batches').select('*').eq('organization_id', d2.organization_id).eq('branch_id', d2.branch_id);
-    // filter grnBatches to those linked to this PO's items
-    const itemIds = (d2.purchase_items ?? []).map((pi: any) => pi.id);
-    const relevantBatches = (grnBatches ?? []).filter((b: any) => itemIds.includes(b.purchase_item_id));
-    return { ...d2, batches: relevantBatches, stock_movements: movements ?? [], supplier_payments: payments ?? [], purchase_returns: returns ?? [] };
-  }
-  // enrich with batches/movements/payments
+  if (error) throw new Error(`Failed to fetch purchase: ${error.message}`);
+  // enrich with batches/movements/payments/returns/GRNs/attachments/audit
   const itemIds = (data.purchase_items ?? []).map((pi: any) => pi.id);
+  const emptyId = '00000000-0000-0000-0000-000000000000';
   let batches: any[] = [];
   let movements: any[] = [];
   let payments: any[] = [];
@@ -529,14 +529,15 @@ export async function getPurchaseById(id: string) {
   let grns: any[] = [];
   let grnItems: any[] = [];
   let attachments: any[] = [];
+  let audit: any[] = [];
   try {
     const [bRes, mRes, pRes, rRes, grnRes, attRes] = await Promise.all([
-      sb.from('product_batches').select('*').in('purchase_item_id', itemIds.length ? itemIds : ['00000000-0000-0000-0000-000000000000']),
+      sb.from('product_batches').select('*').in('purchase_item_id', itemIds.length ? itemIds : [emptyId]),
       sb.from('stock_movements').select('*').eq('reference_id', id).eq('reference_type', 'PURCHASE_ORDER'),
       sb.from('supplier_payments').select('*').eq('purchase_order_id', id),
       sb.from('purchase_returns').select('*, purchase_return_items(*)').eq('purchase_order_id', id),
-      sb.from('goods_receipts').select('*, goods_receipt_items(*)').eq('purchase_order_id', id).order('received_at', { ascending: false }).limit(20).then((r:any)=>r).catch(()=>({data:[]})) as any,
-      sb.from('purchase_attachments').select('*').eq('purchase_order_id', id).order('created_at', { ascending: false }).then((r:any)=>r).catch(()=>({data:[]})) as any,
+      sb.from('goods_receipts').select('*, goods_receipt_items(*)').eq('purchase_order_id', id).order('received_at', { ascending: false }).limit(20),
+      sb.from('purchase_attachments').select('*').eq('purchase_order_id', id).order('created_at', { ascending: false }),
     ]);
     batches = bRes.data ?? [];
     movements = mRes.data ?? [];
@@ -544,9 +545,21 @@ export async function getPurchaseById(id: string) {
     returns = rRes.data ?? [];
     grns = (grnRes as any)?.data ?? [];
     attachments = (attRes as any)?.data ?? [];
-    if (grns.length) grnItems = grns.flatMap((g:any)=> g.goods_receipt_items ?? []);
-  } catch {}
-  return { ...data, batches, stock_movements: movements, supplier_payments: payments, purchase_returns: returns, goods_receipts: grns, goods_receipt_items: grnItems, purchase_attachments: attachments };
+    if (grns.length) grnItems = grns.flatMap((g: any) => g.goods_receipt_items ?? []);
+  } catch { /* optional enrichments */ }
+  // Real activity feed: audit entries are related to the PO (and its
+  // items/batches/receipts/payments/returns) by entity_id.
+  try {
+    const relatedIds = [id, ...itemIds];
+    const { data: auditRows } = await sb
+      .from('audit_logs')
+      .select('*')
+      .in('entity_id', relatedIds)
+      .order('created_at', { ascending: false })
+      .limit(100);
+    audit = auditRows ?? [];
+  } catch { /* audit optional */ }
+  return { ...data, batches, stock_movements: movements, supplier_payments: payments, purchase_returns: returns, goods_receipts: grns, goods_receipt_items: grnItems, purchase_attachments: attachments, audit };
 }
 
 export async function getPurchaseKPIs(branch_id?: string) {
@@ -597,7 +610,7 @@ export async function getPurchaseKPIs(branch_id?: string) {
 
 export async function getSupplierPurchaseHistory(supplierId: string, productId?: string) {
   const sb: any = await getSB();
-  let q = sb.from('purchase_items').select('unit_cost, quantity_ordered, purchase_order_id, product_id, purchase_orders!inner(supplier_id, created_at, purchase_number)').eq('purchase_orders.supplier_id', supplierId).order('created_at', { ascending: false }).limit(20);
+  let q = sb.from('purchase_items').select('unit_cost, quantity_ordered, purchase_order_id, product_id, products(name, sku), purchase_orders!inner(supplier_id, created_at, purchase_number)').eq('purchase_orders.supplier_id', supplierId).order('created_at', { ascending: false }).limit(20);
   if (productId) q = q.eq('product_id', productId);
   const { data } = await q;
   return data ?? [];
