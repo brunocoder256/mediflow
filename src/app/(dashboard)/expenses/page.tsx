@@ -122,7 +122,9 @@ export default function ExpensesPage(){
   },[]);
 
   const resetCreateForm=React.useCallback(()=>{
-    setForm(makeEmptyForm(branches[0]?.id ?? "", categories[0]?.value ?? categories[0]?.id ?? ""));
+    const branchId = branches[0]?.id ?? "";
+    const categoryId = categories[0]?.value ?? categories[0]?.id ?? "";
+    setForm(makeEmptyForm(branchId, categoryId));
     setCreateAttachment(emptyAttachment());
     setCreateTab("basic");
   },[branches, categories]);
@@ -484,7 +486,7 @@ export default function ExpensesPage(){
         <Badge variant={isOnline?"success":"warning"} className="gap-1">{isOnline ? <Wifi className="h-3 w-3"/> : <WifiOff className="h-3 w-3"/>}{isOnline?"Online":"Offline"}</Badge>
         {pendingCount>0 && <Badge variant="warning">{pendingCount} pending sync</Badge>}
         <Button variant="outline" size="sm" onClick={fetchAll} disabled={loading}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
-        {canCreate && <Button onClick={()=>setShowCreate(true)}><Plus className="h-4 w-4 mr-2"/>New Expense</Button>}
+        {canCreate && <Button onClick={()=>{ resetCreateForm(); setShowCreate(true); }}><Plus className="h-4 w-4 mr-2"/>New Expense</Button>}
       </PageHeader>
 
       {/* KPIs */}
