@@ -20,6 +20,7 @@ export const PERMISSION_CATALOG: Array<{ module: string; code: string; name: str
   { module: 'inventory', code: 'inventory.stock_take', name: 'Stock Take', description: 'Stock counts' },
   { module: 'inventory', code: 'inventory.transfer', name: 'Transfer Stock', description: 'Inter-branch transfer' },
   { module: 'inventory', code: 'inventory.approve_adjustment', name: 'Approve Adjustments', description: 'Approve stock adjustments' },
+  { module: 'inventory', code: 'inventory.batch_expiry.correct', name: 'Correct Batch Expiry', description: 'Correct a batch expiry date with a mandatory reason and audit trail' },
   { module: 'purchases', code: 'purchases.view', name: 'View Purchases', description: 'View POs' },
   { module: 'purchases', code: 'purchases.create', name: 'Create Purchases', description: 'Create POs' },
   { module: 'purchases', code: 'purchases.approve', name: 'Approve Purchases', description: 'Approve POs' },

@@ -109,6 +109,22 @@ export async function hasPermission(sb: any, profileId: string, organizationId: 
   }
 }
 
+/**
+ * Organization-scoped permission check. Unlike has_permission(), this ensures a
+ * role held in another organization cannot authorize work in this organization.
+ * Fails closed if the helper is unavailable.
+ */
+export async function hasPermissionInOrg(sb: any, organizationId: string, code: string): Promise<boolean> {
+  try {
+    const { data, error } = await sb.rpc('has_permission_in_org', { p_code: code, p_org_id: organizationId });
+    if (!error && typeof data === 'boolean') return data;
+  } catch {
+    // Fall through to deny.
+  }
+  console.error(`[auth] Organization-scoped permission check failed for ${code}, denying access`);
+  return false;
+}
+
 export async function requirePermission(sb: any, profileId: string, organizationId: string, code: string) {
   const ok = await hasPermission(sb, profileId, organizationId, code);
   if (!ok) throw new Error(`Forbidden: missing permission ${code}`);

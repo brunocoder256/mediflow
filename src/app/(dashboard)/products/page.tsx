@@ -21,6 +21,8 @@ import { Plus, Search, Eye, Edit, Trash2, Upload, Download, Barcode, Package, Al
 import { productTypes, dosageForms, strengthUnits, routes, classifications, sellingUnits } from "@/lib/validations/products";
 import { readUserContext } from "@/lib/offline/user-context";
 import { rankProducts, matchesProduct, type PosSearchable } from "@/lib/pos-search";
+import { daysUntilExpiry, formatExpiryDate, EXPIRY_CORRECTION_PERMISSION } from "@/lib/batch-expiry";
+import { BatchExpiryCorrectionDialog, type ExpiryBatch } from "@/components/products/batch-expiry-correction-dialog";
 
 function localDateStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -53,6 +55,17 @@ function ExpiryRisk({qty}:{qty:number}){
   if(qty===0) return <span className="text-muted-foreground text-xs">—</span>;
   return <Badge variant="warning">{qty} expiring</Badge>;
 }
+function BatchExpiryBadge({expiryDate}:{expiryDate:string}){
+  const days=daysUntilExpiry(expiryDate);
+  const expired=days!==null && days<=0;
+  const soon=!expired && days!==null && days<=30;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {formatExpiryDate(expiryDate)}
+      {expired ? <Badge variant="destructive">Expired</Badge> : soon ? <Badge variant="warning">Soon</Badge> : null}
+    </span>
+  );
+}
 
 export default function ProductsPage(){
   const { isOnline } = useOnlineStatus();
@@ -82,6 +95,8 @@ export default function ProductsPage(){
   const [importRows,setImportRows]=React.useState<any[]>([]);
   const [importErrors,setImportErrors]=React.useState<any[]>([]);
   const [canViewCost,setCanViewCost]=React.useState(true);
+  const [canCorrectExpiry,setCanCorrectExpiry]=React.useState(false);
+  const [correctingBatch,setCorrectingBatch]=React.useState<ExpiryBatch|null>(null);
   const [editingId,setEditingId]=React.useState<string|null>(null);
 
   const [form,setForm]=React.useState({
@@ -197,6 +212,14 @@ export default function ProductsPage(){
         const {data:roles}=await (sb.from("user_roles") as any).select("role_id, roles(name)").eq("user_id", profile.id);
         const isManager=(roles??[]).some((r:any)=>["Owner","Administrator","Manager"].includes(r.roles?.name));
         setCanViewCost(isManager);
+      }catch{}
+      try{
+        const res=await fetch("/api/me");
+        if(res.ok){
+          const me:any=await res.json();
+          const perms:string[]=Array.isArray(me.permissions)?me.permissions:[];
+          setCanCorrectExpiry(perms.includes(EXPIRY_CORRECTION_PERMISSION));
+        }
       }catch{}
     })();
   },[]);
@@ -406,6 +429,19 @@ export default function ProductsPage(){
       const res:any=await cachedFetch(`/api/products?id=${id}`);
       setDetail(res && res.product ? res : null);
     }catch{ setDetail(null); }
+  }
+  async function afterExpiryCorrection(){
+    const productId=detail?.product?.id;
+    setCorrectingBatch(null);
+    await Promise.all([
+      invalidateCache(productId ? `/api/products?id=${productId}` : "/api/products"),
+      invalidateCache("/api/products"),
+      invalidateCache("/api/inventory"),
+      invalidateCache("/api/dashboard"),
+      invalidateCache("/api/reports"),
+    ]);
+    fetchProducts();
+    if(productId) openDetail(productId);
   }
   async function handleDeactivate(id:string, active:boolean){
     if(!confirm(active ? "Deactivate product? Historical transactions remain intact." : "Reactivate product?")) return;
@@ -699,8 +735,8 @@ export default function ProductsPage(){
                   <Card><CardHeader><CardTitle className="text-sm flex items-center gap-2"><Shield className="h-4 w-4"/>Location</CardTitle></CardHeader><CardContent><p className="text-sm">{detail.product.storage_location||"—"}</p><p className="text-xs text-muted-foreground">Shelf {detail.product.shelf||"—"} • Rack {detail.product.rack||"—"} • Bin {detail.product.bin||"—"}</p><p className="text-xs mt-1">Batch:{detail.product.track_batch?" ✔":" ✘"} Expiry:{detail.product.track_expiry?" ✔":" ✘"} FEFO:{detail.product.fefo_enabled?" ✔":" ✘"}</p></CardContent></Card>
                 </div>
 
-                <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><Layers className="h-4 w-4"/>Batches (FEFO)</CardTitle><CardDescription>Inventory lot — expiry-aware, FEFO selection used by POS</CardDescription></CardHeader><CardContent>
-                  {detail.batches?.length===0 ? <p className="text-sm text-muted-foreground">No batches — purchase receiving creates batches</p> : <Table><TableHeader><TableRow><TableHead>Batch</TableHead><TableHead>Expiry</TableHead><TableHead>Qty Avail</TableHead><TableHead>Qty Recv</TableHead><TableHead>Purchase</TableHead><TableHead>Selling</TableHead><TableHead>Supplier</TableHead></TableRow></TableHeader><TableBody>{detail.batches.map((b:any)=><TableRow key={b.id}><TableCell className="font-mono">{b.batch_number}</TableCell><TableCell>{new Date(b.expiry_date).toLocaleDateString()} {Math.ceil((new Date(b.expiry_date).getTime()-Date.now())/86400000)<=30 && <Badge variant="warning">Soon</Badge>} {new Date(b.expiry_date) < new Date() && <Badge variant="destructive">Expired</Badge>}</TableCell><TableCell>{b.quantity_available}</TableCell><TableCell>{b.quantity_received}</TableCell><TableCell>{canViewCost ? `UGX ${Number(b.purchase_price).toLocaleString()}`:"—"}</TableCell><TableCell>UGX {Number(b.selling_price).toLocaleString()}</TableCell><TableCell>{b.suppliers?.name||b.supplier_id?.slice(0,8)||"—"}</TableCell></TableRow>)}</TableBody></Table>}
+                <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><Layers className="h-4 w-4"/>Batches (FEFO)</CardTitle><CardDescription>Inventory lot — expiry-aware, FEFO selection used by POS. Expiry corrections are permission-controlled and audited.</CardDescription></CardHeader><CardContent>
+                  {detail.batches?.length===0 ? <p className="text-sm text-muted-foreground">No batches — purchase receiving creates batches</p> : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Batch</TableHead><TableHead>Expiry</TableHead><TableHead>Qty Avail</TableHead><TableHead>Qty Recv</TableHead><TableHead>Purchase</TableHead><TableHead>Selling</TableHead><TableHead>Supplier</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{detail.batches.map((b:any)=><TableRow key={b.id}><TableCell className="font-mono">{b.batch_number}</TableCell><TableCell><BatchExpiryBadge expiryDate={b.expiry_date}/></TableCell><TableCell>{b.quantity_available}</TableCell><TableCell>{b.quantity_received}</TableCell><TableCell>{canViewCost ? `UGX ${Number(b.purchase_price).toLocaleString()}`:"—"}</TableCell><TableCell>UGX {Number(b.selling_price).toLocaleString()}</TableCell><TableCell>{b.suppliers?.name||b.supplier_id?.slice(0,8)||"—"}</TableCell><TableCell className="text-right">{canCorrectExpiry ? <Button variant="outline" size="sm" disabled={!isOnline} title={!isOnline ? "Requires a live connection" : "Correct expiry date"} onClick={()=>setCorrectingBatch(b)}><Edit className="h-3.5 w-3.5 mr-1"/>Correct Expiry</Button> : <span className="text-xs text-muted-foreground">—</span>}</TableCell></TableRow>)}</TableBody></Table></div>}
                 </CardContent></Card>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -886,6 +922,17 @@ export default function ProductsPage(){
           </div>
         </DialogContent>
       </Dialog>
+
+      <BatchExpiryCorrectionDialog
+        open={!!correctingBatch}
+        onOpenChange={(open)=>{ if(!open) setCorrectingBatch(null); }}
+        batch={correctingBatch}
+        productName={detail?.product?.name}
+        productIdentifier={detail?.product?.sku || detail?.product?.barcode || undefined}
+        canCorrect={canCorrectExpiry}
+        isOnline={isOnline}
+        onCorrected={afterExpiryCorrection}
+      />
     </div>
   );
 }
