@@ -34,7 +34,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Toaster } from "@/components/ui/toast";
 import {
   Eye,
   EyeOff,
@@ -481,7 +480,6 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <>
-      <Toaster />
       <Suspense fallback={<div className="flex items-center justify-center p-8"><div className="h-8 w-8 animate-spin rounded-full border-2 border-current border-t-transparent" /></div>}>
         <LoginForm />
       </Suspense>

@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Toaster } from "@/components/ui/toast";
 
 export default function ForgotPasswordPage() {
   const { toast } = useToast();
@@ -63,7 +62,6 @@ export default function ForgotPasswordPage() {
   if (showSuccess) {
     return (
       <>
-        <Toaster />
         <Card>
           <CardHeader className="text-center">
             <CardTitle className="text-2xl">Check your email</CardTitle>
@@ -87,7 +85,6 @@ export default function ForgotPasswordPage() {
 
   return (
     <>
-      <Toaster />
       <Card>
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Forgot your password?</CardTitle>

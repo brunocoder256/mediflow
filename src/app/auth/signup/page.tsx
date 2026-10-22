@@ -16,7 +16,6 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Toaster } from "@/components/ui/toast";
 import { Eye, EyeOff } from "lucide-react";
 
 type Created = {
@@ -97,7 +96,6 @@ export default function SignupPage() {
   if (created) {
     return (
       <>
-        <Toaster />
         <div className="space-y-4">
           <Card>
             <CardHeader className="text-center">
@@ -141,7 +139,6 @@ export default function SignupPage() {
 
   return (
     <>
-      <Toaster />
       <Card>
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Create your MediFlow IQ account</CardTitle>

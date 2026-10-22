@@ -12,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Toaster } from "@/components/ui/toast";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -85,7 +84,6 @@ export default function ResetPasswordPage() {
   if (!isValidSession) {
     return (
       <>
-        <Toaster />
         <Card>
           <CardHeader className="text-center">
             <CardTitle className="text-2xl">Invalid or expired link</CardTitle>
@@ -110,7 +108,6 @@ export default function ResetPasswordPage() {
   if (showSuccess) {
     return (
       <>
-        <Toaster />
         <Card>
           <CardHeader className="text-center">
             <CardTitle className="text-2xl">Password updated</CardTitle>
@@ -133,7 +130,6 @@ export default function ResetPasswordPage() {
 
   return (
     <>
-      <Toaster />
       <Card>
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Reset your password</CardTitle>

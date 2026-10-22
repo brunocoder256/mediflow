@@ -56,7 +56,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
         <div className="min-w-0 flex-1 pt-0.5">
           {toast.title && <p className="text-sm font-semibold leading-5">{toast.title}</p>}
           {toast.description && (
-            <p className="mt-0.5 break-words text-sm leading-5 text-slate-600 dark:text-slate-300">
+            <p className="mt-0.5 whitespace-pre-line break-words text-sm leading-5 text-slate-600 dark:text-slate-300">
               {toast.description}
             </p>
           )}

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ToastProvider } from "@/hooks/use-toast";
+import { Toaster } from "@/components/ui/toast";
 import {
   SITE_NAME,
   SITE_URL,
@@ -104,7 +105,10 @@ export default function RootLayout({
       <body className="antialiased min-h-screen">
         <JsonLd data={organizationSchema()} />
         <JsonLd data={webSiteSchema()} />
-        <ToastProvider>{children}</ToastProvider>
+        <ToastProvider>
+          {children}
+          <Toaster />
+        </ToastProvider>
         <script
           dangerouslySetInnerHTML={{
             __html: `if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js').catch(()=>{});});}`,

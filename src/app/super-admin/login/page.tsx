@@ -12,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Toaster } from "@/components/ui/toast";
 
 function SuperAdminLogin() {
   const router = useRouter();
@@ -122,7 +121,6 @@ function SuperAdminLogin() {
 export default function Page() {
   return (
     <>
-      <Toaster />
       <Suspense fallback={<div className="flex items-center justify-center p-8"><div className="h-8 w-8 animate-spin rounded-full border-2 border-current border-t-transparent" /></div>}>
         <SuperAdminLogin />
       </Suspense>

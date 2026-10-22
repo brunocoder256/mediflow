@@ -7,7 +7,6 @@ import { MobileNav } from "@/components/layout/mobile-nav";
 import { BranchProvider } from "@/hooks/branch-context";
 import { PreferencesProvider } from "@/hooks/preferences-context";
 import { ConfirmProvider } from "@/hooks/use-confirm";
-import { Toaster } from "@/components/ui/toast";
 import { setupAutoSync } from "@/lib/offline/sync";
 import { invalidateCache } from "@/lib/offline/cached-fetch";
 import { tryRestoreServerSession } from "@/lib/offline/reauth";
@@ -108,7 +107,6 @@ export default function DashboardShell({
               </main>
             </div>
           </div>
-          <Toaster />
         </ConfirmProvider>
       </PreferencesProvider>
     </BranchProvider>
