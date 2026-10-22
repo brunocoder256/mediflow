@@ -122,11 +122,17 @@ export default function ExpensesPage(){
   },[]);
 
   const resetCreateForm=React.useCallback(()=>{
-    const branchId = branches[0]?.id ?? "";
-    const categoryId = categories[0]?.value ?? categories[0]?.id ?? "";
-    setForm(makeEmptyForm(branchId, categoryId));
-    setCreateAttachment(emptyAttachment());
-    setCreateTab("basic");
+    try {
+      const branchId = Array.isArray(branches) && branches[0]?.id ? branches[0].id : "";
+      const categoryId = Array.isArray(categories) && categories[0] ? (categories[0].value ?? categories[0].id ?? "") : "";
+      setForm(makeEmptyForm(branchId, categoryId));
+      setCreateAttachment(emptyAttachment());
+      setCreateTab("basic");
+    } catch (e) {
+      setForm(makeEmptyForm());
+      setCreateAttachment(emptyAttachment());
+      setCreateTab("basic");
+    }
   },[branches, categories]);
 
   const fetchAll=React.useCallback(async()=>{
@@ -201,8 +207,8 @@ export default function ExpensesPage(){
       const r = await cachedFetch<any>(`/api/cash?registers=1${branchFilter!=="all"?`&branch_id=${branchFilter}`:""}`);
       setCashAccounts(Array.isArray(r)?r: r.data ?? []);
     }catch{}
-    if(!form.branch_id && br[0]) setForm(f=>({...f, branch_id: br[0].id}));
-    if(!form.category_id && cats?.[0]) setForm(f=>({...f, category_id: cats[0].value ?? cats[0].id}));
+    if(!form.branch_id && br?.[0]?.id) setForm(f=>({...f, branch_id: br[0].id}));
+    if(!form.category_id && cats?.[0]) setForm(f=>({...f, category_id: cats[0].value ?? cats[0].id ?? ""}));
     } finally {
       setLoading(false);
     }
