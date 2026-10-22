@@ -146,7 +146,20 @@ export default function ExpensesPage(){
     params.set("perPage", String(perPage));
     const [ex, catRes, supRes, setRes, kpiRes]=await Promise.all([
       cachedFetch(`/api/expenses?${params.toString()}`).then((j:any)=>j).catch(()=>({data:[], count:0})),
-      cachedFetch(`/api/expenses?categories=1`).then((j:any)=>j).catch(()=>[]),
+      cachedFetch(`/api/expenses?categories=1`).then((j:any)=>j).catch(async()=> {
+        try {
+          const r = await fetch('/api/expenses?categories=1');
+          if (r.ok) return await r.json();
+        } catch {}
+        return [
+          { value: 'rent', label: 'Rent', code: 'RENT' },
+          { value: 'utilities', label: 'Utilities', code: 'UTILITIES' },
+          { value: 'supplies', label: 'Supplies', code: 'SUPPLIES' },
+          { value: 'transport', label: 'Transport', code: 'TRANSPORT' },
+          { value: 'fuel', label: 'Fuel', code: 'FUEL' },
+          { value: 'other', label: 'Other', code: 'OTHER' },
+        ];
+      }),
       cachedFetch(`/api/suppliers`).then((j:any)=>j).catch(()=>[]),
       cachedFetch(`/api/settings`).then((j:any)=>j).catch(()=>({branches:[]})),
       cachedFetch(`/api/expenses?kpi=1${branchFilter!=="all"?`&branch_id=${branchFilter}`:""}`).then((j:any)=>j).catch(()=>null),
@@ -156,8 +169,27 @@ export default function ExpensesPage(){
     setCount(ex.count ?? list.length);
     setSummary(ex.summary ?? null);
     setKpi(kpiRes);
-    const cats = Array.isArray(catRes) ? catRes : (catRes.data ?? catRes);
-    setCategories(cats ?? []);
+    let cats = Array.isArray(catRes) ? catRes : (catRes?.data ?? catRes);
+    if (!Array.isArray(cats) || cats.length === 0) {
+      try {
+        const r = await fetch('/api/expenses?categories=1');
+        if (r.ok) {
+          const j = await r.json();
+          cats = Array.isArray(j) ? j : (j?.data ?? []);
+        }
+      } catch {}
+      if (!Array.isArray(cats) || cats.length === 0) {
+        cats = [
+          { value: 'rent', label: 'Rent', code: 'RENT' },
+          { value: 'utilities', label: 'Utilities', code: 'UTILITIES' },
+          { value: 'supplies', label: 'Supplies', code: 'SUPPLIES' },
+          { value: 'transport', label: 'Transport', code: 'TRANSPORT' },
+          { value: 'fuel', label: 'Fuel', code: 'FUEL' },
+          { value: 'other', label: 'Other', code: 'OTHER' },
+        ];
+      }
+    }
+    setCategories(cats);
     const supList = Array.isArray(supRes) ? supRes : (supRes.data ?? []);
     setSuppliers(supList);
     const br = setRes.branches ?? [];
