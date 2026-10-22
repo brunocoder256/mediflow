@@ -17,6 +17,24 @@ function normalizePaymentMethod(m?: string): string {
   return 'OTHER';
 }
 
+function assertHttpUrl(value: unknown, label = 'File URL'): string {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} required`);
+  let parsed: URL;
+  try {
+    parsed = new URL(value.trim());
+  } catch {
+    throw new Error(`${label} must be a valid http(s) URL`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`${label} must start with http:// or https://`);
+  }
+  return parsed.toString();
+}
+
+function expenseTotal(amount: number, tax: number, taxInclusive: boolean): number {
+  return roundToCents(taxInclusive ? amount : amount + tax);
+}
+
 // duplicate detection: same payee/amount/date/category/branch within +/- 1 day
 async function checkDuplicate(orgId: string, data: any): Promise<any|null> {
   const sb:any = await getSB();
@@ -75,12 +93,20 @@ export async function createExpense(input: CreateExpenseInput) {
   const lines = input.lines ?? [];
   const amount = Number(input.amount);
   const tax = Number(input.tax_amount ?? 0);
-  if (amount <=0) throw new Error('Amount must be > 0');
+  const taxInclusive = !!input.tax_inclusive;
+  const total = expenseTotal(amount, tax, taxInclusive);
+  if (!Number.isFinite(amount) || amount <=0) throw new Error('Amount must be > 0');
+  if (!Number.isFinite(tax) || tax < 0) throw new Error('Tax cannot be negative');
   if (lines.length >0) {
     const sum = lines.reduce((s,l)=> s + Number(l.amount) + Number(l.tax_amount ?? 0),0);
-    const total = amount + tax;
     if (Math.abs(sum - total) > 0.01) throw new Error(`Sum of line amounts (${sum}) must equal total (${total})`);
-    if (lines.some(l=> Number(l.amount) <=0)) throw new Error('Each line amount must be >0');
+    if (lines.some(l=> !Number.isFinite(Number(l.amount)) || Number(l.amount) <=0)) throw new Error('Each line amount must be >0');
+  }
+  if (input.payment_account_id) {
+    const { data: register } = await sb.from('cash_registers').select('id, organization_id, branch_id').eq('id', input.payment_account_id).maybeSingle();
+    if (!register || register.organization_id !== orgId || register.branch_id !== input.branch_id) {
+      throw new Error('Invalid payment account for this branch');
+    }
   }
   // duplicate warning (not blocking)
   const dup = await checkDuplicate(orgId, { branch_id: input.branch_id, amount, supplier_id: input.supplier_id, expense_date: input.expense_date, reference_number: input.reference_number });
@@ -94,7 +120,7 @@ export async function createExpense(input: CreateExpenseInput) {
   // idempotency: if key provided and exists, return existing
   if (input.idempotency_key) {
     const { data: existing } = await sb.from('expenses').select('*').eq('organization_id', orgId).eq('idempotency_key', input.idempotency_key).maybeSingle();
-    if (existing) return { ...existing, duplicate: false, warning: null };
+    if (existing) return { ...existing, duplicate: false, warning: null, idempotent_replay: true };
   }
   // generate number server-side
   const expenseNumber = genExpenseNumber();
@@ -113,7 +139,7 @@ export async function createExpense(input: CreateExpenseInput) {
     reference_number: input.reference_number || null,
     amount,
     tax_amount: tax,
-    total_amount: roundToCents(amount + tax),
+    total_amount: total,
     currency,
     exchange_rate: exchange,
     payment_method: paymentMethod,
@@ -139,6 +165,10 @@ export async function createExpense(input: CreateExpenseInput) {
   }
   const { data, error } = await sb.from('expenses').insert(payload).select().single();
   if (error) {
+    if (input.idempotency_key && /duplicate key|unique constraint/i.test(error.message)) {
+      const { data: existing } = await sb.from('expenses').select('*').eq('organization_id', orgId).eq('idempotency_key', input.idempotency_key).maybeSingle();
+      if (existing) return { ...existing, duplicate: false, warning: null, idempotent_replay: true };
+    }
     if (/column.*does not exist/i.test(error.message)) {
       // fallback minimal legacy insert (amount, description)
       const legacy:any = { organization_id: orgId, branch_id: input.branch_id, category: categoryText, description: String(input.description).trim(), amount, payment_method: paymentMethod, expense_date: new Date(input.expense_date).toISOString().slice(0,10), created_by: pid, status: 'DRAFT' };
@@ -213,30 +243,17 @@ export async function getExpenses(params: {
 
 export async function getExpenseById(id: string) {
   const sb:any = await getSB();
-  const { data, error } = await sb.from('expenses').select('*, expense_categories!left(name,code), suppliers(*), branches(*), profiles:created_by(*), approver:approved_by(*)').eq('id', id).single();
-  if (error) {
-    const { data: d2, error: e2 } = await sb.from('expenses').select('*').eq('id', id).single();
-    if (e2) throw new Error(e2.message);
-    // fallback enrich
-    let lines=[], attachments=[], approvals=[], audit=[];
-    try {
-      const [l,a,ap,au] = await Promise.all([
-        sb.from('expense_lines').select('*').eq('expense_id', id).then((r:any)=>r.data??[]).catch(()=>[]),
-        sb.from('expense_attachments').select('*').eq('expense_id', id).order('created_at',{ascending:false}).then((r:any)=>r.data??[]).catch(()=>[]),
-        sb.from('expense_approvals').select('*, actor:actor_id(full_name)').eq('expense_id', id).order('created_at',{ascending:false}).then((r:any)=>r.data??[]).catch(()=>[]),
-        sb.from('audit_logs').select('*').eq('entity_id', id).order('created_at',{ascending:false}).limit(50).then((r:any)=>r.data??[]).catch(()=>[]),
-      ]);
-      lines=l; attachments=a; approvals=ap; audit=au;
-    } catch {}
-    return { ...d2, lines, attachments, approvals, audit };
-  }
-  // fetch lines/attachments/approvals
+  const orgId = await getOrgId();
+  if (!orgId) throw new Error('Missing organization');
+  const { data, error } = await sb.from('expenses').select('*, expense_categories!left(name,code), suppliers(*), branches(*), profiles:created_by(*), approver:approved_by(*)').eq('id', id).eq('organization_id', orgId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error('Expense not found');
   let lines=[], attachments=[], approvals=[], audit=[];
   try {
     const [l,a,ap,au] = await Promise.all([
-      sb.from('expense_lines').select('*').eq('expense_id', id).then((r:any)=>r.data??[]).catch(()=>[]),
-      sb.from('expense_attachments').select('*').eq('expense_id', id).order('created_at',{ascending:false}).then((r:any)=>r.data??[]).catch(()=>[]),
-      sb.from('expense_approvals').select('*').eq('expense_id', id).order('created_at',{ascending:false}).then((r:any)=>r.data??[]).catch(()=>[]),
+      sb.from('expense_lines').select('*').eq('expense_id', id).eq('organization_id', orgId).then((r:any)=>r.data??[]).catch(()=>[]),
+      sb.from('expense_attachments').select('*').eq('expense_id', id).eq('organization_id', orgId).order('created_at',{ascending:false}).then((r:any)=>r.data??[]).catch(()=>[]),
+      sb.from('expense_approvals').select('*, actor:actor_id(full_name)').eq('expense_id', id).eq('organization_id', orgId).order('created_at',{ascending:false}).then((r:any)=>r.data??[]).catch(()=>[]),
       sb.from('audit_logs').select('*').eq('entity_id', id).order('created_at',{ascending:false}).limit(50).then((r:any)=>r.data??[]).catch(()=>[]),
     ]);
     lines=l; attachments=a; approvals=ap; audit=au;
@@ -256,31 +273,75 @@ export async function updateExpense(id: string, patch: any) {
   if (existing.payment_status === 'PAID') throw new Error('Paid expenses cannot be edited');
   // validate patch
   const upd:any = { updated_at: new Date().toISOString() };
-  if (patch.description !== undefined) upd.description = String(patch.description).slice(0,1000);
+  if (patch.description !== undefined) {
+    const description = String(patch.description).trim();
+    if (!description) throw new Error('Description is required');
+    upd.description = description.slice(0,1000);
+  }
   if (patch.amount !== undefined) {
     const amt = Number(patch.amount);
-    if (!(amt>0)) throw new Error('Amount must be >0');
+    if (!Number.isFinite(amt) || !(amt>0)) throw new Error('Amount must be >0');
     upd.amount = amt;
   }
-  if (patch.tax_amount !== undefined) upd.tax_amount = Number(patch.tax_amount);
-  if (upd.amount !== undefined || upd.tax_amount !== undefined) {
-    const amt = upd.amount ?? Number(existing.amount);
-    const tax = upd.tax_amount ?? Number(existing.tax_amount ?? 0);
-    upd.total_amount = roundToCents(amt+tax);
+  if (patch.tax_amount !== undefined) {
+    const tax = Number(patch.tax_amount);
+    if (!Number.isFinite(tax) || tax < 0) throw new Error('Tax cannot be negative');
+    upd.tax_amount = tax;
   }
-  if (patch.category_id !== undefined) upd.category_id = patch.category_id;
-  if (patch.supplier_id !== undefined) upd.supplier_id = patch.supplier_id;
+  const nextAmount = upd.amount ?? Number(existing.amount);
+  const nextTax = upd.tax_amount ?? Number(existing.tax_amount ?? 0);
+  const nextTaxInclusive = patch.tax_inclusive !== undefined ? !!patch.tax_inclusive : !!existing.tax_inclusive;
+  if (patch.amount !== undefined || patch.tax_amount !== undefined || patch.tax_inclusive !== undefined) {
+    upd.total_amount = expenseTotal(nextAmount, nextTax, nextTaxInclusive);
+  }
+  if (patch.tax_inclusive !== undefined) upd.tax_inclusive = !!patch.tax_inclusive;
+  if (patch.category_id !== undefined) {
+    if (patch.category_id) {
+      const { data: cat } = await sb.from('expense_categories').select('id, organization_id, code, name').eq('id', patch.category_id).maybeSingle();
+      if (!cat || cat.organization_id !== orgId) throw new Error('Invalid category');
+      upd.category_id = cat.id;
+      upd.category = cat.code || cat.name;
+    } else {
+      upd.category_id = null;
+      if (patch.category) upd.category = String(patch.category);
+    }
+  }
+  if (patch.supplier_id !== undefined) {
+    if (patch.supplier_id) {
+      const { data: sup } = await sb.from('suppliers').select('id, organization_id').eq('id', patch.supplier_id).maybeSingle();
+      if (!sup || sup.organization_id !== orgId) throw new Error('Invalid supplier/payee');
+    }
+    upd.supplier_id = patch.supplier_id || null;
+  }
   if (patch.reference_number !== undefined) upd.reference_number = patch.reference_number || null;
   if (patch.notes !== undefined) upd.notes = patch.notes;
-  if (patch.expense_date !== undefined) upd.expense_date = new Date(patch.expense_date).toISOString().slice(0,10);
+  if (patch.expense_date !== undefined) {
+    const parsedDate = new Date(patch.expense_date);
+    if (Number.isNaN(parsedDate.getTime())) throw new Error('Invalid expense date');
+    upd.expense_date = parsedDate.toISOString().slice(0,10);
+  }
   if (patch.payment_method !== undefined) upd.payment_method = normalizePaymentMethod(patch.payment_method);
-  if (patch.branch_id !== undefined) upd.branch_id = patch.branch_id;
+  if (patch.payment_account_id !== undefined) {
+    if (patch.payment_account_id) {
+      const { data: register } = await sb.from('cash_registers').select('id, organization_id, branch_id').eq('id', patch.payment_account_id).maybeSingle();
+      if (!register || register.organization_id !== orgId) throw new Error('Invalid payment account');
+      upd.payment_account_id = register.id;
+    } else {
+      upd.payment_account_id = null;
+    }
+  }
+  if (patch.branch_id !== undefined) {
+    const { data: branch } = await sb.from('branches').select('id, organization_id').eq('id', patch.branch_id).maybeSingle();
+    if (!branch || branch.organization_id !== orgId) throw new Error('Invalid branch');
+    upd.branch_id = patch.branch_id;
+  }
   if (patch.currency !== undefined) upd.currency = patch.currency;
   if (patch.lines !== undefined && Array.isArray(patch.lines)) {
     const lines = patch.lines;
+    const finalTotal = Number(upd.total_amount ?? existing.total_amount ?? expenseTotal(nextAmount, nextTax, nextTaxInclusive));
     const sum = lines.reduce((s:any,l:any)=> s + Number(l.amount) + Number(l.tax_amount??0),0);
-    const total = Number(upd.total_amount ?? existing.total_amount ?? upd.amount ?? existing.amount) + Number(upd.tax_amount ?? existing.tax_amount ?? 0);
-    // but we will validate against final total
+    if (Math.abs(sum - finalTotal) > 0.01) throw new Error(`Sum of line amounts (${sum}) must equal total (${finalTotal})`);
+    if (lines.some((l:any)=> !Number.isFinite(Number(l.amount)) || Number(l.amount) <= 0)) throw new Error('Each line amount must be >0');
   }
   const { data, error } = await sb.from('expenses').update(upd).eq('id', id).select().single();
   if (error) throw new Error(error.message);
@@ -323,9 +384,19 @@ async function transition(id: string, action: string, opts:any={}) {
     if (curApproval!=='APPROVED') throw new Error('Expense must be approved before paying');
     if (curPayment==='PAID') throw new Error('Already paid');
     if (curPosting==='REVERSED') throw new Error('Reversed expense cannot be paid');
-    if (!opts.payment_account_id && !ex.payment_account_id) {
-      // auto-create or use default cash session logic: allow without account but warn
+    const accountId = opts.payment_account_id ?? ex.payment_account_id;
+    if (!accountId) throw new Error('Payment account is required');
+    const method = normalizePaymentMethod(opts.payment_method ?? ex.payment_method);
+    const { data: register } = await sb.from('cash_registers').select('id, organization_id, branch_id, is_active').eq('id', accountId).maybeSingle();
+    if (!register || register.organization_id !== orgId || register.branch_id !== ex.branch_id || register.is_active === false) {
+      throw new Error('Invalid payment account for this expense branch');
     }
+    if (['CASH','PETTY_CASH'].includes(method)) {
+      const { data: sess } = await sb.from('cash_sessions').select('id, register_id').eq('branch_id', ex.branch_id).eq('register_id', accountId).eq('status','OPEN').maybeSingle();
+      if (!sess) throw new Error('Open a cash session for the selected register before paying this expense');
+    }
+    opts.payment_account_id = accountId;
+    opts.payment_method = method;
     nextPayment='PAID'; nextPosting='POSTED'; auditAction='EXPENSE_PAID'; allowed=true;
   } else if (action==='post') {
     if (curApproval!=='APPROVED') throw new Error('Must be approved to post');
@@ -372,7 +443,7 @@ async function transition(id: string, action: string, opts:any={}) {
     const { data: rev, error: revErr } = await sb.from('expenses').insert(revPayload).select().single();
     if (revErr) throw new Error(revErr.message);
     // Also mark original as reversed
-    await sb.from('expenses').update({ posting_status:'REVERSED', approval_status:'REVERSED', status:'REVERSED', is_reversal:false, reversal_reason: reason, updated_at: new Date().toISOString() }).eq('id', id);
+    await sb.from('expenses').update({ posting_status:'REVERSED', approval_status:'REVERSED', status:'REVERSED', is_reversal:false, reversal_reason: reason, updated_at: new Date().toISOString() }).eq('id', id).eq('organization_id', orgId);
     await createAuditLog(auditAction, 'expenses', id, ex, { reversal_id: rev.id, reason });
     await logApproval(id, orgId, 'REVERSED', curPosting, 'REVERSED', reason);
     await createAuditLog('EXPENSE_REVERSAL_CREATED','expenses', rev.id, null, rev);
@@ -380,7 +451,9 @@ async function transition(id: string, action: string, opts:any={}) {
     if (curPayment==='PAID' && ex.branch_id) {
       try {
         // find current open cash session for branch
-        const { data: sess } = await sb.from('cash_sessions').select('id').eq('branch_id', ex.branch_id).eq('status','OPEN').maybeSingle();
+        let sessionQuery = sb.from('cash_sessions').select('id').eq('branch_id', ex.branch_id).eq('status','OPEN');
+        if (ex.payment_account_id) sessionQuery = sessionQuery.eq('register_id', ex.payment_account_id);
+        const { data: sess } = await sessionQuery.maybeSingle();
         if (sess) {
           await sb.from('cash_movements').insert({ organization_id: orgId, branch_id: ex.branch_id, session_id: sess.id, type:'REFUND', amount: Number(ex.total_amount ?? ex.amount), direction:'IN', reference_type:'EXPENSE_REVERSAL', reference_id: rev.id, reason: reason ?? 'Expense reversal', created_by: pid });
         } else {
@@ -426,16 +499,17 @@ async function transition(id: string, action: string, opts:any={}) {
       const amt = Number(updated.total_amount ?? updated.amount);
       // If PETTY_CASH or CASH, use cash_movements
       if (['CASH','PETTY_CASH'].includes(String(updated.payment_method).toUpperCase())) {
-        const { data: sess } = await sb.from('cash_sessions').select('id, branch_id').eq('branch_id', branchId).eq('status','OPEN').maybeSingle();
+        let sessionQuery = sb.from('cash_sessions').select('id, branch_id').eq('branch_id', branchId).eq('status','OPEN');
+        if (updated.payment_account_id) sessionQuery = sessionQuery.eq('register_id', updated.payment_account_id);
+        const { data: sess } = await sessionQuery.maybeSingle();
         if (sess) {
-          await sb.from('cash_movements').insert({ organization_id: orgId, branch_id: branchId, session_id: sess.id, type:'CASH_OUT', amount: amt, direction:'OUT', reference_type:'EXPENSE', reference_id: id, reason: updated.description?.slice(0,200) ?? 'Expense', created_by: pid });
+          const { error: movementError } = await sb.from('cash_movements').insert({ organization_id: orgId, branch_id: branchId, session_id: sess.id, type:'CASH_OUT', amount: amt, direction:'OUT', reference_type:'EXPENSE', reference_id: id, reason: updated.description?.slice(0,200) ?? 'Expense', created_by: pid });
+          if (movementError) throw new Error(movementError.message);
         }
-      } else {
-        // Non-cash: still record as cash_movements CASH_OUT with same session if exists, else just audit
-        // For bank/mobile, we log to audit only and still consider cash flow outflow via reports
       }
     } catch (e:any) {
-      // do not fail transaction on movement error
+      console.error('[expenses] cash movement after payment failed:', e?.message);
+      throw new Error(`Expense was marked paid but the cash movement failed: ${e?.message ?? 'unknown error'}. Review the cash session before retrying.`);
     }
   }
   return updated;
@@ -453,9 +527,10 @@ export async function reopenExpense(id:string){ return transition(id,'reopen'); 
 export async function duplicateExpense(id:string){
   const sb:any=await getSB();
   const orgId=await getOrgId(); const pid=await getProfileId();
-  const { data: orig } = await sb.from('expenses').select('*').eq('id', id).single();
+  const { data: orig } = await sb.from('expenses').select('*').eq('id', id).eq('organization_id', orgId).maybeSingle();
   if(!orig) throw new Error('Not found');
-  const { data: lines } = await sb.from('expense_lines').select('*').eq('expense_id', id).then((r:any)=>({data:r.data??[]})).catch(()=>({data:[]})) as any;
+  if (orig.is_reversal || orig.approval_status === 'REVERSED') throw new Error('Reversal entries cannot be duplicated');
+  const { data: lines } = await sb.from('expense_lines').select('*').eq('expense_id', id).eq('organization_id', orgId).then((r:any)=>({data:r.data??[]})).catch(()=>({data:[]})) as any;
   const payload:any = {
     branch_id: orig.branch_id,
     category: orig.category,
@@ -510,17 +585,22 @@ export async function getExpenseKPIs(params:{branch_id?:string; date_from?:strin
   if(params.date_to) q=q.lte('expense_date', params.date_to);
   const { data } = await q;
   const all = data ?? [];
-  const total = all.filter((e:any)=> e.posting_status!=='REVERSED' && e.approval_status!=='REVERSED' && e.approval_status!=='CANCELLED').reduce((s:any,e:any)=> s + Number(e.total_amount ?? e.amount),0);
+  const realized = (e:any) =>
+    ['APPROVED','REVERSED'].includes(e.approval_status || '') &&
+    !['CANCELLED','REJECTED','DRAFT','PENDING_APPROVAL'].includes(e.approval_status || '') &&
+    e.posting_status !== 'UNPOSTED';
+  const expenses = all.filter(realized);
+  const total = expenses.reduce((s:any,e:any)=> s + Number(e.total_amount ?? e.amount),0);
   const todayStr = new Date().toISOString().slice(0,10);
   const weekAgo = new Date(Date.now()-7*86400000).toISOString().slice(0,10);
   const monthAgo = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10);
-  const todayTotal = all.filter((e:any)=> e.expense_date===todayStr).reduce((s:any,e:any)=> s+Number(e.total_amount??e.amount),0);
-  const weekTotal = all.filter((e:any)=> e.expense_date>=weekAgo).reduce((s:any,e:any)=> s+Number(e.total_amount??e.amount),0);
-  const monthTotal = all.filter((e:any)=> e.expense_date>=monthAgo).reduce((s:any,e:any)=> s+Number(e.total_amount??e.amount),0);
+  const todayTotal = expenses.filter((e:any)=> e.expense_date===todayStr).reduce((s:any,e:any)=> s+Number(e.total_amount??e.amount),0);
+  const weekTotal = expenses.filter((e:any)=> e.expense_date>=weekAgo).reduce((s:any,e:any)=> s+Number(e.total_amount??e.amount),0);
+  const monthTotal = expenses.filter((e:any)=> e.expense_date>=monthAgo).reduce((s:any,e:any)=> s+Number(e.total_amount??e.amount),0);
   const pendingApproval = all.filter((e:any)=> e.approval_status==='PENDING_APPROVAL').reduce((s:any,e:any)=> s+Number(e.total_amount??e.amount),0);
   const approvedUnpaid = all.filter((e:any)=> e.approval_status==='APPROVED' && e.payment_status==='UNPAID').reduce((s:any,e:any)=> s+Number(e.total_amount??e.amount),0);
   const byCat:Record<string,number>={};
-  for(const e of all){ const k=e.category ?? e.category_id ?? 'other'; byCat[k]=(byCat[k]??0)+Number(e.total_amount??e.amount); }
+  for(const e of expenses){ const k=e.category ?? e.category_id ?? 'other'; byCat[k]=(byCat[k]??0)+Number(e.total_amount??e.amount); }
   let largestCategory=null; let largestValue=0;
   for(const [k,v] of Object.entries(byCat)){ if(v>largestValue){largestValue=v; largestCategory=k; } }
   // petty cash balance: sum opening + IN - OUT
@@ -539,7 +619,7 @@ export async function getExpenseKPIs(params:{branch_id?:string; date_from?:strin
       }
     }
   }catch{}
-  return { total, count: all.length, todayTotal, weekTotal, monthTotal, pendingApproval, approvedUnpaid, byCategory: byCat, largestCategory, largestValue, pettyBalance };
+  return { total, count: expenses.length, todayTotal, weekTotal, monthTotal, pendingApproval, approvedUnpaid, byCategory: byCat, largestCategory, largestValue, pettyBalance };
 }
 
 export async function getExpenseSummary(params:{branch_id?:string; date_from?:string; date_to?:string}={}){
@@ -554,7 +634,7 @@ export async function getExpenseReports(params:{branch_id?:string; date_from?:st
   if(params.date_from) q=q.gte('expense_date', params.date_from);
   if(params.date_to) q=q.lte('expense_date', params.date_to);
   const { data } = await q;
-  const all = (data??[]).filter((e:any)=> e.approval_status!=='REVERSED' && e.approval_status!=='CANCELLED');
+  const all = (data??[]).filter((e:any)=> ['POSTED','PAID'].includes(e.posting_status) || e.payment_status==='PAID').filter((e:any)=> e.approval_status!=='REVERSED' && e.approval_status!=='CANCELLED');
   const byCategory:Record<string,number>={};
   const byBranch:Record<string,number>={};
   const byPayee:Record<string,number>={};
@@ -575,15 +655,24 @@ export async function getExpenseReports(params:{branch_id?:string; date_from?:st
 
 export async function addExpenseAttachment(expenseId:string, input:any){
   const sb:any=await getSB(); const orgId=await getOrgId(); const pid=await getProfileId();
-  const { data, error } = await sb.from('expense_attachments').insert({ organization_id: orgId, expense_id: expenseId, file_name: input.file_name, file_url: input.file_url, file_size: input.file_size ?? null, mime_type: input.mime_type ?? null, document_type: input.document_type ?? 'RECEIPT', uploaded_by: pid }).select().single();
+  const { data: expense } = await sb.from('expenses').select('id, organization_id, posting_status').eq('id', expenseId).eq('organization_id', orgId).maybeSingle();
+  if (!expense) throw new Error('Expense not found');
+  if (expense.posting_status === 'REVERSED') throw new Error('Cannot attach receipts to reversed expenses');
+  const fileName = String(input.file_name ?? '').trim();
+  const fileUrl = assertHttpUrl(input.file_url, 'File URL');
+  if (!fileName) throw new Error('File name required');
+  const { data, error } = await sb.from('expense_attachments').insert({ organization_id: orgId, expense_id: expenseId, file_name: fileName, file_url: fileUrl, file_size: input.file_size ?? null, mime_type: input.mime_type ?? null, document_type: input.document_type ?? 'RECEIPT', uploaded_by: pid }).select().single();
   if(error) throw new Error(error.message);
   await createAuditLog('EXPENSE_ATTACHMENT_ADDED','expense_attachments', data.id, null, data);
   return data;
 }
 export async function removeExpenseAttachment(id:string){
   const sb:any=await getSB();
-  const { data: existing } = await sb.from('expense_attachments').select('expense_id, expense:expense_id(posting_status)').eq('id', id).single().then((r:any)=>r).catch(()=>({data:null}));
-  if(existing?.expense?.posting_status==='POSTED') throw new Error('Cannot remove attachment from posted expense');
+  const orgId = await getOrgId();
+  const { data: existing } = await sb.from('expense_attachments').select('id, expense_id, organization_id, expense:expense_id(posting_status, approval_status)').eq('id', id).maybeSingle().then((r:any)=>r).catch(()=>({data:null}));
+  if(!existing) throw new Error('Attachment not found');
+  if (orgId && existing.organization_id && existing.organization_id !== orgId) throw new Error('Unauthorized');
+  if(existing?.expense?.posting_status==='POSTED' && existing?.expense?.approval_status!=='REVERSED') throw new Error('Cannot remove attachment from posted expense');
   const { error } = await sb.from('expense_attachments').delete().eq('id', id);
   if(error) throw new Error(error.message);
   await createAuditLog('EXPENSE_ATTACHMENT_REMOVED','expense_attachments', id, existing, null);

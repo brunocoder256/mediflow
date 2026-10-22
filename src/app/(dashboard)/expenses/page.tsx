@@ -14,13 +14,41 @@ import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatCard } from "@/components/ui/stat-card";
-import { Search, Plus, DollarSign, Eye, Edit, Trash2, Download, Filter, Wifi, WifiOff, RefreshCw, Receipt, Building2, Users, Calendar, CreditCard, FileText, History, Undo2, Copy, Printer, Paperclip, AlertTriangle, TrendingUp } from "lucide-react";
+import { Search, Plus, DollarSign, Eye, Edit, Trash2, Download, Wifi, WifiOff, RefreshCw, Receipt, Building2, Users, Calendar, CreditCard, FileText, History, Undo2, Copy, Printer, Paperclip, AlertTriangle, TrendingUp } from "lucide-react";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { queueExpenseCreate, queueExpenseAction, queueExpenseUpdate, queueExpenseDelete, getExpensePendingCount } from "@/lib/offline/sync";
 import { usePendingExpenses, useMediflowSynced } from "@/lib/offline/pending-overlay";
 import { cachedFetch } from "@/lib/offline/cached-fetch";
+import { isHttpUrl, isUuid, toCsv } from "@/lib/expenses-format";
 
-type Expense = { id:string; expense_number?:string; expense_date:string; category:string; category_id?:string; supplier_id?:string; description:string; amount:number; tax_amount?:number; total_amount?:number; payment_method:string; payment_status:string; approval_status:string; posting_status:string; branch_id:string; reference_number?:string; notes?:string; created_by?:string; suppliers?:{name:string}; branches?:{name:string}; expense_categories?:{name:string; code:string} };
+type Expense = { id:string; expense_number?:string; expense_date:string; category:string; category_id?:string; supplier_id?:string; description:string; amount:number; tax_amount?:number; total_amount?:number; payment_method:string; payment_account_id?:string; payment_status:string; approval_status:string; posting_status:string; branch_id:string; reference_number?:string; notes?:string; created_by?:string; suppliers?:{name:string}; branches?:{name:string}; expense_categories?:{name:string; code:string} };
+
+const EXPENSE_PERMISSIONS = {
+  create: "expenses.create",
+  approve: "expenses.approve",
+  pay: "expenses.pay",
+  void: "expenses.void",
+} as const;
+
+const makeEmptyForm = (branchId = "", categoryId = "") => ({
+  branch_id: branchId,
+  category_id: categoryId,
+  supplier_id: "",
+  description: "",
+  reference_number: "",
+  notes: "",
+  amount: "",
+  tax_amount: "0",
+  tax_inclusive: false,
+  currency: "UGX",
+  exchange_rate: "1",
+  payment_method: "CASH",
+  payment_account_id: "",
+  expense_date: new Date().toISOString().slice(0,10),
+  lines: [] as any[],
+});
+
+const emptyAttachment = () => ({ file_name: "", file_url: "", document_type: "RECEIPT" });
 
 export default function ExpensesPage(){
   const {isOnline}=useOnlineStatus();
@@ -54,16 +82,37 @@ export default function ExpensesPage(){
   const [showEdit,setShowEdit]=React.useState<Expense|null>(null);
   const [pendingCount,setPendingCount]=React.useState(0);
   const [createTab,setCreateTab]=React.useState("basic");
+  const [permissions,setPermissions]=React.useState<string[]|null>(null);
+  const [busy,setBusy]=React.useState<string|null>(null);
+  const [showPay,setShowPay]=React.useState<Expense|null>(null);
+  const [payForm,setPayForm]=React.useState({payment_account_id:"", payment_method:"CASH"});
   const perPage=20;
 
   // form state
-  const [form,setForm]=React.useState({branch_id:"", category_id:"", supplier_id:"", description:"", reference_number:"", notes:"", amount:"", tax_amount:"0", tax_inclusive:false, currency:"UGX", exchange_rate:"1", payment_method:"CASH", payment_account_id:"", expense_date:new Date().toISOString().slice(0,10), lines: [] as any[]});
+  const [form,setForm]=React.useState(makeEmptyForm());
   const [editForm,setEditForm]=React.useState<any>({});
-  const [attachForm,setAttachForm]=React.useState({file_name:"", file_url:"", document_type:"RECEIPT"});
+  const [attachForm,setAttachForm]=React.useState(emptyAttachment());
+  const [createAttachment,setCreateAttachment]=React.useState(emptyAttachment());
   const [rejectReason,setRejectReason]=React.useState("");
   const [reverseReason,setReverseReason]=React.useState("");
   const [showReject,setShowReject]=React.useState<Expense|null>(null);
   const [showReverse,setShowReverse]=React.useState<Expense|null>(null);
+
+  const can=(code:string)=>{
+    if(permissions===null) return false;
+    if(permissions.includes(code)) return true;
+    return code.startsWith("expenses.") && permissions.includes("users.manage");
+  };
+  const canCreate=can(EXPENSE_PERMISSIONS.create);
+  const canApprove=can(EXPENSE_PERMISSIONS.approve);
+  const canPay=can(EXPENSE_PERMISSIONS.pay);
+  const canVoid=can(EXPENSE_PERMISSIONS.void);
+
+  React.useEffect(()=>{
+    cachedFetch<{permissions?:string[]}>("/api/me")
+      .then(j=>setPermissions(Array.isArray(j.permissions)?j.permissions:[]))
+      .catch(()=>setPermissions([]));
+  },[]);
 
   React.useEffect(()=>{ const id=setTimeout(()=>setDebouncedQ(q),300); return ()=>clearTimeout(id); },[q]);
   React.useEffect(()=>{
@@ -72,8 +121,15 @@ export default function ExpensesPage(){
     return ()=>clearInterval(id);
   },[]);
 
+  const resetCreateForm=React.useCallback(()=>{
+    setForm(makeEmptyForm(branches[0]?.id ?? "", categories[0]?.value ?? categories[0]?.id ?? ""));
+    setCreateAttachment(emptyAttachment());
+    setCreateTab("basic");
+  },[branches, categories]);
+
   const fetchAll=React.useCallback(async()=>{
     setLoading(true);
+    try{
     const params=new URLSearchParams();
     if(branchFilter!=="all") params.set("branch_id", branchFilter);
     if(catFilter!=="all") params.set("category_id", catFilter);
@@ -113,7 +169,9 @@ export default function ExpensesPage(){
     }catch{}
     if(!form.branch_id && br[0]) setForm(f=>({...f, branch_id: br[0].id}));
     if(!form.category_id && cats?.[0]) setForm(f=>({...f, category_id: cats[0].value ?? cats[0].id}));
-    setLoading(false);
+    } finally {
+      setLoading(false);
+    }
   },[branchFilter, catFilter, supplierFilter, payMethodFilter, approvalFilter, paymentStatusFilter, debouncedQ, dateFrom, dateTo, amountMin, amountMax, page]);
   React.useEffect(()=>{ fetchAll(); },[fetchAll]);
 
@@ -126,45 +184,82 @@ export default function ExpensesPage(){
   const removeLine=(i:number)=> setForm({...form, lines: form.lines.filter((_,idx)=>idx!==i)});
 
   const submitCreate=async()=>{
+    if(busy) return;
+    if(!canCreate) return alert("You do not have permission to create expenses.");
+    const selectedCategory = categories.find(c=> (c.value??c.id)===form.category_id);
+    const categoryId = isUuid(form.category_id) ? form.category_id : undefined;
+    const categoryText = selectedCategory?.code ?? selectedCategory?.label ?? selectedCategory?.name ?? (!isUuid(form.category_id) ? form.category_id : undefined);
+    const amount = Number(form.amount);
+    const tax = Number(form.tax_amount ?? 0);
+    const total = form.tax_inclusive ? amount : amount + tax;
+    const attachmentRequested = !!(createAttachment.file_name || createAttachment.file_url);
+    const lines = form.lines.map(l=>({
+      category_id: isUuid(l.category_id) ? l.category_id : undefined,
+      description: l.description,
+      amount: Number(l.amount),
+      tax_amount: Number(l.tax_amount ?? 0),
+    }));
     const payload:any = {
       branch_id: form.branch_id,
-      category_id: form.category_id || undefined,
-      category: categories.find(c=> (c.value??c.id)===form.category_id)?.code ?? categories.find(c=> (c.value??c.id)===form.category_id)?.label ?? form.category_id,
-      supplier_id: form.supplier_id || null,
-      description: form.description,
+      category_id: categoryId ?? null,
+      category: categoryText,
+      supplier_id: isUuid(form.supplier_id) ? form.supplier_id : null,
+      description: form.description.trim(),
       reference_number: form.reference_number || null,
-      amount: Number(form.amount),
-      tax_amount: Number(form.tax_amount ?? 0),
+      amount,
+      tax_amount: tax,
       tax_inclusive: form.tax_inclusive,
       currency: form.currency,
       exchange_rate: Number(form.exchange_rate ?? 1),
       payment_method: form.payment_method,
-      payment_account_id: form.payment_account_id || null,
+      payment_account_id: isUuid(form.payment_account_id) ? form.payment_account_id : null,
       expense_date: form.expense_date,
       notes: form.notes || null,
-      lines: form.lines.length? form.lines.map(l=>({category_id:l.category_id, description:l.description, amount:Number(l.amount), tax_amount:Number(l.tax_amount??0)})): undefined,
+      lines: lines.length ? lines : undefined,
+      idempotency_key: isOnline ? crypto.randomUUID() : undefined,
     };
-    if(!payload.branch_id || !payload.category_id || !payload.description || !(payload.amount>0)) return alert("Branch, Category, Description, Amount required. Amount >0");
-    if(payload.lines && payload.lines.length){
-      const sum = payload.lines.reduce((s:any,l:any)=> s+Number(l.amount)+Number(l.tax_amount??0),0);
-      const total = Number(payload.amount)+Number(payload.tax_amount??0);
-      if(Math.abs(sum-total)>0.01) return alert(`Line total ${sum} must equal expense total ${total}`);
+    if(!payload.branch_id) return alert("Branch is required.");
+    if(!payload.category_id && !payload.category) return alert("Category is required.");
+    if(!payload.description) return alert("Description is required.");
+    if(!Number.isFinite(amount) || amount <= 0) return alert("Amount must be greater than 0.");
+    if(!Number.isFinite(tax) || tax < 0) return alert("Tax cannot be negative.");
+    if(!payload.expense_date || Number.isNaN(new Date(payload.expense_date).getTime())) return alert("A valid expense date is required.");
+    if(lines.length){
+      if(lines.some(l => !Number.isFinite(l.amount) || l.amount <= 0)) return alert("Each line amount must be greater than 0.");
+      const lineTotal = lines.reduce((s,l)=> s + l.amount + l.tax_amount, 0);
+      if(Math.abs(lineTotal-total)>0.01) return alert(`Line total ${lineTotal} must equal expense total ${total}`);
     }
-    if(!isOnline){
-      await queueExpenseCreate(payload as any);
-      alert("Offline — expense queued locally (Pending Sync). Will sync when online with idempotency.");
-      setShowCreate(false);
-      setForm({branch_id: branches[0]?.id ?? "", category_id: categories[0]?.value ?? categories[0]?.id ?? "", supplier_id:"", description:"", reference_number:"", notes:"", amount:"", tax_amount:"0", tax_inclusive:false, currency:"UGX", exchange_rate:"1", payment_method:"CASH", payment_account_id:"", expense_date:new Date().toISOString().slice(0,10), lines:[]});
-      setPendingCount(c=>c+1);
-      return;
+    if(attachmentRequested){
+      if(!createAttachment.file_name.trim() || !createAttachment.file_url.trim()) return alert("Enter both the receipt file name and URL.");
+      if(!isHttpUrl(createAttachment.file_url)) return alert("Receipt URL must start with http:// or https://");
     }
-    const r=await fetch("/api/expenses",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
-    const j=await r.json();
-    if(!r.ok) alert(j.error || "Failed"); else {
-      if(j.warning) alert(j.warning);
+    setBusy("create");
+    try{
+      if(!isOnline){
+        await queueExpenseCreate(payload as any);
+        alert("Offline — expense queued locally (Pending Sync). Will sync when online with idempotency." + (attachmentRequested ? " Attach the receipt after it syncs." : ""));
+        setShowCreate(false);
+        resetCreateForm();
+        setPendingCount(c=>c+1);
+        return;
+      }
+      const r=await fetch("/api/expenses",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){ alert(j.error || "Failed to create expense."); return; }
+      let warning = j.warning ?? null;
+      if(attachmentRequested && !j.idempotent_replay){
+        const ar=await fetch("/api/expenses",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({expense_id:j.id, ...createAttachment})});
+        const aj=await ar.json().catch(()=>({}));
+        if(!ar.ok) warning = [warning, `Expense saved, but receipt attachment failed: ${aj.error ?? "unknown error"}`].filter(Boolean).join("\n");
+      }
+      if(warning) alert(warning);
       setShowCreate(false);
-      setForm({branch_id: branches[0]?.id ?? "", category_id: categories[0]?.value ?? categories[0]?.id ?? "", supplier_id:"", description:"", reference_number:"", notes:"", amount:"", tax_amount:"0", tax_inclusive:false, currency:"UGX", exchange_rate:"1", payment_method:"CASH", payment_account_id:"", expense_date:new Date().toISOString().slice(0,10), lines:[]});
+      resetCreateForm();
       fetchAll();
+    }catch(e:any){
+      alert(e?.message || "Network error while creating the expense.");
+    }finally{
+      setBusy(null);
     }
   };
 
@@ -177,54 +272,161 @@ export default function ExpensesPage(){
       setDetailData(j);
     }catch{ setDetailData(p); }
   };
+  const refreshAfterAction=async()=>{
+    await fetchAll();
+    if(showDetail) await openDetail(showDetail);
+  };
+  const openEdit=(e:Expense)=>{
+    setShowEdit(e);
+    setEditForm({
+      description:e.description ?? "",
+      amount:String(e.amount ?? ""),
+      tax_amount:String(e.tax_amount ?? 0),
+      tax_inclusive:!!(e as any).tax_inclusive,
+      category_id:(e as any).category_id ?? "",
+      supplier_id:e.supplier_id ?? "",
+      expense_date:String(e.expense_date ?? "").slice(0,10),
+      payment_method:e.payment_method ?? "CASH",
+      payment_account_id:(e as any).payment_account_id ?? "",
+      reference_number:(e as any).reference_number ?? "",
+      notes:(e as any).notes ?? "",
+    });
+  };
+  const openPay=(e:Expense)=>{
+    if(!canPay) return alert("You do not have permission to pay expenses.");
+    setShowPay(e);
+    setPayForm({
+      payment_account_id:(e as any).payment_account_id ?? cashAccounts[0]?.id ?? "",
+      payment_method:e.payment_method ?? "CASH",
+    });
+  };
   const handleAction=async(id:string, action:string, extra?:any)=>{
+    if(busy) return;
+    const permission = action==='approve'||action==='reject' ? EXPENSE_PERMISSIONS.approve
+      : action==='pay'||action==='post' ? EXPENSE_PERMISSIONS.pay
+      : action==='submit'||action==='reopen' ? EXPENSE_PERMISSIONS.create
+      : EXPENSE_PERMISSIONS.void;
+    if(!can(permission)) return alert(`You do not have permission to ${action} expenses.`);
     if(action==='approve' && !confirm("Approve this expense?")) return;
-    if(action==='pay' && !confirm("Mark as Paid? This will create cash movement & post to ledger.")) return;
     if(action==='cancel' && !confirm("Cancel this expense?")) return;
+    setBusy(`action:${id}:${action}`);
     const body:any={id, action, ...extra};
-    if(!isOnline){
-      await queueExpenseAction(id, action, extra);
-      alert(`${action} queued offline — will sync when back online.`);
-      fetchAll(); if(showDetail) openDetail(showDetail); setShowReject(null); setShowReverse(null); return;
+    try{
+      if(!isOnline){
+        await queueExpenseAction(id, action, extra);
+        alert(`${action} queued offline — will sync when back online.`);
+        await refreshAfterAction();
+        setShowReject(null); setShowReverse(null); setShowPay(null);
+        setRejectReason(""); setReverseReason("");
+        return;
+      }
+      const r=await fetch("/api/expenses",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){ alert(j.error || `Failed to ${action} expense.`); return; }
+      await refreshAfterAction();
+      setShowReject(null); setShowReverse(null); setShowPay(null);
+      setRejectReason(""); setReverseReason("");
+    }catch(e:any){
+      alert(e?.message || "Network error while updating the expense.");
+    }finally{
+      setBusy(null);
     }
-    const r=await fetch("/api/expenses",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
-    const j=await r.json();
-    if(!r.ok) alert(j.error); else { fetchAll(); if(showDetail) openDetail(showDetail); setShowReject(null); setShowReverse(null); }
   };
   const handleEdit=async()=>{
-    if(!showEdit) return;
+    if(!showEdit || busy) return;
+    if(!canCreate) return alert("You do not have permission to edit expenses.");
     const payload:any={...editForm};
-    if(payload.amount) payload.amount=Number(payload.amount);
-    if(payload.tax_amount) payload.tax_amount=Number(payload.tax_amount);
-    if(!isOnline){
-      await queueExpenseUpdate(showEdit.id, payload);
-      alert("Edit queued offline — will sync when back online.");
-      setShowEdit(null); fetchAll(); if(showDetail) openDetail(showDetail); return;
+    payload.description=String(payload.description ?? "").trim();
+    payload.amount=Number(payload.amount);
+    payload.tax_amount=Number(payload.tax_amount ?? 0);
+    if(!payload.description) return alert("Description is required.");
+    if(!Number.isFinite(payload.amount) || payload.amount <= 0) return alert("Amount must be greater than 0.");
+    if(!Number.isFinite(payload.tax_amount) || payload.tax_amount < 0) return alert("Tax cannot be negative.");
+    if(payload.category_id && !isUuid(payload.category_id)) delete payload.category_id;
+    if(payload.supplier_id && !isUuid(payload.supplier_id)) payload.supplier_id=null;
+    if(payload.payment_account_id && !isUuid(payload.payment_account_id)) payload.payment_account_id=null;
+    if(!payload.expense_date) delete payload.expense_date;
+    setBusy("edit");
+    try{
+      if(!isOnline){
+        await queueExpenseUpdate(showEdit.id, payload);
+        alert("Edit queued offline — will sync when back online.");
+        setShowEdit(null); await refreshAfterAction(); return;
+      }
+      const r=await fetch(`/api/expenses?id=${showEdit.id}`,{method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){ alert(j.error || "Failed to save changes."); return; }
+      setShowEdit(null); await refreshAfterAction();
+    }catch(e:any){
+      alert(e?.message || "Network error while saving the expense.");
+    }finally{
+      setBusy(null);
     }
-    const r=await fetch(`/api/expenses?id=${showEdit.id}`,{method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
-    const j=await r.json();
-    if(!r.ok) alert(j.error); else { setShowEdit(null); fetchAll(); if(showDetail) openDetail(showDetail); }
+  };
+  const handleDelete=async(e:Expense)=>{
+    if(busy) return;
+    if(!canVoid) return alert("You do not have permission to delete expenses.");
+    if(!confirm(`Delete draft ${e.expense_number ?? e.id.slice(0,8)}? This cannot be undone.`)) return;
+    setBusy(`delete:${e.id}`);
+    try{
+      if(!isOnline){
+        await queueExpenseDelete(e.id);
+        alert("Delete queued offline — will sync when back online.");
+      } else {
+        const r=await fetch(`/api/expenses?id=${encodeURIComponent(e.id)}`,{method:"DELETE"});
+        const j=await r.json().catch(()=>({}));
+        if(!r.ok){ alert(j.error || "Failed to delete expense."); return; }
+      }
+      if(showDetail?.id===e.id) setShowDetail(null);
+      await fetchAll();
+    }catch(err:any){
+      alert(err?.message || "Network error while deleting the expense.");
+    }finally{
+      setBusy(null);
+    }
   };
   const handleDuplicate=async(id:string)=>{
+    if(busy) return;
+    if(!canCreate) return alert("You do not have permission to duplicate expenses.");
     if(!confirm("Duplicate this expense as new DRAFT?")) return;
     if(!isOnline) return alert("Duplicating needs a connection — retry when online.");
-    const r=await fetch("/api/expenses",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({duplicate_id:id})});
-    const j=await r.json();
-    if(!r.ok) alert(j.error); else { alert(`Duplicated as ${j.expense_number ?? j.id}`); fetchAll(); }
+    setBusy(`duplicate:${id}`);
+    try{
+      const r=await fetch("/api/expenses",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({duplicate_id:id})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok) alert(j.error || "Failed to duplicate expense."); else { alert(`Duplicated as ${j.expense_number ?? j.id}`); fetchAll(); }
+    }catch(e:any){
+      alert(e?.message || "Network error while duplicating the expense.");
+    }finally{
+      setBusy(null);
+    }
   };
   const handleAttach=async()=>{
-    if(!showDetail) return;
-    if(!attachForm.file_name || !attachForm.file_url) return alert("File name and URL required");
+    if(!showDetail || busy) return;
+    if(!canCreate) return alert("You do not have permission to change expense receipts.");
+    if(!attachForm.file_name.trim() || !attachForm.file_url.trim()) return alert("File name and URL required");
+    if(!isHttpUrl(attachForm.file_url)) return alert("File URL must start with http:// or https://");
     if(!isOnline) return alert("Attachments need a connection — please retry when online.");
-    const r=await fetch("/api/expenses",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({expense_id: showDetail.id, file_name: attachForm.file_name, file_url: attachForm.file_url, document_type: attachForm.document_type})});
-    const j=await r.json();
-    if(!r.ok) alert(j.error); else { setAttachForm({file_name:"", file_url:"", document_type:"RECEIPT"}); openDetail(showDetail); }
+    setBusy("attach");
+    try{
+      const r=await fetch("/api/expenses",{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({expense_id: showDetail.id, ...attachForm})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok) alert(j.error || "Failed to attach receipt."); else { setAttachForm(emptyAttachment()); openDetail(showDetail); }
+    }catch(e:any){
+      alert(e?.message || "Network error while attaching the receipt.");
+    }finally{
+      setBusy(null);
+    }
   };
   const handlePrint=()=>{
     if(!detailData) return;
     const w=window.open("","_blank");
-    if(!w) return;
-    w.document.write(`<html><head><title>Expense ${detailData.expense_number ?? detailData.id}</title><style>body{font-family:sans-serif;padding:20px}h1{font-size:18px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #ddd;padding:8px;text-align:left}</style></head><body><h1>Expense ${detailData.expense_number ?? detailData.id.slice(0,8)}</h1><p>Date: ${new Date(detailData.expense_date).toLocaleDateString()} • Branch: ${detailData.branches?.name ?? detailData.branch_id.slice(0,6)} • Category: ${detailData.category}</p><table><tr><th>Description</th><td>${detailData.description}</td></tr><tr><th>Amount</th><td>UGX ${Number(detailData.amount).toLocaleString()}</td></tr><tr><th>Tax</th><td>UGX ${Number(detailData.tax_amount??0).toLocaleString()}</td></tr><tr><th>Total</th><td><strong>UGX ${Number(detailData.total_amount??detailData.amount).toLocaleString()}</strong></td></tr><tr><th>Payment</th><td>${detailData.payment_method} • ${detailData.payment_status}</td></tr><tr><th>Approval</th><td>${detailData.approval_status}</td></tr><tr><th>Reference</th><td>${detailData.reference_number ?? "—"}</td></tr></table><p>${detailData.notes ?? ""}</p><script>window.print()</script></body></html>`);
+    if(!w) return alert("Print window was blocked. Allow pop-ups and try again.");
+    const html = (value: unknown) => String(value ?? "—").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c] ?? c)).replace(/\n/g,"<br/>");
+    const expenseNumber = detailData.expense_number ?? detailData.id?.slice(0,8) ?? "—";
+    const branchName = detailData.branches?.name ?? detailData.branch_id?.slice(0,6) ?? "—";
+    const lineRows = (detailData.lines ?? []).map((l:any)=>`<tr><td>${html(l.description ?? l.category_id ?? "—")}</td><td>UGX ${Number(l.amount ?? 0).toLocaleString()}</td><td>UGX ${Number(l.tax_amount ?? 0).toLocaleString()}</td><td>UGX ${Number(l.total_amount ?? l.amount ?? 0).toLocaleString()}</td></tr>`).join("");
+    w.document.write(`<html><head><title>Expense ${html(expenseNumber)}</title><style>body{font-family:sans-serif;padding:20px}h1{font-size:18px}table{width:100%;border-collapse:collapse;margin:12px 0}td,th{border:1px solid #ddd;padding:8px;text-align:left}</style></head><body><h1>Expense ${html(expenseNumber)}</h1><p>Date: ${html(new Date(detailData.expense_date).toLocaleDateString())} • Branch: ${html(branchName)} • Category: ${html(detailData.category)}</p><table><tr><th>Description</th><td>${html(detailData.description)}</td></tr><tr><th>Amount</th><td>UGX ${Number(detailData.amount ?? 0).toLocaleString()}</td></tr><tr><th>Tax</th><td>UGX ${Number(detailData.tax_amount??0).toLocaleString()}</td></tr><tr><th>Total</th><td><strong>UGX ${Number(detailData.total_amount??detailData.amount??0).toLocaleString()}</strong></td></tr><tr><th>Payment</th><td>${html(detailData.payment_method)} • ${html(detailData.payment_status)}</td></tr><tr><th>Approval</th><td>${html(detailData.approval_status)}</td></tr><tr><th>Reference</th><td>${html(detailData.reference_number)}</td></tr></table>${lineRows ? `<table><thead><tr><th>Line</th><th>Amount</th><th>Tax</th><th>Total</th></tr></thead><tbody>${lineRows}</tbody></table>` : ""}<p>${html(detailData.notes)}</p><script>window.print()</script></body></html>`);
     w.document.close();
   };
   const badgeApproval=(s:string)=>{
@@ -249,8 +451,8 @@ export default function ExpensesPage(){
       <PageHeader icon={DollarSign} title="Expenses" description="Operating costs → Expense Account → Payment Account → Ledger • Expense ≠ Purchase • Expense ≠ Supplier Bill • Expense ≠ Payment">
         <Badge variant={isOnline?"success":"warning"} className="gap-1">{isOnline ? <Wifi className="h-3 w-3"/> : <WifiOff className="h-3 w-3"/>}{isOnline?"Online":"Offline"}</Badge>
         {pendingCount>0 && <Badge variant="warning">{pendingCount} pending sync</Badge>}
-        <Button variant="outline" size="sm" onClick={fetchAll}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
-        <Button onClick={()=>setShowCreate(true)}><Plus className="h-4 w-4 mr-2"/>New Expense</Button>
+        <Button variant="outline" size="sm" onClick={fetchAll} disabled={loading}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
+        {canCreate && <Button onClick={()=>setShowCreate(true)}><Plus className="h-4 w-4 mr-2"/>New Expense</Button>}
       </PageHeader>
 
       {/* KPIs */}
@@ -267,9 +469,11 @@ export default function ExpensesPage(){
           <div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input placeholder="Search description, #, ref, notes..." value={q} onChange={e=>setQ(e.target.value)} className="pl-9"/></div>
           <Button variant="outline" onClick={()=>{setQ(""); setBranchFilter("all"); setCatFilter("all"); setSupplierFilter("all"); setPayMethodFilter("all"); setApprovalFilter("all"); setPaymentStatusFilter("all"); setDateFrom(""); setDateTo(""); setAmountMin(""); setAmountMax(""); setPage(1);}}>Clear Filters</Button>
           <Button variant="outline" size="sm" onClick={()=>{
-            const header=["Expense #","Date","Category","Payee","Branch","Amount","Tax","Total","Payment","Approval","Payment Status","Created By"].join(",");
-            const lines=data.map(e=>[e.expense_number ?? e.id.slice(0,8), e.expense_date, e.category, (e as any).suppliers?.name ?? e.supplier_id?.slice(0,6) ?? "", (e as any).branches?.name ?? e.branch_id.slice(0,6), e.amount, (e as any).tax_amount ?? 0, (e as any).total_amount ?? e.amount, e.payment_method, e.approval_status, e.payment_status, e.created_by?.slice(0,6) ?? ""].join(","));
-            const csv=[header,...lines].join("\n"); const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`expenses_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
+            const csv=toCsv([
+              ["Expense #","Date","Category","Payee","Branch","Amount","Tax","Total","Payment","Approval","Payment Status","Created By"],
+              ...data.map(e=>[e.expense_number ?? e.id.slice(0,8), e.expense_date, (e as any).expense_categories?.name ?? e.category, (e as any).suppliers?.name ?? e.supplier_id?.slice(0,6) ?? "", (e as any).branches?.name ?? e.branch_id.slice(0,6), e.amount, (e as any).tax_amount ?? 0, (e as any).total_amount ?? e.amount, e.payment_method, e.approval_status, e.payment_status, e.created_by?.slice(0,6) ?? ""]),
+            ]);
+            const blob=new Blob([csv],{type:"text/csv;charset=utf-8"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`expenses_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
           }}><Download className="h-4 w-4 mr-1"/>Export</Button>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -281,8 +485,8 @@ export default function ExpensesPage(){
           <Select value={paymentStatusFilter} onChange={e=>{setPaymentStatusFilter(e.target.value); setPage(1);}} className="w-[140px]"><option value="all">All Pay Status</option><option value="UNPAID">Unpaid</option><option value="PAID">Paid</option><option value="PARTIALLY_PAID">Partial</option></Select>
           <Input type="date" value={dateFrom} onChange={e=>{setDateFrom(e.target.value); setPage(1);}} className="w-[150px]" placeholder="From"/>
           <Input type="date" value={dateTo} onChange={e=>{setDateTo(e.target.value); setPage(1);}} className="w-[150px]" placeholder="To"/>
-          <Input type="number" placeholder="Min UGX" value={amountMin} onChange={e=>setAmountMin(e.target.value)} className="w-[120px]"/>
-          <Input type="number" placeholder="Max UGX" value={amountMax} onChange={e=>setAmountMax(e.target.value)} className="w-[120px]"/>
+          <Input type="number" placeholder="Min UGX" value={amountMin} onChange={e=>{setAmountMin(e.target.value); setPage(1);}} className="w-[120px]"/>
+          <Input type="number" placeholder="Max UGX" value={amountMax} onChange={e=>{setAmountMax(e.target.value); setPage(1);}} className="w-[120px]"/>
           <Badge variant="outline" className="flex items-center gap-1"><Building2 className="h-3 w-3"/>{count} records</Badge>
         </div>
       </CardContent></Card>
@@ -307,12 +511,14 @@ export default function ExpensesPage(){
                 <TableCell className="text-xs">{e.created_by?.slice(0,6) ?? "—"}</TableCell>
                 <TableCell className="text-right space-x-1">
                   <Button variant="ghost" size="icon" onClick={()=>openDetail(e)} title="View"><Eye className="h-4 w-4"/></Button>
-                  {((e.approval_status==="DRAFT"||e.approval_status==="REJECTED") && !(e as any).pendingSync) && <Button variant="ghost" size="icon" onClick={()=>{ setShowEdit(e); setEditForm({description:e.description, amount:String(e.amount), tax_amount:String((e as any).tax_amount??0), notes:(e as any).notes ?? "", reference_number:(e as any).reference_number ?? ""}); }} title="Edit"><Edit className="h-4 w-4"/></Button>}
-                  {!(e as any).pendingSync && <Button variant="ghost" size="icon" onClick={()=>handleDuplicate(e.id)} title="Duplicate"><Copy className="h-4 w-4"/></Button>}
-                  {((e.approval_status==="DRAFT") && !(e as any).pendingSync) && <Button variant="ghost" size="icon" onClick={()=>handleAction(e.id,'submit')} title="Submit"><FileText className="h-4 w-4"/></Button>}
-                  {((e.approval_status==="PENDING_APPROVAL") && !(e as any).pendingSync) && <Button variant="ghost" size="icon" onClick={()=>handleAction(e.id,'approve')} title="Approve"><Receipt className="h-4 w-4"/></Button>}
-                  {((e.approval_status==="APPROVED" && e.payment_status==="UNPAID") && !(e as any).pendingSync) && <Button variant="ghost" size="icon" onClick={()=>handleAction(e.id,'pay', {payment_account_id: cashAccounts[0]?.id})} title="Mark Paid"><CreditCard className="h-4 w-4"/></Button>}
-                  {(e.posting_status==="POSTED" && e.approval_status!=="REVERSED") && <Button variant="ghost" size="icon" onClick={()=>setShowReverse(e)} title="Reverse"><Undo2 className="h-4 w-4"/></Button>}
+                  {canCreate && ((e.approval_status==="DRAFT"||e.approval_status==="REJECTED") && !(e as any).pendingSync) && <Button variant="ghost" size="icon" onClick={()=>openEdit(e)} disabled={!!busy} title="Edit"><Edit className="h-4 w-4"/></Button>}
+                  {canCreate && !(e as any).pendingSync && <Button variant="ghost" size="icon" onClick={()=>handleDuplicate(e.id)} disabled={!!busy} title="Duplicate"><Copy className="h-4 w-4"/></Button>}
+                  {canCreate && ((e.approval_status==="DRAFT") && !(e as any).pendingSync) && <Button variant="ghost" size="icon" onClick={()=>handleAction(e.id,'submit')} disabled={!!busy} title="Submit"><FileText className="h-4 w-4"/></Button>}
+                  {canCreate && ((e.approval_status==="REJECTED") && !(e as any).pendingSync) && <Button variant="ghost" size="icon" onClick={()=>handleAction(e.id,'reopen')} disabled={!!busy} title="Reopen"><RefreshCw className="h-4 w-4"/></Button>}
+                  {canApprove && ((e.approval_status==="PENDING_APPROVAL") && !(e as any).pendingSync) && <Button variant="ghost" size="icon" onClick={()=>handleAction(e.id,'approve')} disabled={!!busy} title="Approve"><Receipt className="h-4 w-4"/></Button>}
+                  {canPay && ((e.approval_status==="APPROVED" && e.payment_status==="UNPAID") && !(e as any).pendingSync) && <Button variant="ghost" size="icon" onClick={()=>openPay(e)} disabled={!!busy} title="Mark Paid"><CreditCard className="h-4 w-4"/></Button>}
+                  {canVoid && !(e as any).pendingSync && (e.approval_status==="DRAFT"||e.approval_status==="REJECTED") && <Button variant="ghost" size="icon" onClick={()=>handleDelete(e)} disabled={!!busy} title="Delete Draft"><Trash2 className="h-4 w-4"/></Button>}
+                  {canVoid && (e.posting_status==="POSTED" && e.approval_status!=="REVERSED") && <Button variant="ghost" size="icon" onClick={()=>setShowReverse(e)} disabled={!!busy} title="Reverse"><Undo2 className="h-4 w-4"/></Button>}
                 </TableCell>
               </TableRow>
             ))}
@@ -381,7 +587,7 @@ export default function ExpensesPage(){
                   <div className="grid gap-4 md:grid-cols-3">
                     <div><Label>Currency</Label><Select value={form.currency} onChange={e=>setForm({...form, currency:e.target.value})}><option value="UGX">UGX</option><option value="USD">USD</option><option value="KES">KES</option></Select></div>
                     <div><Label>Exchange Rate</Label><Input type="number" value={form.exchange_rate} onChange={e=>setForm({...form, exchange_rate:e.target.value})}/></div>
-                    <div className="border rounded p-2 bg-muted/20 text-center"><div className="text-xs">Total</div><div className="font-bold">UGX {(Number(form.amount||0)+Number(form.tax_amount||0)).toLocaleString()}</div></div>
+                    <div className="border rounded p-2 bg-muted/20 text-center"><div className="text-xs">Total</div><div className="font-bold">UGX {(form.tax_inclusive ? Number(form.amount||0) : Number(form.amount||0)+Number(form.tax_amount||0)).toLocaleString()}</div></div>
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between"><h4 className="font-medium">Multi-line (optional)</h4><Button variant="outline" size="sm" onClick={addLine}>Add Line</Button></div>
@@ -394,7 +600,7 @@ export default function ExpensesPage(){
                         <div><Button variant="ghost" size="icon" onClick={()=>removeLine(i)}><Trash2 className="h-4 w-4"/></Button></div>
                       </div>
                     ))}
-                    {form.lines.length>0 && <p className="text-xs">Sum lines = {form.lines.reduce((s:any,l:any)=>s+Number(l.amount)+Number(l.tax_amount??0),0).toLocaleString()} — must equal total {(Number(form.amount||0)+Number(form.tax_amount||0)).toLocaleString()}</p>}
+                    {form.lines.length>0 && <p className="text-xs">Sum lines = {form.lines.reduce((s:any,l:any)=>s+Number(l.amount)+Number(l.tax_amount??0),0).toLocaleString()} — must equal total {(form.tax_inclusive ? Number(form.amount||0) : Number(form.amount||0)+Number(form.tax_amount||0)).toLocaleString()}</p>}
                   </div>
                   <div className="flex gap-2"><Button variant="outline" className="flex-1" onClick={()=>setCreateTab("basic")}>Back</Button><Button className="flex-1" onClick={()=>setCreateTab("payment")}>Next: Payment →</Button></div>
                 </div>
@@ -411,9 +617,14 @@ export default function ExpensesPage(){
             </TabsContent>
             <TabsContent value="evidence" className="mt-4 space-y-4">
                 <div className="space-y-3">
-                  <p className="text-sm">Attach receipt after creation via Detail → Attachments. You can also paste URL now and it will be attached after save.</p>
+                  <p className="text-sm">Attach a receipt now, or later from Detail → Attachments. You can also paste URL now and it will be attached after save.</p>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div><Label>Receipt File Name</Label><Input value={createAttachment.file_name} onChange={e=>setCreateAttachment({...createAttachment, file_name:e.target.value})} placeholder="receipt_001.pdf"/></div>
+                    <div><Label>Document Type</Label><Select value={createAttachment.document_type} onChange={e=>setCreateAttachment({...createAttachment, document_type:e.target.value})}><option value="RECEIPT">Receipt</option><option value="INVOICE">Invoice</option><option value="PHOTO">Photo</option><option value="PDF">PDF</option><option value="OTHER">Other</option></Select></div>
+                  </div>
+                  <div><Label>Receipt URL</Label><Input value={createAttachment.file_url} onChange={e=>setCreateAttachment({...createAttachment, file_url:e.target.value})} placeholder="https://.../receipt.pdf"/></div>
                   <div className="border rounded p-3 bg-amber-50 dark:bg-amber-950/20 text-xs"><AlertTriangle className="h-4 w-4 inline mr-1"/>Operating expense vs Inventory purchase — Electricity → Expense path; Medicines for resale → Purchase Order → GRN → Inventory → Supplier Payable</div>
-                  <Button onClick={submitCreate} className="w-full">Save DRAFT (EXP- server generated) {isOnline?"":"(offline queued)"}</Button>
+                  <Button onClick={submitCreate} disabled={!!busy} className="w-full">{busy==="create" ? "Saving..." : "Save DRAFT (EXP- server generated)"} {isOnline?"":"(offline queued)"}</Button>
                   <p className="text-xs text-center text-muted-foreground">DRAFT → Submit → Pending → Approve → Pay → Posted → Ledger/P&L/CashFlow</p>
                 </div>
             </TabsContent>
@@ -462,17 +673,19 @@ export default function ExpensesPage(){
                       </CardContent></Card>
                       <Card className="md:col-span-2"><CardContent className="p-3 text-xs">Created: {detailData.created_by?.slice(0,8)} @ {new Date(detailData.created_at).toLocaleString()} • Submitted: {detailData.submitted_by?.slice(0,8) ?? "—"} • Approved: {detailData.approved_by?.slice(0,8) ?? "—"} • Paid: {detailData.paid_by?.slice(0,8) ?? "—"} • ReversalOf: {detailData.reversal_of ?? "—"} • Idempotency: {detailData.idempotency_key?.slice(0,8) ?? "—"}</CardContent></Card>
                       <div className="flex flex-wrap gap-2 md:col-span-2">
-                        {(detailData.approval_status==="DRAFT"||detailData.approval_status==="REJECTED") && !detailData.pendingSync && <Button size="sm" onClick={()=>{ setShowEdit(detailData); setEditForm({description:detailData.description, amount:String(detailData.amount), tax_amount:String(detailData.tax_amount??0), notes:detailData.notes ?? "", reference_number:detailData.reference_number ?? ""}); }}>Edit</Button>}
-                        {detailData.approval_status==="DRAFT" && !detailData.pendingSync && <Button size="sm" onClick={()=>handleAction(detailData.id,'submit')}>Submit</Button>}
-                        {detailData.approval_status==="PENDING_APPROVAL" && !detailData.pendingSync && <><Button size="sm" onClick={()=>handleAction(detailData.id,'approve')}>Approve</Button><Button size="sm" variant="outline" onClick={()=>setShowReject(detailData)}>Reject</Button></>}
-                        {(detailData.approval_status==="APPROVED" && detailData.payment_status==="UNPAID") && !detailData.pendingSync && <Button size="sm" onClick={()=>handleAction(detailData.id,'pay')}>Mark Paid</Button>}
-                        {(detailData.approval_status==="DRAFT"||detailData.approval_status==="PENDING_APPROVAL") && !detailData.pendingSync && <Button size="sm" variant="destructive" onClick={()=>handleAction(detailData.id,'cancel')}>Cancel</Button>}
-                        {detailData.posting_status==="POSTED" && <Button size="sm" variant="destructive" onClick={()=>setShowReverse(detailData)}><Undo2 className="h-4 w-4 mr-1"/>Reverse</Button>}
-                        {!detailData.pendingSync && <Button size="sm" variant="outline" onClick={()=>handleDuplicate(detailData.id)}><Copy className="h-4 w-4 mr-1"/>Duplicate</Button>}
+                        {canCreate && (detailData.approval_status==="DRAFT"||detailData.approval_status==="REJECTED") && !detailData.pendingSync && <Button size="sm" onClick={()=>openEdit(detailData)} disabled={!!busy}>Edit</Button>}
+                        {canCreate && detailData.approval_status==="DRAFT" && !detailData.pendingSync && <Button size="sm" onClick={()=>handleAction(detailData.id,'submit')} disabled={!!busy}>Submit</Button>}
+                        {canCreate && detailData.approval_status==="REJECTED" && !detailData.pendingSync && <Button size="sm" onClick={()=>handleAction(detailData.id,'reopen')} disabled={!!busy}>Reopen</Button>}
+                        {canApprove && detailData.approval_status==="PENDING_APPROVAL" && !detailData.pendingSync && <><Button size="sm" onClick={()=>handleAction(detailData.id,'approve')} disabled={!!busy}>Approve</Button><Button size="sm" variant="outline" onClick={()=>setShowReject(detailData)} disabled={!!busy}>Reject</Button></>}
+                        {canPay && detailData.approval_status==="APPROVED" && detailData.payment_status==="UNPAID" && !detailData.pendingSync && <Button size="sm" onClick={()=>openPay(detailData)} disabled={!!busy}>Mark Paid</Button>}
+                        {canVoid && (detailData.approval_status==="DRAFT"||detailData.approval_status==="PENDING_APPROVAL") && !detailData.pendingSync && <Button size="sm" variant="destructive" onClick={()=>handleAction(detailData.id,'cancel')} disabled={!!busy}>Cancel</Button>}
+                        {canVoid && (detailData.approval_status==="DRAFT"||detailData.approval_status==="REJECTED") && !detailData.pendingSync && <Button size="sm" variant="destructive" onClick={()=>handleDelete(detailData)} disabled={!!busy}><Trash2 className="h-4 w-4 mr-1"/>Delete</Button>}
+                        {canVoid && detailData.posting_status==="POSTED" && detailData.approval_status!=="REVERSED" && <Button size="sm" variant="destructive" onClick={()=>setShowReverse(detailData)} disabled={!!busy}><Undo2 className="h-4 w-4 mr-1"/>Reverse</Button>}
+                        {canCreate && !detailData.pendingSync && <Button size="sm" variant="outline" onClick={()=>handleDuplicate(detailData.id)} disabled={!!busy}><Copy className="h-4 w-4 mr-1"/>Duplicate</Button>}
                         <Button size="sm" variant="outline" onClick={handlePrint}><Printer className="h-4 w-4 mr-1"/>Print</Button>
                         <Button size="sm" variant="outline" onClick={()=>{
-                          const csv=`Expense #,Date,Category,Amount,Tax,Total\n${detailData.expense_number},${detailData.expense_date},${detailData.category},${detailData.amount},${detailData.tax_amount??0},${detailData.total_amount??detailData.amount}`;
-                          const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`expense_${detailData.expense_number}.csv`; a.click(); URL.revokeObjectURL(url);
+                          const csv=toCsv([["Expense #","Date","Category","Amount","Tax","Total"],[detailData.expense_number,detailData.expense_date,detailData.category,detailData.amount,detailData.tax_amount??0,detailData.total_amount??detailData.amount]]);
+                          const blob=new Blob([csv],{type:"text/csv;charset=utf-8"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`expense_${detailData.expense_number}.csv`; a.click(); URL.revokeObjectURL(url);
                         }}><Download className="h-4 w-4 mr-1"/>Export</Button>
                         {detailData.supplier_id && <Button size="sm" variant="outline" onClick={()=> window.open(`/suppliers?id=${detailData.supplier_id}`,"_blank")}><Users className="h-4 w-4 mr-1"/>View Payee</Button>}
                         <Button size="sm" variant="outline" onClick={()=> window.open(`/branches`,"_blank")}><Building2 className="h-4 w-4 mr-1"/>View Branch</Button>
@@ -505,12 +718,15 @@ export default function ExpensesPage(){
                     <div className="space-y-3">
                       {(detailData.attachments ?? []).length===0 ? <p className="text-sm text-muted-foreground">No receipts attached.</p> :
                         <Table><TableHeader><TableRow><TableHead>File</TableHead><TableHead>Type</TableHead><TableHead>Link</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
-                          {(detailData.attachments ?? []).map((a:any)=><TableRow key={a.id}><TableCell className="text-xs">{a.file_name}</TableCell><TableCell><Badge variant="outline">{a.document_type}</Badge></TableCell><TableCell><a href={a.file_url} target="_blank" rel="noreferrer" className="underline text-xs">View</a></TableCell><TableCell className="text-right"><Button size="sm" variant="ghost" onClick={async()=>{
+                          {(detailData.attachments ?? []).map((a:any)=><TableRow key={a.id}><TableCell className="text-xs">{a.file_name}</TableCell><TableCell><Badge variant="outline">{a.document_type}</Badge></TableCell><TableCell>{isHttpUrl(a.file_url) ? <a href={a.file_url} target="_blank" rel="noreferrer" className="underline text-xs">View</a> : <span className="text-xs text-muted-foreground">Invalid URL</span>}</TableCell><TableCell className="text-right">{canCreate && <Button size="sm" variant="ghost" disabled={!!busy} onClick={async()=>{
                             if(!confirm("Remove attachment? Not allowed if posted.")) return;
                             if(!isOnline) return alert("Attachments need a connection — retry when online.");
-                const r=await fetch(`/api/expenses?attachment_id=${a.id}`,{method:"DELETE", headers:{"Content-Type":"application/json"}, body:JSON.stringify({attachment_id:a.id})});
-                            const j=await r.json(); if(!r.ok) alert(j.error); else openDetail(detailData);
-                          }}><Trash2 className="h-4 w-4"/></Button></TableCell></TableRow>)}
+                            setBusy("detach");
+                            try{
+                              const r=await fetch(`/api/expenses?attachment_id=${a.id}`,{method:"DELETE"});
+                              const j=await r.json().catch(()=>({})); if(!r.ok) alert(j.error || "Failed to remove attachment."); else openDetail(detailData);
+                            }finally{ setBusy(null); }
+                          }}><Trash2 className="h-4 w-4"/></Button>}</TableCell></TableRow>)}
                         </TableBody></Table>
                       }
                       <Card><CardContent className="p-3 space-y-2">
@@ -520,7 +736,7 @@ export default function ExpensesPage(){
                           <div><Label>Type</Label><Select value={attachForm.document_type} onChange={e=>setAttachForm({...attachForm, document_type:e.target.value})}><option value="RECEIPT">Receipt</option><option value="INVOICE">Invoice</option><option value="PHOTO">Photo</option><option value="PDF">PDF</option><option value="OTHER">Other</option></Select></div>
                         </div>
                         <div><Label>File URL</Label><Input value={attachForm.file_url} onChange={e=>setAttachForm({...attachForm, file_url:e.target.value})} placeholder="https://.../receipt.pdf"/></div>
-                        <Button size="sm" onClick={handleAttach}><Paperclip className="h-4 w-4 mr-1"/>Attach Receipt</Button>
+                        <Button size="sm" onClick={handleAttach} disabled={!!busy || !canCreate}>{busy==="attach" ? "Attaching..." : <><Paperclip className="h-4 w-4 mr-1"/>Attach Receipt</>}</Button>
                         <p className="text-xs text-muted-foreground">Uses existing attachment system — supports receipt, invoice, image, PDF. Never silently deletes evidence from posted.</p>
                       </CardContent></Card>
                     </div>
@@ -550,13 +766,36 @@ export default function ExpensesPage(){
           <div className="space-y-3">
             <div><Label>Description</Label><Input value={editForm.description ?? ""} onChange={e=>setEditForm({...editForm, description:e.target.value})}/></div>
             <div className="grid grid-cols-2 gap-3">
+              <div><Label>Category</Label><Select value={editForm.category_id ?? ""} onChange={e=>setEditForm({...editForm, category_id:e.target.value})}><option value="">Keep current category</option>{categories.filter(c=>isUuid(c.value??c.id)).map(c=><option key={c.value??c.id} value={c.value??c.id}>{c.label ?? c.name}</option>)}</Select></div>
+              <div><Label>Payee</Label><Select value={editForm.supplier_id ?? ""} onChange={e=>setEditForm({...editForm, supplier_id:e.target.value})}><option value="">No payee / Walk-in</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</Select></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div><Label>Amount</Label><Input type="number" value={editForm.amount ?? ""} onChange={e=>setEditForm({...editForm, amount:e.target.value})}/></div>
               <div><Label>Tax</Label><Input type="number" value={editForm.tax_amount ?? ""} onChange={e=>setEditForm({...editForm, tax_amount:e.target.value})}/></div>
             </div>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!editForm.tax_inclusive} onChange={e=>setEditForm({...editForm, tax_inclusive:e.target.checked})}/> Tax inclusive (amount includes tax)</label>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Expense Date</Label><Input type="date" value={editForm.expense_date ?? ""} onChange={e=>setEditForm({...editForm, expense_date:e.target.value})}/></div>
+              <div><Label>Payment Method</Label><Select value={editForm.payment_method ?? "CASH"} onChange={e=>setEditForm({...editForm, payment_method:e.target.value})}><option value="CASH">Cash</option><option value="PETTY_CASH">Petty Cash</option><option value="BANK">Bank</option><option value="MOBILE_MONEY">Mobile Money</option><option value="CARD">Card</option><option value="OTHER">Other</option></Select></div>
+            </div>
+            <div><Label>Payment Account</Label><Select value={editForm.payment_account_id ?? ""} onChange={e=>setEditForm({...editForm, payment_account_id:e.target.value})}><option value="">No specific account</option>{cashAccounts.map(a=><option key={a.id} value={a.id}>{a.name ?? a.code ?? a.id.slice(0,8)}</option>)}</Select></div>
             <div><Label>Reference #</Label><Input value={editForm.reference_number ?? ""} onChange={e=>setEditForm({...editForm, reference_number:e.target.value})}/></div>
             <div><Label>Notes</Label><Textarea value={editForm.notes ?? ""} onChange={(e:any)=>setEditForm({...editForm, notes:e.target.value})}/></div>
-            <Button onClick={handleEdit} className="w-full">Save</Button>
+            <Button onClick={handleEdit} disabled={!!busy} className="w-full">{busy==="edit" ? "Saving..." : "Save"}</Button>
             <Button variant="outline" className="w-full" onClick={()=>setShowEdit(null)}>Cancel</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* PAY */}
+      <Dialog open={!!showPay} onOpenChange={(o)=>!o && setShowPay(null)}>
+        <DialogContent className="max-w-md bg-card">
+          <DialogHeader><DialogTitle>Pay Expense</DialogTitle><DialogDescription>Select the account that will fund this payment. Cash methods require an open cash session.</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Payment Method *</Label><Select value={payForm.payment_method} onChange={e=>setPayForm({...payForm, payment_method:e.target.value})}><option value="CASH">Cash</option><option value="PETTY_CASH">Petty Cash</option><option value="BANK">Bank</option><option value="MOBILE_MONEY">Mobile Money</option><option value="CARD">Card</option><option value="OTHER">Other</option></Select></div>
+            <div><Label>Payment Account *</Label><Select value={payForm.payment_account_id} onChange={e=>setPayForm({...payForm, payment_account_id:e.target.value})}><option value="">Select account</option>{cashAccounts.map(a=><option key={a.id} value={a.id}>{a.name ?? a.code ?? a.id.slice(0,8)}</option>)}</Select></div>
+            <p className="text-xs text-muted-foreground">This records the paying user/date and creates the cash movement or bank transaction plus ledger entry.</p>
+            <Button disabled={!!busy || !isUuid(payForm.payment_account_id)} onClick={()=>handleAction(showPay!.id,'pay',{payment_account_id:payForm.payment_account_id, payment_method:payForm.payment_method})} className="w-full">{busy?.startsWith("action:") ? "Paying..." : "Confirm Payment"}</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -567,7 +806,7 @@ export default function ExpensesPage(){
           <DialogHeader><DialogTitle>Reject Expense</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <Label>Rejection Reason *</Label><Textarea value={rejectReason} onChange={e=>setRejectReason(e.target.value)} placeholder="Reason..."/>
-            <Button disabled={!rejectReason} onClick={()=>handleAction(showReject!.id,'reject', {reason: rejectReason})} className="w-full">Reject</Button>
+            <Button disabled={!rejectReason || !!busy} onClick={()=>handleAction(showReject!.id,'reject', {reason: rejectReason})} className="w-full">Reject</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -578,7 +817,7 @@ export default function ExpensesPage(){
           <DialogHeader><DialogTitle>Reverse Expense — Controlled Reversal</DialogTitle><DialogDescription>Original preserved, reversal REV- linked. Requires reason.</DialogDescription></DialogHeader>
           <div className="space-y-3">
             <Label>Reason *</Label><Textarea value={reverseReason} onChange={e=>setReverseReason(e.target.value)} placeholder="Reason for reversal..."/>
-            <Button disabled={!reverseReason} variant="destructive" onClick={()=>handleAction(showReverse!.id,'reverse', {reversal_reason: reverseReason})} className="w-full">Reverse (REV- creates -UGX)</Button>
+            <Button disabled={!reverseReason || !!busy} variant="destructive" onClick={()=>handleAction(showReverse!.id,'reverse', {reversal_reason: reverseReason})} className="w-full">Reverse (REV- creates -UGX)</Button>
           </div>
         </DialogContent>
       </Dialog>

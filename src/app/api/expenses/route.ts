@@ -3,9 +3,28 @@ import { sanitizeError } from '@/lib/security';
 import { getExpenses, getExpenseById, createExpense, updateExpense, submitExpense, approveExpense, rejectExpense, payExpense, cancelExpense, reverseExpense, duplicateExpense, getExpenseCategories, createExpenseCategory, addExpenseAttachment, removeExpenseAttachment, getExpenseKPIs, getExpenseReports } from '@/lib/services/expenses';
 import { createExpenseSchema, expenseActionSchema, expenseCategorySchema, expenseAttachmentSchema } from '@/lib/validations/expenses';
 import { getSB, getProfileId, getOrgId } from '@/lib/services/supabase';
+import { hasPermission } from '@/lib/auth';
+
+async function getActor() {
+  const sb: any = await getSB();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) throw new Error('Unauthenticated');
+  const { data: prof } = await sb.from('profiles').select('id, organization_id').eq('auth_user_id', user.id).maybeSingle();
+  if (!prof) throw new Error('Profile not found');
+  return { sb, profile: prof };
+}
+
+async function canDo(profile: any, sb: any, code: string) {
+  try {
+    return await hasPermission(sb, profile.id, profile.organization_id, code);
+  } catch {
+    return false;
+  }
+}
 
 export async function GET(request: Request) {
   try {
+    await getActor();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const categories = searchParams.get('categories');
@@ -59,26 +78,58 @@ export async function GET(request: Request) {
 
 export async function POST(req: Request){
   try{
+    const { sb, profile } = await getActor();
     const body=await req.json();
     // sub-actions
     if (body.action) {
       const parsed = expenseActionSchema.parse(body);
-      let data;
-      if (parsed.action==='submit') data = await submitExpense(parsed.id);
-      else if (parsed.action==='approve') data = await approveExpense(parsed.id);
-      else if (parsed.action==='reject') data = await rejectExpense(parsed.id, parsed.reason ?? 'Rejected');
-      else if (parsed.action==='pay') data = await payExpense(parsed.id, { payment_account_id: parsed.payment_account_id ?? undefined, payment_method: parsed.payment_method });
-      else if (parsed.action==='post') { const { postExpense } = await import('@/lib/services/expenses'); data = await postExpense(parsed.id); }
-      else if (parsed.action==='cancel') data = await cancelExpense(parsed.id, parsed.reason);
-      else if (parsed.action==='reverse') {
+      if (parsed.action === 'submit') {
+        if (!(await canDo(profile, sb, 'expenses.create'))) return NextResponse.json({error:'Forbidden: expenses.create required'},{status:403});
+        const data = await submitExpense(parsed.id);
+        return NextResponse.json(data);
+      }
+      if (parsed.action === 'reopen') {
+        if (!(await canDo(profile, sb, 'expenses.create'))) return NextResponse.json({error:'Forbidden: expenses.create required'},{status:403});
+        const { reopenExpense } = await import('@/lib/services/expenses');
+        const data = await reopenExpense(parsed.id);
+        return NextResponse.json(data);
+      }
+      if (parsed.action === 'approve') {
+        if (!(await canDo(profile, sb, 'expenses.approve'))) return NextResponse.json({error:'Forbidden: expenses.approve required'},{status:403});
+        const data = await approveExpense(parsed.id);
+        return NextResponse.json(data);
+      }
+      if (parsed.action === 'reject') {
+        if (!(await canDo(profile, sb, 'expenses.approve'))) return NextResponse.json({error:'Forbidden: expenses.approve required'},{status:403});
+        const data = await rejectExpense(parsed.id, parsed.reason ?? 'Rejected');
+        return NextResponse.json(data);
+      }
+      if (parsed.action === 'pay') {
+        if (!(await canDo(profile, sb, 'expenses.pay'))) return NextResponse.json({error:'Forbidden: expenses.pay required'},{status:403});
+        const data = await payExpense(parsed.id, { payment_account_id: parsed.payment_account_id ?? undefined, payment_method: parsed.payment_method });
+        return NextResponse.json(data);
+      }
+      if (parsed.action === 'post') {
+        if (!(await canDo(profile, sb, 'expenses.pay'))) return NextResponse.json({error:'Forbidden: expenses.pay required'},{status:403});
+        const { postExpense } = await import('@/lib/services/expenses');
+        const data = await postExpense(parsed.id);
+        return NextResponse.json(data);
+      }
+      if (parsed.action === 'cancel') {
+        if (!(await canDo(profile, sb, 'expenses.void'))) return NextResponse.json({error:'Forbidden: expenses.void required'},{status:403});
+        const data = await cancelExpense(parsed.id, parsed.reason);
+        return NextResponse.json(data);
+      }
+      if (parsed.action === 'reverse') {
+        if (!(await canDo(profile, sb, 'expenses.void'))) return NextResponse.json({error:'Forbidden: expenses.void required'},{status:403});
         if (!parsed.reversal_reason && !parsed.reason) return NextResponse.json({error:'Reversal reason required'}, {status:400});
-        data = await reverseExpense(parsed.id, parsed.reversal_reason ?? parsed.reason!);
-      } else if (parsed.action==='reopen') { const { reopenExpense } = await import('@/lib/services/expenses'); data = await reopenExpense(parsed.id); }
-      else return NextResponse.json({error:'Unknown action'}, {status:400});
-      return NextResponse.json(data);
+        const data = await reverseExpense(parsed.id, parsed.reversal_reason ?? parsed.reason!);
+        return NextResponse.json(data);
+      }
+      return NextResponse.json({error:'Unknown action'}, {status:400});
     }
-    if (body.category_action === 'create' || body.code || body.name && !body.branch_id && !body.amount) {
-      // category creation detection fallback
+    if (body.category_action === 'create' || (body.code || body.name && !body.branch_id && !body.amount)) {
+      if (!(await canDo(profile, sb, 'expenses.manage_categories'))) return NextResponse.json({error:'Forbidden: expenses.manage_categories required'},{status:403});
       if (body.name && body.code) {
         const parsed = expenseCategorySchema.parse(body);
         const data = await createExpenseCategory(parsed);
@@ -86,20 +137,24 @@ export async function POST(req: Request){
       }
     }
     if (body.document_type && body.file_name) {
+      if (!(await canDo(profile, sb, 'expenses.create'))) return NextResponse.json({error:'Forbidden: expenses.create required'},{status:403});
       const parsed = expenseAttachmentSchema.parse(body);
       const data = await addExpenseAttachment(parsed.expense_id, parsed);
       return NextResponse.json(data,{status:201});
     }
     if (body.duplicate_id) {
+      if (!(await canDo(profile, sb, 'expenses.create'))) return NextResponse.json({error:'Forbidden: expenses.create required'},{status:403});
       const data = await duplicateExpense(body.duplicate_id);
       return NextResponse.json(data,{status:201});
     }
     if (body.category_create) {
+      if (!(await canDo(profile, sb, 'expenses.manage_categories'))) return NextResponse.json({error:'Forbidden: expenses.manage_categories required'},{status:403});
       const parsed = expenseCategorySchema.parse(body.category_create);
       const data = await createExpenseCategory(parsed);
       return NextResponse.json(data,{status:201});
     }
     // normal expense creation
+    if (!(await canDo(profile, sb, 'expenses.create'))) return NextResponse.json({error:'Forbidden: expenses.create required'},{status:403});
     const parsed = createExpenseSchema.parse(body);
     const data = await createExpense(parsed as any);
     return NextResponse.json(data,{status:201});
@@ -108,6 +163,7 @@ export async function POST(req: Request){
 
 export async function PATCH(req: Request){
   try{
+    const { sb, profile } = await getActor();
     const { searchParams } = new URL(req.url);
     const idParam = searchParams.get('id');
     const body = await req.json();
@@ -115,21 +171,48 @@ export async function PATCH(req: Request){
     if (!id) return NextResponse.json({error:'Missing id'},{status:400});
     if (body.action) {
       const parsed = expenseActionSchema.parse({ id, action: body.action, reason: body.reason, reversal_reason: body.reversal_reason, payment_account_id: body.payment_account_id, payment_method: body.payment_method });
-      let data;
-      if (parsed.action==='submit') data = await submitExpense(parsed.id);
-      else if (parsed.action==='approve') data = await approveExpense(parsed.id);
-      else if (parsed.action==='reject') data = await rejectExpense(parsed.id, parsed.reason ?? 'Rejected');
-      else if (parsed.action==='pay') data = await payExpense(parsed.id, { payment_account_id: parsed.payment_account_id ?? undefined, payment_method: parsed.payment_method });
-      else if (parsed.action==='cancel') data = await cancelExpense(parsed.id, parsed.reason);
-      else if (parsed.action==='reverse') data = await reverseExpense(parsed.id, parsed.reversal_reason ?? parsed.reason!);
-      else return NextResponse.json({error:'Unknown action'},{status:400});
-      return NextResponse.json(data);
+      if (parsed.action === 'submit') {
+        if (!(await canDo(profile, sb, 'expenses.create'))) return NextResponse.json({error:'Forbidden: expenses.create required'},{status:403});
+        const data = await submitExpense(parsed.id);
+        return NextResponse.json(data);
+      }
+      if (parsed.action === 'reopen') {
+        if (!(await canDo(profile, sb, 'expenses.create'))) return NextResponse.json({error:'Forbidden: expenses.create required'},{status:403});
+        const { reopenExpense } = await import('@/lib/services/expenses');
+        const data = await reopenExpense(parsed.id);
+        return NextResponse.json(data);
+      }
+      if (parsed.action === 'approve') {
+        if (!(await canDo(profile, sb, 'expenses.approve'))) return NextResponse.json({error:'Forbidden: expenses.approve required'},{status:403});
+        const data = await approveExpense(parsed.id);
+        return NextResponse.json(data);
+      }
+      if (parsed.action === 'reject') {
+        if (!(await canDo(profile, sb, 'expenses.approve'))) return NextResponse.json({error:'Forbidden: expenses.approve required'},{status:403});
+        const data = await rejectExpense(parsed.id, parsed.reason ?? 'Rejected');
+        return NextResponse.json(data);
+      }
+      if (parsed.action === 'pay') {
+        if (!(await canDo(profile, sb, 'expenses.pay'))) return NextResponse.json({error:'Forbidden: expenses.pay required'},{status:403});
+        const data = await payExpense(parsed.id, { payment_account_id: parsed.payment_account_id ?? undefined, payment_method: parsed.payment_method });
+        return NextResponse.json(data);
+      }
+      if (parsed.action === 'cancel') {
+        if (!(await canDo(profile, sb, 'expenses.void'))) return NextResponse.json({error:'Forbidden: expenses.void required'},{status:403});
+        const data = await cancelExpense(parsed.id, parsed.reason);
+        return NextResponse.json(data);
+      }
+      if (parsed.action === 'reverse') {
+        if (!(await canDo(profile, sb, 'expenses.void'))) return NextResponse.json({error:'Forbidden: expenses.void required'},{status:403});
+        const data = await reverseExpense(parsed.id, parsed.reversal_reason ?? parsed.reason!);
+        return NextResponse.json(data);
+      }
+      return NextResponse.json({error:'Unknown action'},{status:400});
     }
     if (body.file_name && body.file_url) {
-      // attachment removal? not here
       return NextResponse.json({error:'Use POST for attachments'},{status:400});
     }
-    // generic update (draft edit)
+    if (!(await canDo(profile, sb, 'expenses.create'))) return NextResponse.json({error:'Forbidden: expenses.create required'},{status:403});
     const data = await updateExpense(id, body);
     return NextResponse.json(data);
   }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:400}); }
@@ -142,24 +225,26 @@ export async function PUT(req: Request){
 
 export async function DELETE(req: Request){
   try{
+    const { sb, profile } = await getActor();
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
     const body = await req.json().catch(()=> ({}));
     const attachmentId = searchParams.get('attachment_id') ?? body.attachment_id;
     if (attachmentId) {
+      if (!(await canDo(profile, sb, 'expenses.create'))) return NextResponse.json({error:'Forbidden: expenses.create required'},{status:403});
       const data = await removeExpenseAttachment(attachmentId);
       return NextResponse.json({ok:data});
     }
     if (!id) return NextResponse.json({error:'Missing id'},{status:400});
-    // Expenses must not be hard deleted if posted; use cancel/reverse. Allow delete only for DRAFT without audit implications.
-    const sb:any = await getSB();
-    const orgId = await getOrgId();
-    const { data: ex } = await sb.from('expenses').select('approval_status, posting_status, payment_status, organization_id').eq('id', id).single();
+    if (!(await canDo(profile, sb, 'expenses.void'))) return NextResponse.json({error:'Forbidden: expenses.void required'},{status:403});
+    const orgId = profile.organization_id;
+    const { data: ex } = await sb.from('expenses').select('approval_status, posting_status, payment_status, organization_id').eq('id', id).maybeSingle();
     if (!ex) return NextResponse.json({error:'Not found'},{status:404});
     if (ex.organization_id !== orgId) return NextResponse.json({error:'Unauthorized'},{status:403});
     if (ex.posting_status==='POSTED' || ex.payment_status==='PAID') return NextResponse.json({error:'Cannot delete posted/paid expense — use reversal'}, {status:400});
-    if (ex.approval_status==='APPROVED') return NextResponse.json({error:'Cannot delete approved expense — cancel or reverse'}, {status:400});
-    const { error } = await sb.from('expenses').delete().eq('id', id);
+    if (ex.approval_status==='APPROVED' || ex.approval_status==='PENDING_APPROVAL') return NextResponse.json({error:'Cannot delete pending/approved expense — cancel or reverse'}, {status:400});
+    if (!['DRAFT','REJECTED'].includes(ex.approval_status)) return NextResponse.json({error:'Only draft or rejected expenses can be deleted'}, {status:400});
+    const { error } = await sb.from('expenses').delete().eq('id', id).eq('organization_id', orgId);
     if (error) throw new Error(error.message);
     return NextResponse.json({ok:true});
   }catch(e:any){ return NextResponse.json({ error: sanitizeError(e?.message ?? '') },{status:400}); }
