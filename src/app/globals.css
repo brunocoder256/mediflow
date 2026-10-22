@@ -222,6 +222,26 @@ a:focus-visible {
   .animate-pulse-soft {
     animation: pulse-soft 2s ease-in-out infinite;
   }
+
+  /* Glassy light-sweep shimmer used by skeleton/loading placeholders */
+  @keyframes shimmer {
+    0% { background-position: 150% 0; }
+    100% { background-position: -150% 0; }
+  }
+  .animate-shimmer {
+    background-color: var(--muted);
+    background-image: linear-gradient(
+      100deg,
+      transparent 20%,
+      color-mix(in srgb, var(--foreground) 5%, transparent) 40%,
+      color-mix(in srgb, var(--foreground) 11%, transparent) 50%,
+      color-mix(in srgb, var(--foreground) 5%, transparent) 60%,
+      transparent 80%
+    );
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    animation: shimmer 1.8s ease-in-out infinite;
+  }
 }
 
 /* Respect users who prefer reduced motion */
@@ -237,8 +257,12 @@ a:focus-visible {
   .animate-float,
   .animate-float-slow,
   .animate-pulse-soft,
+  .animate-shimmer,
   .animate-spin {
     animation: none !important;
+  }
+  .animate-shimmer {
+    background-image: none;
   }
   * {
     animation-duration: 0.001ms !important;
