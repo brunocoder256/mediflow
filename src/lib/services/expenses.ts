@@ -163,7 +163,11 @@ export async function createExpense(input: CreateExpenseInput) {
   if (stockKeywords.some(k=> lowerDesc.includes(k)) && !categoryText?.toLowerCase().includes('suppl')) {
     purchaseProtectionWarning = 'This appears to be a stock/inventory purchase. Use Purchasing instead for accurate COGS.';
   }
-  const { data, error } = await sb.from('expenses').insert(payload).select().single();
+  let { data, error } = await sb.from('expenses').insert(payload).select().single();
+  if (error && /check constraint/i.test(error.message) && /status/i.test(error.message)) {
+    // Older schemas reject status='DRAFT'; keep approval_status as DRAFT and use PENDING for the legacy column.
+    ({ data, error } = await sb.from('expenses').insert({ ...payload, status: 'PENDING' }).select().single());
+  }
   if (error) {
     if (input.idempotency_key && /duplicate key|unique constraint/i.test(error.message)) {
       const { data: existing } = await sb.from('expenses').select('*').eq('organization_id', orgId).eq('idempotency_key', input.idempotency_key).maybeSingle();
@@ -171,7 +175,7 @@ export async function createExpense(input: CreateExpenseInput) {
     }
     if (/column.*does not exist/i.test(error.message)) {
       // fallback minimal legacy insert (amount, description)
-      const legacy:any = { organization_id: orgId, branch_id: input.branch_id, category: categoryText, description: String(input.description).trim(), amount, payment_method: paymentMethod, expense_date: new Date(input.expense_date).toISOString().slice(0,10), created_by: pid, status: 'DRAFT' };
+      const legacy:any = { organization_id: orgId, branch_id: input.branch_id, category: categoryText, description: String(input.description).trim(), amount, payment_method: paymentMethod, expense_date: new Date(input.expense_date).toISOString().slice(0,10), created_by: pid };
       const { data: d2, error: e2 } = await sb.from('expenses').insert(legacy).select().single();
       if (e2) throw new Error(e2.message);
       await createAuditLog('EXPENSE_CREATED', 'expenses', d2.id, null, d2);
