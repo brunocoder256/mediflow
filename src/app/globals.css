@@ -223,6 +223,23 @@ a:focus-visible {
     animation: pulse-soft 2s ease-in-out infinite;
   }
 
+  /* Snackbar entrance + auto-dismiss progress */
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(-14px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .animate-toast-in {
+    animation: toast-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes toast-progress {
+    from { transform: scaleX(1); }
+    to { transform: scaleX(0); }
+  }
+  .animate-toast-progress {
+    transform-origin: left;
+    animation: toast-progress linear forwards;
+  }
+
   /* Glassy light-sweep shimmer used by skeleton/loading placeholders */
   @keyframes shimmer {
     0% { background-position: 150% 0; }
@@ -258,6 +275,8 @@ a:focus-visible {
   .animate-float-slow,
   .animate-pulse-soft,
   .animate-shimmer,
+  .animate-toast-in,
+  .animate-toast-progress,
   .animate-spin {
     animation: none !important;
   }

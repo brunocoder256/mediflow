@@ -5,6 +5,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { SuperAdminSignOut } from "@/components/layout/super-admin-signout";
 import { MediFlowMark } from "@/components/brand/mediflow-logo";
 import { NotificationsMenu } from "@/components/layout/notifications-menu";
+import { Toaster } from "@/components/ui/toast";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
@@ -52,6 +53,7 @@ export default async function SuperAdminLayout({ children }: { children: React.R
         </div>
       </header>
       <main className="p-4 lg:p-6">{children}</main>
+      <Toaster />
     </div>
   );
 }

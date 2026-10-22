@@ -57,6 +57,24 @@ function generateId(): string {
   return `toast-${++idCounter}-${Date.now()}`;
 }
 
+function classifyAlert(message: string): { title: string; variant: Toast['variant'] } {
+  const text = message.trim();
+  const lower = text.toLowerCase();
+
+  if (!text) return { title: 'Something needs your attention', variant: 'error' };
+  if (/^(offline|queued|pending)\b/.test(lower)) return { title: 'Heads up', variant: 'warning' };
+  if (/(fail|error|invalid|required|unauthori[sz]ed|forbidden|cannot|can't|could not|unable|not found|missing|denied|rejected|expired|too large|not allowed|no branch)/.test(lower)) {
+    return { title: 'Something needs your attention', variant: 'error' };
+  }
+  if (/(queued|pending|approval|variance|already|limit|warning|review|attention)/.test(lower)) {
+    return { title: 'Heads up', variant: 'warning' };
+  }
+  if (/(success|saved|created|recorded|updated|deleted|imported|synced|welcome|approved|paid|completed|duplicated|found|done)/.test(lower)) {
+    return { title: 'All set', variant: 'success' };
+  }
+  return { title: 'Notice', variant: 'default' };
+}
+
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = React.useReducer(toastReducer, { toasts: [] });
 
@@ -74,6 +92,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     },
     [dismiss]
   );
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const originalAlert = window.alert;
+    window.alert = (message?: unknown) => {
+      const description = typeof message === 'string' ? message : String(message ?? '');
+      const { title, variant } = classifyAlert(description);
+      toast({ title, description: description || undefined, variant, duration: variant === 'error' ? 8000 : 5000 });
+    };
+    return () => {
+      window.alert = originalAlert;
+    };
+  }, [toast]);
 
   return (
     <ToastContext.Provider value={{ toasts: state.toasts, toast, dismiss }}>
