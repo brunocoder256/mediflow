@@ -383,10 +383,15 @@ export default function InventoryPage() {
     }catch(e:any){ alert(e.message); }
   };
 
-  const openDisposalDialog = () => {
+  const openDisposalDialog = (batch?:any) => {
     setDisposalForm({
-      branch_id: branchFilter!=="all" ? branchFilter : (branches[0]?.id ?? ""),
-      product_id:"", batch_id:"", type:"EXPIRED", quantity:"", unit_cost:"", reason:"Expired stock",
+      branch_id: batch?.branch_id ?? (branchFilter!=="all" ? branchFilter : (branches[0]?.id ?? "")),
+      product_id: batch?.product_id ?? "",
+      batch_id: batch?.id ?? "",
+      type: "EXPIRED",
+      quantity: "",
+      unit_cost: batch?.purchase_price != null ? String(batch.purchase_price) : "",
+      reason: "Expired stock",
     });
     setShowDisposal(true);
   };
@@ -398,21 +403,26 @@ export default function InventoryPage() {
   const submitDisposal = async ()=>{
     if(!disposalForm.branch_id) return alert("Select a branch");
     if(!disposalForm.product_id) return alert("Select a product");
+    if(!disposalForm.batch_id) return alert("Select the batch to dispose — stock must be reduced from a specific batch");
     const qty = Number(disposalForm.quantity);
     if(isNaN(qty) || qty<=0) return alert("Quantity must be > 0");
     const product = productOptions.find((p:any)=>p.product_id===disposalForm.product_id);
     const batch = (stockMerge as any[]).find((b:any)=>b.id===disposalForm.batch_id);
+    if(!batch) return alert("Batch not found in current stock");
+    if((batch as any).pendingSync) return alert("This batch is still waiting to sync — dispose it once it exists on the server");
+    if(qty > Number(batch.quantity_available)) return alert(`Quantity exceeds available stock (${batch.quantity_available} u in this batch)`);
     // money auto-calculated: quantity × unit cost stored, valuation/movement/server derive everything else
     const payload: Record<string, unknown> = {
       branch_id: disposalForm.branch_id,
       type: disposalForm.type,
       product_id: disposalForm.product_id,
-      batch_id: disposalForm.batch_id || null,
+      batch_id: disposalForm.batch_id,
       quantity: qty,
       unit_cost: Number(disposalForm.unit_cost) || Number(batch?.purchase_price ?? 0) || 0,
       reason: disposalForm.reason || (disposalForm.type==="EXPIRED" ? "Expired stock" : disposalForm.type==="DAMAGED" ? "Damaged stock" : "Disposal"),
       product_name: product?.name ?? null,
       batch_number: batch?.batch_number ?? null,
+      operation_id: crypto.randomUUID(),
     };
     if(!isOnline){
       try{
@@ -556,7 +566,7 @@ export default function InventoryPage() {
                       <TableCell className="text-xs">{new Date(r.expiry_date).toLocaleDateString()}<div className="text-xs text-muted-foreground">{Math.ceil((new Date(r.expiry_date).getTime()-Date.now())/86400000)}d</div></TableCell>
                       <TableCell className="text-right text-xs">UGX {(Number(r.quantity_available)*Number(r.purchase_price)).toLocaleString()}</TableCell>
                       <TableCell>{getStatusBadge(r)}</TableCell>
-                      <TableCell><Button variant="ghost" size="icon" onClick={()=>{ setSelectedBatch(r); setShowBatch(true); }}><Eye className="h-4 w-4"/></Button></TableCell>
+                      <TableCell><div className="flex items-center gap-1"><Button variant="ghost" size="icon" title="View batch" onClick={()=>{ setSelectedBatch(r); setShowBatch(true); }}><Eye className="h-4 w-4"/></Button>{Number(r.quantity_available)>0 && <Button variant="ghost" size="icon" title="Dispose stock" className="text-destructive" onClick={()=>openDisposalDialog(r)}><Trash2 className="h-4 w-4"/></Button>}</div></TableCell>
                     </TableRow>
                   ))}
                 </TableBody></Table>
@@ -568,7 +578,7 @@ export default function InventoryPage() {
                     <CardContent className="p-3 space-y-2">
                       <div className="flex justify-between gap-2"><div className="min-w-0"><p className="font-semibold text-sm truncate">{r.products?.name}{r.pendingSync && <Badge variant="warning" className="ml-1 text-[10px]">Pending</Badge>}</p><p className="text-xs text-muted-foreground truncate">{r.batch_number} • {r.branches?.name}</p></div>{getStatusBadge(r)}</div>
                       <div className="flex justify-between text-sm"><span>Stock: <strong>{r.quantity_available}</strong> @ UGX {Number(r.purchase_price).toLocaleString()}</span><span className="font-mono text-xs">Exp {new Date(r.expiry_date).toLocaleDateString()}</span></div>
-                      <div className="flex gap-2"><Button size="sm" variant="outline" className="flex-1" onClick={()=>{ setSelectedBatch(r); setShowBatch(true); }}>View</Button><Button size="sm" variant="outline" onClick={()=>{ setAdjustForm({batch_id:r.id, quantity:"", reason:"", type:"ADJUSTMENT_IN"}); setShowAdjustment(true); }}><Plus className="h-4 w-4"/></Button></div>
+                      <div className="flex gap-2"><Button size="sm" variant="outline" className="flex-1" onClick={()=>{ setSelectedBatch(r); setShowBatch(true); }}>View</Button>{Number(r.quantity_available)>0 && <Button size="sm" variant="outline" className="text-destructive" title="Dispose stock" onClick={()=>openDisposalDialog(r)}><Trash2 className="h-4 w-4"/></Button>}<Button size="sm" variant="outline" onClick={()=>{ setAdjustForm({batch_id:r.id, quantity:"", reason:"", type:"ADJUSTMENT_IN"}); setShowAdjustment(true); }}><Plus className="h-4 w-4"/></Button></div>
                     </CardContent>
                   </Card>
                 ))}
@@ -739,7 +749,7 @@ export default function InventoryPage() {
             </div>
             <div><Label>Reason</Label><Input value={disposalForm.reason} onChange={e=>setDisposalForm({...disposalForm, reason:e.target.value})} placeholder="e.g. expired medicine, damaged packaging "/></div>
             {(()=>{ const q=Number(disposalForm.quantity); const c=Number(disposalForm.unit_cost); if(q>0) return <div className="text-sm border rounded p-2 bg-muted/40">Removal value (auto-calculated): <strong>UGX {(q*c).toLocaleString()}</strong>{disposalForm.batch_id ? " — batch stock drops by "+q+" u" : ""}</div>; return null; })()}
-            <div className="flex gap-2 justify-end"><Button variant="outline" onClick={()=>setShowDisposal(false)}>Cancel</Button><Button onClick={submitDisposal} disabled={!disposalForm.branch_id || !disposalForm.product_id || !disposalForm.quantity}>Create {isOnline?"":"& Queue Offline"}</Button></div>
+            <div className="flex gap-2 justify-end"><Button variant="outline" onClick={()=>setShowDisposal(false)}>Cancel</Button><Button onClick={submitDisposal} disabled={!disposalForm.branch_id || !disposalForm.product_id || !disposalForm.batch_id || !disposalForm.quantity}>Create {isOnline?"":"& Queue Offline"}</Button></div>
           </div>
         </DialogContent>
       </Dialog>
@@ -786,6 +796,7 @@ export default function InventoryPage() {
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" onClick={()=>window.location.href=`/products`}>Product Master</Button>
                 <Button size="sm" variant="outline" onClick={()=>{ setAdjustForm({batch_id:selectedBatch.id, quantity:"", reason:"", type:"ADJUSTMENT_IN"}); setShowAdjustment(true); }}>Adjust (+/-)</Button>
+                {Number(selectedBatch.quantity_available)>0 && <Button size="sm" variant="destructive" onClick={()=>{ setShowBatch(false); openDisposalDialog(selectedBatch); }}><Trash2 className="h-4 w-4 mr-1"/>Dispose</Button>}
                 <Button size="sm" variant="outline" onClick={async()=>{
                   const { createBrowserClient } = await import("@/lib/supabase/client");
                   const sb=createBrowserClient();

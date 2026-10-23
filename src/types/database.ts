@@ -1044,6 +1044,7 @@ export interface SupplierPayment {
 
 export interface Disposal {
     id: string;
+    operation_id: string | null;
     organization_id: string;
     branch_id: string;
     type: DisposalType;

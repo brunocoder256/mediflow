@@ -62,16 +62,27 @@ export async function getOne<T>(table: string, id: string): Promise<T | null> {
 }
 
 export async function createAuditLog(action: string, entity_type: string, entity_id: string | null, old_values: Record<string, unknown> | null, new_values: Record<string, unknown> | null): Promise<void> {
-    const sb = await getSB();
-    const profileId = await getProfileId();
-    await sb.from('audit_logs').insert({
-        action,
-        entity_type,
-        entity_id,
-        old_values,
-        new_values,
-        created_by: profileId,
-    }).select();
+  const sb = await getSB();
+  const profileId = await getProfileId();
+  const orgId = await getOrgId();
+  // audit_logs.organization_id is NOT NULL and its RLS INSERT policy requires the
+  // row to belong to the caller's organization. Without it every insert failed
+  // silently because the returned Supabase error was never surfaced.
+  if (!orgId) {
+    console.error(`[audit] skipped ${action} on ${entity_type}: no organization for current user`);
+    return;
+  }
+  const { error } = await sb.from('audit_logs').insert({
+    organization_id: orgId,
+    user_id: profileId,
+    action,
+    entity_type,
+    entity_id,
+    old_values,
+    new_values,
+    created_by: profileId,
+  }).select();
+  if (error) console.error(`[audit] failed to write ${action} on ${entity_type}: ${error.message}`);
 }
 
 export function generateTransactionNumber(prefix: string): string {

@@ -1097,7 +1097,7 @@ async function runSyncQueue(): Promise<{
           response = await fetch("/api/disposals", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "create", ...clean }),
+            body: JSON.stringify({ action: "create", ...clean, operation_id: op }),
           });
           const createdJson: any = await response.clone().json().catch(() => ({}));
           if (response.ok) {
@@ -1119,8 +1119,46 @@ async function runSyncQueue(): Promise<{
             }
           }
         } else {
-          const serverId = clean.serverDisposalId;
+          let serverId = clean.serverDisposalId;
           delete clean.serverDisposalId;
+          // Fallback: the create may have linked its server id to the cached row
+          // without rewriting this queue entry yet.
+          if (!serverId && localId) {
+            try { serverId = (await db.cachedDisposals.get(localId))?.server_id ?? null; } catch {}
+          }
+          if (!serverId) {
+            // The parent create may simply not have synced yet (same-millisecond
+            // timestamps can reorder the queue). Wait for it as long as it is
+            // still queued; otherwise fail loudly instead of silently skipping.
+            let createStillQueued = false;
+            if (localId) {
+              try {
+                const siblings = await db.syncQueue
+                  .where("table_name").equals("disposals")
+                  .and((s: any) => (s.status === "pending" || s.status === "processing")
+                    && s.operation === "create"
+                    && (s.payload as any)?._localDisposalId === localId)
+                  .toArray();
+                createStillQueued = siblings.length > 0;
+              } catch {}
+            }
+            if (createStillQueued) {
+              await db.syncQueue.update(entry.id, {
+                status: "pending",
+                error: "Waiting for the disposal create to sync",
+              } as any);
+              continue;
+            }
+            await db.syncQueue.update(entry.id, {
+              status: "failed",
+              error: "Disposal create has not synced — approval/disposal was not applied",
+            } as any);
+            if (localId) {
+              try { await db.cachedDisposals.update(localId, { sync_status: "failed" as any }); } catch {}
+            }
+            failed++;
+            continue;
+          }
           const action = clean.action ?? "approve";
           response = await fetch("/api/disposals", {
             method: "POST",
@@ -1128,7 +1166,7 @@ async function runSyncQueue(): Promise<{
             body: JSON.stringify({ action, id: serverId, ...clean }),
           });
           if (response.ok && localId) {
-            try { await db.cachedDisposals.update(localId, { sync_status: "synced" as any }); } catch {}
+            try { await db.cachedDisposals.update(localId, { sync_status: "synced" as any, server_id: serverId }); } catch {}
           }
         }
       } else if (entry.table_name === "transfers") {
@@ -1325,6 +1363,13 @@ async function runSyncQueue(): Promise<{
             if(csc) await db.cachedStockCounts.update(csc.id, { sync_status: "failed" as any });
             const csp = await db.cachedSupplierPayments.where("operation_id").equals(op).first();
             if(csp) await db.cachedSupplierPayments.update(csp.id, { sync_status: "failed" as any });
+            const localDisposalId = (entry.payload as any)._localDisposalId;
+            if(localDisposalId) {
+              try { await db.cachedDisposals.update(localDisposalId, { sync_status: "failed" as any }); } catch {}
+            } else {
+              const cd = await db.cachedDisposals.where("operation_id").equals(op).first();
+              if(cd) await db.cachedDisposals.update(cd.id, { sync_status: "failed" as any });
+            }
           }catch{}
         } else {
           await db.syncQueue.update(entry.id, {
